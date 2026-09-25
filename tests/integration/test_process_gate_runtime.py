@@ -20,6 +20,7 @@ from pmpe.barebones import (
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.evidence.ledger import EvidenceLedger
+from pmpe.evidence.process_gate_validation import snapshot_digest
 
 
 class ReplayProvider:
@@ -69,7 +70,16 @@ def bindings(manifest_digest: str, profile_digest: str) -> list[dict[str, Any]]:
                 "required_failure_code": "ASSERTION_FAILED",
             },
             "required_failure_code": "ASSERTION_FAILED",
-            "mutants": [{"id": "broken", "must_fail": ["AC-001"], "must_not_touch": ["tests/"]}],
+            "mutants": [
+                {
+                    "id": "broken",
+                    "must_fail": ["AC-001"],
+                    "must_not_touch": ["tests/"],
+                    "snapshot_digest": snapshot_digest(
+                        {"product.py": b"def health():\n    return {'status': 'broken'}\n"}
+                    ),
+                }
+            ],
         },
         {
             "kind": "digest_boundaries",

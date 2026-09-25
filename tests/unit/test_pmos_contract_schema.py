@@ -53,6 +53,7 @@ _VALIDATION_KEYWORDS = {
     "type",
     "uniqueItems",
     "oneOf",
+    "not",
 }
 _ANNOTATION_KEYWORDS = {
     "$comment",
@@ -239,7 +240,7 @@ def _schema_keywords(node: Any) -> set[str]:
                 if isinstance(value, dict):
                     for child in value.values():
                         found |= _schema_keywords(child)
-            else:
+            elif key in {"items", "additionalProperties", "propertyNames", "not", "oneOf"}:
                 found |= _schema_keywords(value)
     elif isinstance(node, list):
         for item in node:

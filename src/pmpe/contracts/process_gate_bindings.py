@@ -55,13 +55,25 @@ def validate_process_binding(value: Any, criterion_ids: frozenset[str]) -> dict[
         if not isinstance(mutants, list) or not mutants:
             raise ValueError("mutants must be a nonempty list")
         ids: set[str] = set()
+        digests: set[str] = set()
         for mutant in mutants:
-            if not isinstance(mutant, dict) or set(mutant) != {"id", "must_fail", "must_not_touch"}:
-                raise ValueError("mutant requires id, must_fail and must_not_touch")
+            if not isinstance(mutant, dict) or set(mutant) != {
+                "id",
+                "must_fail",
+                "must_not_touch",
+                "snapshot_digest",
+            }:
+                raise ValueError(
+                    "mutant requires id, must_fail, must_not_touch and snapshot_digest"
+                )
             identifier = mutant["id"]
             if not isinstance(identifier, str) or not identifier.strip() or identifier in ids:
                 raise ValueError("mutant IDs must be nonempty and unique")
             ids.add(identifier)
+            digest = mutant["snapshot_digest"]
+            if not isinstance(digest, str) or not _DIGEST.fullmatch(digest) or digest in digests:
+                raise ValueError("mutant snapshot digests must be exact SHA-256 and distinct")
+            digests.add(digest)
             if not _strings(mutant["must_fail"]) or set(mutant["must_fail"]) - criterion_ids:
                 raise ValueError("must_fail requires unique executable criterion IDs")
             if not _strings(mutant["must_not_touch"]):

@@ -7,6 +7,7 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.evidence.process_gate_validation import BlobReader, negative_control_reasons
 from pmpe.process_sources import raw_digest
 
 if TYPE_CHECKING:
@@ -38,45 +39,22 @@ def negative_controls_result(
     controls: Sequence[Mapping[str, Any]],
     criterion_ids: Sequence[str],
     baseline_ids: set[str],
+    read_blob: BlobReader,
 ) -> tuple[str, dict[str, Any]]:
-    reasons: list[str] = []
-    if {item.subject_id for item in baseline} != baseline_ids or any(
-        item.code != "ASSERTION_FAILED" for item in baseline
-    ):
-        reasons.append("BASELINE_NOT_MEANINGFUL_RED")
-    by_id = {item["mutant_id"]: item for item in controls}
-    for required in binding["mutants"]:
-        control = by_id.get(required["id"])
-        if control is None:
-            reasons.append("MUTANT_NOT_EVALUATED:" + required["id"])
-            continue
-        checks = control["criterion_results"]
-        if any(
-            path.startswith(prefix)
-            for path in control["changed_paths"]
-            for prefix in required["must_not_touch"]
-        ):
-            reasons.append("PROTECTED_MUTATION:" + required["id"])
-        if control.get("error") or control.get("invalid_mutation"):
-            reasons.append("UNRELATED_FAILURE:" + required["id"])
-        if {check["criterion_id"] for check in checks if check["status"] != "NOT_EVALUATED"} != set(
-            criterion_ids
-        ):
-            reasons.append("MUTANT_RESULTS_INCOMPLETE:" + required["id"])
-        failed = {check["criterion_id"] for check in checks if check["status"] == "FAIL"}
-        if not set(required["must_fail"]).issubset(failed):
-            reasons.append("REQUIRED_ASSERTION_NOT_FAILED:" + required["id"])
-        if any(
-            finding["code"] != "ASSERTION_FAILED"
-            for check in checks
-            for finding in check["findings"]
-        ):
-            reasons.append("UNRELATED_FAILURE:" + required["id"])
-    return ("FAIL" if reasons else "PASS"), {
-        "reasons": reasons,
+    evidence = {
         "baseline_findings": [asdict(item) for item in baseline],
         "mutants": list(controls),
+        "run_id": controls[0]["run_id"] if controls else "",
+        "attempt": controls[0]["attempt"] if controls else 0,
     }
+    reasons = negative_control_reasons(
+        binding,
+        evidence,
+        criterion_ids=criterion_ids,
+        baseline_ids=baseline_ids,
+        read_blob=read_blob,
+    )
+    return ("FAIL" if reasons else "PASS"), {**evidence, "reasons": reasons}
 
 
 def digest_boundaries_result(
@@ -134,6 +112,12 @@ def digest_boundaries_result(
         "reasons": sorted(set(reasons)),
         "observations": observations,
         "expected_boundaries": [list(item) for item in expected],
+        "source_inventory": source_inventory,
+        "protected_inventory": {
+            "protected/" + path: raw_digest(payload)
+            for path, payload in collector.protected.items()
+        },
+        "process_records": records,
     }
 
 
@@ -198,13 +182,15 @@ def generation_provenance_result(
             ledger.read_blob(record["stderr_digest"])
     # A label is an explicit attestation, not proof of a model behind the provider.
     fresh_attested = generation_mode == "fresh" and provider_attestation.get("kind") == "live_model"
-    status = "FAIL" if reasons else "PASS" if fresh_attested else "NOT_EVALUATED"
+    status = "FAIL" if reasons else "NOT_EVALUATED"
     return status, {
         "reasons": reasons
         if reasons
-        else []
+        else ["FRESH_GENERATION_NOT_MECHANICALLY_VERIFIED"]
         if fresh_attested
         else ["FRESH_MODEL_SESSION_NOT_ATTESTED"],
+        "freshness_attested": fresh_attested,
+        "freshness_verified": False,
         "generation_mode": generation_mode,
         "provider_attestation": dict(provider_attestation),
         "provider_class": provider_class,

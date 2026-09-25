@@ -1,0 +1,48 @@
+{
+  "base_commit": "23ca4cbb4cc474fe6fe65d479029c8deb8a152cb",
+  "source_commit": "b87856dce869e4590f34be67b6de9e9afc9a6c4a",
+  "source_tree": "96414f58f8a3374f593e9e8f68fa077c226982aa",
+  "recorded_at_utc": "2026-09-24T16:43:31.320469+00:00",
+  "finding_scope": [
+    "C2-F1",
+    "C2-F2",
+    "C2-F3",
+    "C2-F4",
+    "C2-F5"
+  ],
+  "final_tests": {
+    "new_admission_cases": 83,
+    "prior_gate_compiler": 44,
+    "inspection": 44,
+    "runtime": 4,
+    "acceptance_compiler": 41,
+    "total_passed": 216,
+    "exit_code": 0
+  },
+  "red": {
+    "missing_rejections": 56,
+    "false_positive_scalar_cases": 3,
+    "preserving_controls": 23,
+    "later_release_date_regression": 1
+  },
+  "mypy_source_files_passed": 192,
+  "protected_policy_sast_findings": 0,
+  "exact_source_secret_findings": 0,
+  "external_ci_claimed": false,
+  "independent_approval_claimed": false,
+  "fresh_approved_delivery_claimed": false,
+  "source_sha256": {
+    "src/pmpe/contracts/gate_declarations.py": "8a1a8c013ff02947591eeef4c5c5327f3ae074f168409739e466225af921eacb",
+    "src/pmpe/contracts/release_gates.py": "b86e046d2fe8806e62fd31dcee8efc2ab280451ce94d132ce8cdda555905583b",
+    "tests/unit/test_release_gate_admission_boundaries.py": "2c124d8ffd496c2aea4d86750e9da79a8cbb2ee0ec6bdfd9ecf0678fd06f1bb7"
+  },
+  "logs_sha256": {
+    "red.txt": "d3c3598b847095e4756af595e990790607da37a72c4a04850afce0cab54c575c",
+    "scalar-date-red.txt": "8b5c03ce23dd3b99339885df3ae32f6e4c06b028d6ebbe81fd747c5b35b3d47f",
+    "final-green.txt": "36e31a4787567dedc6f0e245f72121c82da3b90c8774d6f9c071c5ca9a054c79",
+    "lint.txt": "c6486b51f483249343d4a4bdb91c41be31f0bdc28887b2f4cd4800e174f8bd6b",
+    "types.txt": "94882b1e63fe8106bb88760dee36f04ff9da4c04c4a227407a77f38bb94eada1",
+    "sast.json": "e1a43de72699fbd0397df5fbbc07628eecd9adc32d8e3588a20050347e158346",
+    "secrets.json": "c93cd2326ddf67a60866eda4154633bfe9d3101872809c14aae737ac76168251"
+  }
+}

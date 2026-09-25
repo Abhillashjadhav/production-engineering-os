@@ -8,16 +8,26 @@ import importlib.util
 import json
 import shutil
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+# Set before importing the engine. -B alone still reads existing local .pyc files.
+if __name__ == "__main__":
+    _private_import_cache = tempfile.TemporaryDirectory(prefix="pmpe-clean-import-")
+    sys.pycache_prefix = _private_import_cache.name
+    sys.dont_write_bytecode = True
+
+import pmpe
+import pmpe.barebones
 from pmpe.barebones import BudgetCaps, Template, compile_barebones_plan, run_to_release_ready
 from pmpe.contracts.authoring import build_contract_draft
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.contracts.model import load_contract
 from pmpe.contracts.process_gate_bindings import DISCLOSURE_REQUIREMENTS, PROVENANCE_REQUIREMENTS
 from pmpe.evidence.ledger import EvidenceLedger
+from pmpe.evidence.process_gate_validation import snapshot_digest
 from pmpe.process_gates import ProcessGateInputs, build_source_manifest, raw_digest
 
 
@@ -140,6 +150,26 @@ def main() -> int:
         "original_publisher_input": packet / "publisher-input.json",
         "acceptance_grid": packet / "ACCEPTANCE.md",
     }
+    roots = {"PM-agent-OS": packet.parents[1], "production-engineering-os": historical}
+    frozen_inventory = json.loads(freeze_bytes)["artifacts"]
+    for artifact in frozen_inventory:
+        sources["v1/" + artifact["repository"] + "/" + artifact["path"]] = (
+            roots[artifact["repository"]] / artifact["path"]
+        )
+    retained = historical / "docs/evidence/task-tracker-live-20260918"
+    mutant_snapshots = {
+        name: snapshot(retained / "mutations" / name / "candidate")
+        for name in ("persistence", "filtering")
+    }
+    (output / "mutants").mkdir()
+    for name, value in mutant_snapshots.items():
+        (output / "mutants" / (name + ".manifest.json")).write_bytes(
+            json.dumps(
+                {path: raw_digest(content) for path, content in value.items()},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        )
     manifest = build_source_manifest(template, sources, profile_bytes, sandbox=sandbox)
     (output / "source-manifest.json").write_bytes(manifest)
     write(output / "source-paths.json", {key: str(path) for key, path in sources.items()})
@@ -148,7 +178,7 @@ def main() -> int:
     draft["approved_by"] = ""
     draft["contract_status"] = "DRAFT"
     draft["contract_version"] = 2
-    draft["contract_id"] += "-V2-DRAFT"
+    draft["contract_id"] += "-V2"
     criteria = [item["id"] for item in draft["acceptance_criteria"]]
     gates = draft["binary_release_gates"]
     gates[0]["acceptance_criterion_refs"] = criteria
@@ -162,10 +192,16 @@ def main() -> int:
         "mutants": [
             {
                 "id": "persistence",
+                "snapshot_digest": snapshot_digest(mutant_snapshots["persistence"]),
                 "must_fail": ["AC-002", "AC-005", "AC-013"],
                 "must_not_touch": ["tests/"],
             },
-            {"id": "filtering", "must_fail": ["AC-004"], "must_not_touch": ["tests/"]},
+            {
+                "id": "filtering",
+                "snapshot_digest": snapshot_digest(mutant_snapshots["filtering"]),
+                "must_fail": ["AC-004"],
+                "must_not_touch": ["tests/"],
+            },
         ],
     }
     gates[2]["binding"] = {
@@ -225,6 +261,11 @@ def main() -> int:
             "historical_freeze_digest": canonical_digest(json.loads(freeze_bytes)),
             "approval_receipt_created": False,
             "fresh_model_calls": 0,
+            "runtime_imports": {
+                "pmpe": str(Path(pmpe.__file__).resolve()),
+                "pmpe.barebones": str(Path(pmpe.barebones.__file__).resolve()),
+            },
+            "historical_artifacts_bound": len(frozen_inventory),
             "source_approval": (
                 "Pending owner review of exact new source/adapter/manifest and proposed bindings"
             ),
@@ -236,6 +277,8 @@ def main() -> int:
                 "approval receipt",
                 "compiled plan",
                 "current adapter",
+                "mutant/persistence exact snapshot manifest",
+                "mutant/filtering exact snapshot manifest",
                 "profile and evaluator/bindings",
             ],
             "excluded_from_source_manifest": [
@@ -265,10 +308,7 @@ def main() -> int:
             source_manifest=manifest,
             source_paths=sources,
             execution_profile=profile_bytes,
-            negative_controls={
-                name: snapshot(retained / "mutations" / name / "candidate")
-                for name in ("persistence", "filtering")
-            },
+            negative_controls=mutant_snapshots,
             real_sandbox_leg={
                 "status": "BLOCKED",
                 "reason": (

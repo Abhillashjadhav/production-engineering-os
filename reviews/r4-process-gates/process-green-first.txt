@@ -1,0 +1,56 @@
+.....................................F........F....                      [100%]
+=================================== FAILURES ===================================
+____________ test_unknown_plausible_sandbox_report_is_not_admitted _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-51/test_unknown_plausible_sandbox0')
+
+    def test_unknown_plausible_sandbox_report_is_not_admitted(tmp_path: Path) -> None:
+        from pmpe.barebones import ContractInvalidError
+    
+        class UnknownReporter(LocalSandbox):
+            pass
+    
+        inputs, items = make_inputs(tmp_path)
+        provider = ReplayProvider()
+>       with pytest.raises(ContractInvalidError, match="sandbox identity is not declared"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'sandbox identity is not declared'
+E         Actual message: 'process gate input invalid: process gate implementation is not its canonical module class'
+
+tests/integration/test_process_gate_failures.py:203: AssertionError
+___ test_task_tracker_negative_controls_reject_observer_crashes[same_mutant] ___
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-51/test_task_tracker_negative_con5')
+variant = 'same_mutant'
+
+    @pytest.mark.parametrize("variant", ["retained", "full_crash", "missing_prerequisite", "invalid_json", "targeted_crash", "same_mutant"])
+    def test_task_tracker_negative_controls_reject_observer_crashes(tmp_path: Path, variant: str) -> None:
+        contract, template, mutants, product = task_fixture()
+        if variant == "same_mutant":
+            mutants["filtering"] = dict(mutants["persistence"])
+        elif variant != "retained":
+            for name, mutant in mutants.items():
+                if variant == "targeted_crash":
+                    source = product.decode()
+                    if name == "persistence":
+                        source = source.replace("def save_store(path, state):", "def save_store(path, state):\n    raise RuntimeError('targeted persistence crash')")
+                    else:
+                        source = source.replace("args = parser.parse_args()", "args = parser.parse_args()\n    if args.command == 'list' and args.status in ('open', 'completed'):\n        raise RuntimeError('targeted filter crash')")
+                    mutant["product.py"] = source.encode()
+                else:
+                    mutant["product.py"] = {"full_crash": b"raise RuntimeError('arbitrary crash')\n", "missing_prerequisite": b"import absent_r4_prerequisite\n", "invalid_json": b"print('not-json')\n"}[variant] + ("# " + name + "\n").encode()
+        for binding in contract["binary_release_gates"][0]["binding"]["mutants"]:
+            binding["snapshot_digest"] = snapshot_digest(mutants[binding["id"]])
+        inputs = ProcessGateInputs(negative_controls=mutants)
+        if variant == "same_mutant":
+>           with pytest.raises(AcceptanceCompileError, match="distinct"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AssertionError: Regex pattern did not match.
+E             Expected regex: 'distinct'
+E             Actual message: 'RELEASE_GATE_BINDING_INVALID:GATE-002'
+
+tests/integration/test_process_gate_r4.py:77: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_failures.py::test_unknown_plausible_sandbox_report_is_not_admitted
+FAILED tests/integration/test_process_gate_r4.py::test_task_tracker_negative_controls_reject_observer_crashes[same_mutant]

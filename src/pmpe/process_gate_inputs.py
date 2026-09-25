@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pmpe.contracts.canonical import strict_loads
+from pmpe.evidence.process_gate_validation import snapshot_digest
 from pmpe.process_approval import validate_approval_packet
-from pmpe.process_sources import implementation_identity, raw_digest, validate_sources
+from pmpe.process_sources import (
+    implementation_identity,
+    raw_digest,
+    reject_bytecode,
+    validate_sources,
+)
 
 if TYPE_CHECKING:
     from pmpe.barebones import CandidateSandbox, Template
@@ -40,13 +47,15 @@ def validate_process_inputs(
     *,
     receipt_bytes: bytes | None = None,
     approval_verified: bool = False,
-) -> None:
+) -> dict[str, Any]:
+    report: dict[str, Any] = {}
     bindings = [gate.binding for gate in plan.release_gates if gate.binding is not None]
     if not bindings:
-        return
+        return report
     from pmpe.barebones import ContractInvalidError
 
     try:
+        reject_bytecode([Path(__file__).parent])
         if not isinstance(inputs, ProcessGateInputs):
             raise ValueError("process gate inputs are required")
         for binding in bindings:
@@ -63,6 +72,8 @@ def validate_process_inputs(
                         )
                     ):
                         raise ValueError("process gate requires exact mutant snapshot bytes")
+                    if snapshot_digest(snapshot) != mutant["snapshot_digest"]:
+                        raise ValueError("process gate mutant snapshot digest mismatch")
             elif kind == "digest_boundaries":
                 if raw_digest(inputs.source_manifest) != binding["source_manifest_digest"]:
                     raise ValueError("process gate source manifest binding mismatch")
@@ -87,8 +98,10 @@ def validate_process_inputs(
                         "process gate requires explicit generation mode and provider attestation"
                     )
                 if inputs.provider_attestation["kind"] == "live_model":
-                    identity = implementation_identity(provider)
-                    if identity["class"] != "pmpe.cli.barebones_cmd.CommandModelProvider":
+                    from pmpe.cli.barebones_cmd import CommandModelProvider
+
+                    implementation_identity(provider)
+                    if type(provider) is not CommandModelProvider:
                         raise ValueError(
                             "process gate live-model attestation requires the command provider; "
                             "test providers cannot qualify"
@@ -157,5 +170,6 @@ def validate_process_inputs(
                     raise ValueError(
                         "process gate fallback must match bound profile isolation limits"
                     )
+        return copy.deepcopy(report)
     except (ValueError, TypeError, AttributeError, KeyError, OSError) as exc:
         raise ContractInvalidError("process gate input invalid: " + str(exc)) from exc

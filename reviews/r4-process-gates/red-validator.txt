@@ -1,0 +1,102 @@
+FFFFF                                                                    [100%]
+=================================== FAILURES ===================================
+_____ test_claimed_process_pass_is_rederived[negative_controls-evidence0] ______
+
+kind = 'negative_controls'
+evidence = {'reasons': ['UNRELATED_FAILURE:mutant'], 'mutants': []}
+
+    @pytest.mark.parametrize("kind,evidence", [
+        ("negative_controls", {"reasons": ["UNRELATED_FAILURE:mutant"], "mutants": []}),
+        ("digest_boundaries", {"reasons": [], "x": 1}),
+        ("digest_boundaries", {"reasons": [], "approval_freeze_digest": "sha256:" + "a" * 64,
+                               "observations": [{"mismatches": ["engine/source.py"]}]}),
+        ("generation_provenance", {"reasons": [], "generation_mode": "fresh",
+                                   "provider_attestation": {"kind": "live_model"}}),
+        ("execution_disclosure", {"reasons": [], "full_isolation_claimed": True}),
+    ])
+    def test_claimed_process_pass_is_rederived(kind: str, evidence: dict[str, Any]) -> None:
+>       from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+E       ModuleNotFoundError: No module named 'pmpe.evidence.process_gate_validation'
+
+tests/unit/test_process_gate_evidence_r4.py:19: ModuleNotFoundError
+_____ test_claimed_process_pass_is_rederived[digest_boundaries-evidence1] ______
+
+kind = 'digest_boundaries', evidence = {'reasons': [], 'x': 1}
+
+    @pytest.mark.parametrize("kind,evidence", [
+        ("negative_controls", {"reasons": ["UNRELATED_FAILURE:mutant"], "mutants": []}),
+        ("digest_boundaries", {"reasons": [], "x": 1}),
+        ("digest_boundaries", {"reasons": [], "approval_freeze_digest": "sha256:" + "a" * 64,
+                               "observations": [{"mismatches": ["engine/source.py"]}]}),
+        ("generation_provenance", {"reasons": [], "generation_mode": "fresh",
+                                   "provider_attestation": {"kind": "live_model"}}),
+        ("execution_disclosure", {"reasons": [], "full_isolation_claimed": True}),
+    ])
+    def test_claimed_process_pass_is_rederived(kind: str, evidence: dict[str, Any]) -> None:
+>       from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+E       ModuleNotFoundError: No module named 'pmpe.evidence.process_gate_validation'
+
+tests/unit/test_process_gate_evidence_r4.py:19: ModuleNotFoundError
+_____ test_claimed_process_pass_is_rederived[digest_boundaries-evidence2] ______
+
+kind = 'digest_boundaries'
+evidence = {'reasons': [], 'approval_freeze_digest': 'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'observations': [{'mismatches': ['engine/source.py']}]}
+
+    @pytest.mark.parametrize("kind,evidence", [
+        ("negative_controls", {"reasons": ["UNRELATED_FAILURE:mutant"], "mutants": []}),
+        ("digest_boundaries", {"reasons": [], "x": 1}),
+        ("digest_boundaries", {"reasons": [], "approval_freeze_digest": "sha256:" + "a" * 64,
+                               "observations": [{"mismatches": ["engine/source.py"]}]}),
+        ("generation_provenance", {"reasons": [], "generation_mode": "fresh",
+                                   "provider_attestation": {"kind": "live_model"}}),
+        ("execution_disclosure", {"reasons": [], "full_isolation_claimed": True}),
+    ])
+    def test_claimed_process_pass_is_rederived(kind: str, evidence: dict[str, Any]) -> None:
+>       from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+E       ModuleNotFoundError: No module named 'pmpe.evidence.process_gate_validation'
+
+tests/unit/test_process_gate_evidence_r4.py:19: ModuleNotFoundError
+___ test_claimed_process_pass_is_rederived[generation_provenance-evidence3] ____
+
+kind = 'generation_provenance'
+evidence = {'reasons': [], 'generation_mode': 'fresh', 'provider_attestation': {'kind': 'live_model'}}
+
+    @pytest.mark.parametrize("kind,evidence", [
+        ("negative_controls", {"reasons": ["UNRELATED_FAILURE:mutant"], "mutants": []}),
+        ("digest_boundaries", {"reasons": [], "x": 1}),
+        ("digest_boundaries", {"reasons": [], "approval_freeze_digest": "sha256:" + "a" * 64,
+                               "observations": [{"mismatches": ["engine/source.py"]}]}),
+        ("generation_provenance", {"reasons": [], "generation_mode": "fresh",
+                                   "provider_attestation": {"kind": "live_model"}}),
+        ("execution_disclosure", {"reasons": [], "full_isolation_claimed": True}),
+    ])
+    def test_claimed_process_pass_is_rederived(kind: str, evidence: dict[str, Any]) -> None:
+>       from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+E       ModuleNotFoundError: No module named 'pmpe.evidence.process_gate_validation'
+
+tests/unit/test_process_gate_evidence_r4.py:19: ModuleNotFoundError
+____ test_claimed_process_pass_is_rederived[execution_disclosure-evidence4] ____
+
+kind = 'execution_disclosure'
+evidence = {'reasons': [], 'full_isolation_claimed': True}
+
+    @pytest.mark.parametrize("kind,evidence", [
+        ("negative_controls", {"reasons": ["UNRELATED_FAILURE:mutant"], "mutants": []}),
+        ("digest_boundaries", {"reasons": [], "x": 1}),
+        ("digest_boundaries", {"reasons": [], "approval_freeze_digest": "sha256:" + "a" * 64,
+                               "observations": [{"mismatches": ["engine/source.py"]}]}),
+        ("generation_provenance", {"reasons": [], "generation_mode": "fresh",
+                                   "provider_attestation": {"kind": "live_model"}}),
+        ("execution_disclosure", {"reasons": [], "full_isolation_claimed": True}),
+    ])
+    def test_claimed_process_pass_is_rederived(kind: str, evidence: dict[str, Any]) -> None:
+>       from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+E       ModuleNotFoundError: No module named 'pmpe.evidence.process_gate_validation'
+
+tests/unit/test_process_gate_evidence_r4.py:19: ModuleNotFoundError
+=========================== short test summary info ============================
+FAILED tests/unit/test_process_gate_evidence_r4.py::test_claimed_process_pass_is_rederived[negative_controls-evidence0]
+FAILED tests/unit/test_process_gate_evidence_r4.py::test_claimed_process_pass_is_rederived[digest_boundaries-evidence1]
+FAILED tests/unit/test_process_gate_evidence_r4.py::test_claimed_process_pass_is_rederived[digest_boundaries-evidence2]
+FAILED tests/unit/test_process_gate_evidence_r4.py::test_claimed_process_pass_is_rederived[generation_provenance-evidence3]
+FAILED tests/unit/test_process_gate_evidence_r4.py::test_claimed_process_pass_is_rederived[execution_disclosure-evidence4]

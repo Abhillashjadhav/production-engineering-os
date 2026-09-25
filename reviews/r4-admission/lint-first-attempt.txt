@@ -1,0 +1,21 @@
+I001 [*] Import block is un-sorted or un-formatted
+ --> src/pmpe/contracts/gate_declarations.py:3:1
+  |
+1 |   """Reject release-gate aliases at contract metadata grammar boundaries."""
+2 |
+3 | / from __future__ import annotations
+4 | |
+5 | | import re
+6 | | from collections.abc import Callable, Mapping
+7 | | from typing import Any
+  | |______________________^
+help: Organize imports
+  |
+8 |
+  -
+9 | _PARENTS = ("quality_assurance", "release", "acceptance")
+  |
+
+Found 1 error.
+[*] 1 fixable with the `--fix` option.
+3 files already formatted

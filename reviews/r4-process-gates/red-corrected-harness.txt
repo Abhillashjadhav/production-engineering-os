@@ -1,0 +1,55 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___________ test_attested_fresh_generation_cannot_be_mechanical_pass ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-46/test_attested_fresh_generation0')
+
+    def test_attested_fresh_generation_cannot_be_mechanical_pass(tmp_path: Path) -> None:
+        from pmpe.process_evaluators import generation_provenance_result
+        inputs, bindings = make_inputs(tmp_path)
+        result = run_to_release_ready(contract=bound_contract(bindings), repository_root=tmp_path, workspace=tmp_path / "candidate", run_id="attested-fresh",
+            provider=ReplayProvider(), candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        evidence = gates_for(tmp_path, result.run_id)[2]["evidence"]
+        ledger = EvidenceLedger.open_existing(tmp_path, result.run_id)
+        from pmpe.barebones import default_template
+        status, observed = generation_provenance_result(ledger=ledger, snapshot={"product.py": (tmp_path / "candidate/product.py").read_bytes()},
+            origin={key: value.encode() for key, value in default_template().files.items()}, process_records=evidence["process_records"],
+            criterion_ids=["AC-001"], criterion_results={"AC-001": ()}, attempt=1, generation_mode="fresh",
+            provider_attestation={"kind": "live_model", "statement": "Operator attestation only"},
+            provider_class="pmpe.cli.barebones_cmd.CommandModelProvider", contract_digest=canonical_digest(bound_contract(bindings)))
+>       assert status == "NOT_EVALUATED", observed
+E       AssertionError: {'reasons': [], 'generation_mode': 'fresh', 'provider_attestation': {'kind': 'live_model', 'statement': 'Operator attestation only'}, 'provider_class': 'pmpe.cli.barebones_cmd.CommandModelProvider', ...}
+E       assert 'PASS' == 'NOT_EVALUATED'
+E         
+E         - NOT_EVALUATED
+E         + PASS
+
+tests/integration/test_process_gate_r4.py:127: AssertionError
+_________ test_uninventoried_adapter_cache_refuses_before_side_effects _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-46/test_uninventoried_adapter_cac0')
+
+    def test_uninventoried_adapter_cache_refuses_before_side_effects(tmp_path: Path) -> None:
+        from pmpe.barebones import default_template
+        from pmpe.process_sources import build_source_manifest, raw_digest
+        inputs, bindings = make_inputs(tmp_path)
+        adapter_dir = tmp_path / "adapter"
+        adapter_dir.mkdir()
+        adapter = adapter_dir / "runner.py"
+        adapter.write_text("# exact adapter\n")
+        paths = {**inputs.source_paths, "provider": inputs.source_paths["adapter"], "adapter": adapter}
+        manifest = build_source_manifest(default_template(), paths, inputs.execution_profile, sandbox=LocalSandbox())
+        inputs = replace(inputs, source_paths=paths, source_manifest=manifest)
+        bindings[1]["source_manifest_digest"] = raw_digest(manifest)
+        cache = adapter_dir / "__pycache__"
+        cache.mkdir()
+        (cache / "runner.cpython-311.pyc").write_bytes(b"unbound bytecode")
+        provider = ReplayProvider()
+>       with pytest.raises(ContractInvalidError, match="bytecode"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ContractInvalidError
+
+tests/integration/test_process_gate_r4.py:146: Failed
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_r4.py::test_attested_fresh_generation_cannot_be_mechanical_pass
+FAILED tests/integration/test_process_gate_r4.py::test_uninventoried_adapter_cache_refuses_before_side_effects

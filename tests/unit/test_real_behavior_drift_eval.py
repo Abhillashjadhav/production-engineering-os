@@ -64,8 +64,8 @@ def test_preflight_children_receive_only_the_sanitized_environment(
 def test_pmpe_command_binds_the_active_interpreter_to_this_checkout() -> None:
     command = drift_eval._pmpe_command()
 
-    assert command[:3] == [drift_eval.sys.executable, "-I", "-c"]
-    assert str(drift_eval.ROOT / "src") in command[3]
+    assert command[:4] == [drift_eval.sys.executable, "-I", "-B", "-c"]
+    assert str(drift_eval.ROOT / "src") in command[4]
     output = drift_eval._checked_output(
         [*command, "--help"],
         environment=drift_eval._sanitized_environment(),
@@ -76,7 +76,7 @@ def test_pmpe_command_binds_the_active_interpreter_to_this_checkout() -> None:
 def test_pmpe_command_can_bind_an_immutable_source_snapshot(tmp_path: Path) -> None:
     command = drift_eval._pmpe_command(tmp_path / "source-snapshot")
 
-    assert str(tmp_path / "source-snapshot" / "src") in command[3]
+    assert str(tmp_path / "source-snapshot" / "src") in command[-1]
 
 
 def test_source_snapshot_is_the_captured_git_tree_and_read_only(tmp_path: Path) -> None:
@@ -500,3 +500,17 @@ def test_gate_rejects_success_exit_without_complete_release_evidence() -> None:
     assert isinstance(first_comparison, dict)
     first_comparison["plan_repeatable"] = False
     assert drift_eval._gate_passes(runs, comparisons, planted_behavior) is False
+
+
+def test_pmpe_child_writes_no_bytecode_into_the_checkout() -> None:
+    """Isolated mode ignores PYTHONDONTWRITEBYTECODE; the child must pass -B itself.
+
+    Otherwise it fills src/ with caches that source-bound process gates then refuse.
+    """
+    source = drift_eval.ROOT / "src"
+    before = set(source.rglob("*.pyc"))
+    drift_eval._checked_output(
+        [*drift_eval._pmpe_command(), "--help"],
+        environment=drift_eval._sanitized_environment(),
+    )
+    assert set(source.rglob("*.pyc")) - before == set()

@@ -441,3 +441,31 @@ The canonical bundle and manifest examples are synthetic schema fixtures. Their
 names, actors, policy IDs, timestamps, digests, targets, thresholds, release
 intent, and approval records are demonstrations only. They authorize no real
 product, customer, environment, deployment, monitoring claim, or rollback.
+
+### Executable process release bindings
+
+A release gate declares either acceptance references or a typed `binding`. The
+closed process grammar uses `kind` to select one of these mechanical checks:
+
+- `negative_controls`: `baseline` identifies the meaningful-red `event` and
+  `required_failure_code`. Each entry in `mutants` supplies `id`, `must_fail`,
+  `must_not_touch`, and a distinct `snapshot_digest` over the canonical exact
+  path-to-file-digest map. Observer crash/invalid-JSON/timeout markers fail mutant
+  checks; intentionally incomplete baseline observations remain allowed.
+- `digest_boundaries`: `source_manifest_digest`, `per_check`,
+  `require_command_boundary`, and `require_release_boundary` bind the complete
+  required sequence. Full PASS also needs the separately anchored outer packet,
+  including each exact mutant manifest; there is no contract/manifest hash cycle.
+- `generation_provenance`: `mode`, `roles`, and `require` record the requested
+  provenance obligations. Fresh/live-model labels are operator attestations.
+  They remain NOT_EVALUATED because the engine cannot mechanically verify fresh
+  model generation; they never satisfy release.
+- `execution_disclosure`: `execution_profile_sha256`, `required`, and `forbid`
+  specify the disclosure and limits. The admission-validated isolation report is
+  retained once and explicitly self-reported. `full_isolation_claimed` cannot be
+  true and `readiness_scope` cannot claim general delivery readiness.
+
+Changing mutant bytes or these binding identities requires new contract review
+and approval. Existing process packets without snapshot identities or complete
+retained observations do not satisfy the stricter process gate checks. These
+fields do not authenticate an owner, an external model, or sandbox enforcement.

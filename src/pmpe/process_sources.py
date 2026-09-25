@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import inspect
 import json
-from collections.abc import Mapping
+import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,8 +22,42 @@ def raw_digest(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
+def reject_bytecode(roots: Sequence[Path]) -> None:
+    resolved = {root.resolve() for root in roots}
+    roots = tuple(
+        root
+        for root in resolved
+        if not any(root != parent and root.is_relative_to(parent) for parent in resolved)
+    )
+    for module in tuple(sys.modules.values()):
+        location = getattr(module, "__file__", None)
+        cached = getattr(module, "__cached__", None)
+        if (
+            location
+            and cached
+            and any(Path(location).resolve().is_relative_to(root.resolve()) for root in roots)
+            and Path(cached).is_file()
+        ):
+            raise ValueError("process gate active uninventoried bytecode: " + str(cached))
+    for root in set(roots):
+        for source in root.rglob("*.py"):
+            for optimization in ("", "1", "2"):
+                cached_path = Path(
+                    importlib.util.cache_from_source(
+                        str(source.resolve()), optimization=optimization
+                    )
+                )
+                if cached_path.is_file():
+                    raise ValueError(
+                        "process gate active or future uninventoried bytecode: " + str(cached_path)
+                    )
+        if any(path.is_file() and path.suffix in {".pyc", ".pyo"} for path in root.rglob("*")):
+            raise ValueError("process gate uninventoried bytecode under source root: " + str(root))
+
+
 def engine_sources() -> dict[str, Path]:
     root = Path(__file__).parent
+    reject_bytecode([root])
     return {
         "engine/" + str(path.relative_to(root)): path.resolve()
         for path in sorted(root.rglob("*"))
@@ -30,7 +66,13 @@ def engine_sources() -> dict[str, Path]:
 
 
 def implementation_identity(implementation: object) -> dict[str, Any]:
-    source = inspect.getsourcefile(type(implementation))
+    cls = type(implementation)
+    canonical: object = sys.modules.get(cls.__module__)
+    for name in cls.__qualname__.split("."):
+        canonical = getattr(canonical, name, None)
+    if canonical is not cls:
+        raise ValueError("process gate implementation is not its canonical module class")
+    source = inspect.getsourcefile(cls)
     if source is None:
         raise ValueError("process gate implementation has no inspectable source")
     identity: dict[str, Any] = {
@@ -57,6 +99,12 @@ def build_source_manifest(
         raise ValueError(
             "source manifest requires adapter and reserves engine/, approval/ and protected/ names"
         )
+    reject_bytecode(
+        [
+            source_paths["adapter"].parent,
+            *(path.parent for path in source_paths.values() if path.suffix == ".py"),
+        ]
+    )
     paths = {**engine_sources(), **source_paths}
     value = {
         "schema_version": "1",
@@ -100,6 +148,12 @@ def validate_sources(
         raise ValueError(
             "process gate source manifest requires adapter and reserves evidence namespaces"
         )
+    reject_bytecode(
+        [
+            source_paths["adapter"].parent,
+            *(path.parent for path in source_paths.values() if path.suffix == ".py"),
+        ]
+    )
     paths = {**engine_sources(), **source_paths}
     expected = manifest["artifacts"]
     if not isinstance(expected, dict) or set(expected) != set(paths):
