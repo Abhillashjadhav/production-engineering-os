@@ -54,17 +54,19 @@ is no owner personal review yet.
 
 | PR | Issue | Outcome | Tests (result at the reviewed head) | Codex review | Merge commit |
 |----|-------|---------|--------------------------------------|--------------|--------------|
-| #220 | #213, #225, #229 | R4 process line (`ccabeecc`) plus per-gate negative-control scoping, the protected-inventory binding, `-B` on the drift-eval child, and a valid `ci.yml` | RED→GREEN integration and unit tests per fix | findings addressed; P1 on bytecode left open for the owner's merge-path decision | not merged |
-| #221 | #213 | Replay checker (`4c7f3ea`) hardened: product exit codes, exact frozen runner and `prlimit` prefix, canonical findings, interpreter bound to the launch record | 13/13 checker tests (1 historical, 12 tamper) | clean at `146b4f9`; round 3 re-requested | not merged |
-| #222 | #214 | Malformed human-test bindings refused | 21→65 passed (RED→GREEN) | clean at `8910440` | not merged |
-| #223 | #215 | Setup/teardown crashes no longer count as meaningful RED | 4→48 passed (RED→GREEN) | clean at `58a886f` | not merged |
-| #226 | #216 | Process line composed with the checker / contract-file line | checker and process suites | round 3 addressed; re-review requested | not merged |
-| #227 | #217 | Gated runs admitted only in a source-only interpreter (owner decision 2026-09-25); unchanged scanner reports no unapproved edges | subprocess admission probes, architecture scanner | clean at `2013a59` | not merged |
-| #228 | #224 | `pmpe barebones run-bundle`: one approved bundle, one engine call with its process-gate inputs | 19 integration tests | pending | not merged |
-| #231 | #230 | Proof reconciliation on the repaired source: 14/14 replay, four separate verdicts | release gates 108/131 fail on `main`, 131/131 pass on the head | clean at `fe48578`; count fix re-requested | not merged |
-| #219 | #218 | Machine-checked owner-decision register for the AI task planner (6 SETTLED, 11 BLOCKED requirements) | register unit tests, including a mutation test | clean at `7b8e4d1` | not merged |
+| #220 | #213, #225, #229 | R4 process line (`ccabeecc`) plus per-gate negative-control scoping, the protected-inventory binding, `-B` on the drift-eval child, and a valid `ci.yml` | RED→GREEN integration and unit tests per fix | clean at `184e02c` | not merged |
+| #221 | #213 | Replay checker hardened over 19 review rounds: frozen runner, interpreter, environment, adapter, launch record and candidate trees pinned; every observer field, list, count, literal and measure domain derived from the frozen source | 36/36 checker tests (1 historical, 35 tamper); RED/GREEN log per round in `codex-review-20260925/` | round 19 (`4ea8e39`) re-requested | not merged |
+| #222 | #214 | Malformed human-test bindings refused | 21→65 passed (RED→GREEN) | clean at `bc3477c` | not merged |
+| #223 | #215 | Setup/teardown crashes no longer count as meaningful RED | 4→48 passed (RED→GREEN) | one P1 (in-process verdict channel) waits on owner question Q21 | not merged |
+| #226 | #216 | Process line composed with the checker / contract-file line | checker and process suites | round 19 (`51f4205`) re-requested; `ARCHITECTURE_BOUNDARY_DRIFT` is fixed by #227 above it | not merged |
+| #227 | #217 | Gated runs admitted only in a source-only interpreter (owner decision 2026-09-25): startup-record prefix, code-bound implementation identity, CI prefix exported after `pip install`; unchanged scanner reports no unapproved edges | 99 process-gate/admission tests; 102 real-sandbox e2e/CLI tests | clean at `80cd230`; the no-`/proc` (macOS) half of one P1 waits on owner question Q20 | not merged |
+| #228 | #224 | `pmpe barebones run-bundle`: one approved bundle, one engine call; full approval packet and typed budget required for every bundle | 38 bundle integration tests | `460e104` re-requested | not merged |
+| #231 | #230 | Proof reconciliation on the repaired source (`80cd230`): 14/14 replay, four separate verdicts, `verify-replay.py` with its own regressions | release gates 108/131 fail on `main`, 131/131 pass on the head; checker 34/34 at `80cd230` | `f76cd7c` re-requested | not merged |
+| #219 | #218 | Machine-checked owner-decision register for the AI task planner (6 SETTLED, 11 BLOCKED requirements); D22 ChatGPT access partially decided and blocked | 7 register tests, including mutation and source-locator tests | `b096c0f` re-requested | not merged |
+| #233 | — | Drift-eval snapshot mounted with a constant bwrap argv (the repo outgrew bwrap's 9000-argument limit) | 29 drift-eval tests incl. a real 2000-file mount; CI green | clean at `0d49f40` | not merged |
+| #234 | — | Support-package proof retries an incomplete port file (intermittent "proof did not execute" in CI) | RED→GREEN proof-startup test; 88 support-package tests | clean at `a245d5b` | not merged |
 
-Counts at the time of writing: 10 issues opened, 10 PRs opened (including the one
+Counts at the time of writing: 10 issues opened, 12 PRs opened (including the one
 adding this section), 0 merges, 0 owner personal reviews. #204 and #205 are
 superseded on the R4 stack by #222 and #223; whether to close them is the owner's
 decision.
