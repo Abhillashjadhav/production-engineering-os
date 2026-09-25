@@ -367,3 +367,20 @@ def test_symlinked_negative_control_parent_is_refused(tmp_path: Path) -> None:
     (bundle / "controls").symlink_to(outside, target_is_directory=True)
     with pytest.raises(BundleError, match="symlink"):
         load(bundle, digest)
+
+
+@pytest.mark.parametrize("where", ["template", "negative-control"])
+def test_unmaterializable_paths_are_refused_at_load(tmp_path: Path, where: str) -> None:
+    """Codex #228 P2: names the runtime cannot write are refused before any side effect."""
+    from pmpe.approved_bundle import BundleError
+
+    bundle, digest, *_ = write_bundle(tmp_path)
+    if where == "template":
+        bindings = json.loads((bundle / "bindings.json").read_text())
+        bindings["files"]["bad name.py"] = "# never materialized\n"
+        (bundle / "bindings.json").write_text(json.dumps(bindings))
+    else:
+        control = next(path for path in (bundle / "controls").iterdir() if path.is_dir())
+        (control / "bad name.py").write_text("# never materialized\n")
+    with pytest.raises(BundleError, match="path"):
+        load(bundle, digest)
