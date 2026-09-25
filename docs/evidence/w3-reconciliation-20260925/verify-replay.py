@@ -13,7 +13,8 @@ Checks, exiting 1 on the first failure:
    gate evidence and <dir>/migration.json both bind; contract.draft.json and
    compiled-plan.proposed.json hash to the bound contract and plan digests; candidate/
    and each mutants/<id>.manifest.json match the bound candidate and mutant digests; and
-   migration.json's status, receipt and model-call claims and publisher-result.json's
+   every migration.json claim (status, receipt, model calls, historical freeze and
+   original contract) except its source-bound digests and publisher-result.json's
    approval match the recorded no-approval run; publisher-input.proposed.json hashes to
    the contract's and the publisher result's source_digest;
 5. status, approval, state, cause, gates and record counts in <dir>/replay-summary.json
@@ -125,17 +126,22 @@ def main(directory):
         for identifier, digest in mutants.items()
     ):
         fail("mutants/ manifests differ from the ledger-bound mutant snapshot digests")
-    # The retained no-approval and no-model-call claims behind the verdicts.
+    # The retained no-approval, no-model-call and historical-input claims behind the
+    # verdicts: every field but the two source-bound digests equals the recorded run's.
     recorded_migration = json.loads((HERE / "migration.json").read_text())
+    source_bound = {"source_manifest_digest", "proposed_contract_digest"}
     if (
-        any(
-            migration.get(key) != recorded_migration[key]
-            for key in ("status", "approval_receipt_created", "fresh_model_calls")
+        set(migration) != set(recorded_migration)
+        or any(
+            migration[key] != recorded_migration[key]
+            for key in set(recorded_migration) - source_bound
         )
         or migration.get("fresh_model_calls") != summary["fresh_model_calls"]
         or migration.get("proposed_contract_digest") != summary["contract_digest"]
     ):
-        fail("migration.json approval or model-call claims differ from the recorded run")
+        fail(
+            "migration.json approval, model-call or historical-input claims differ from the recorded run"
+        )
     publisher = json.loads((directory / "publisher-result.json").read_text())
     if (
         publisher.get("approval") != "NOT_APPROVED"
