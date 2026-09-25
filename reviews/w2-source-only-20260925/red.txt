@@ -1,0 +1,7 @@
+# head: d98e308fd59ba3e06cf8a35bd26c21a31526fe9b + uncommitted test file only
+# cmd: PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=<private empty dir> python -m pytest -q -p no:cacheprovider tests/unit/test_process_source_only_admission.py tests/unit/test_process_source_architecture.py
+FAILED tests/unit/test_process_source_only_admission.py::test_interpreter_without_startup_cache_prefix_is_refused
+FAILED tests/unit/test_process_source_only_admission.py::test_cache_prefix_changed_after_startup_is_refused
+FAILED tests/unit/test_process_source_only_admission.py::test_runtime_prefix_without_startup_prefix_is_refused
+FAILED tests/unit/test_process_source_only_admission.py::test_non_empty_startup_cache_prefix_is_refused
+FAILED tests/unit/test_process_source_architecture.py::test_process_source_guard_has_no_unresolved_architecture_edge
