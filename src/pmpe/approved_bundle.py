@@ -12,14 +12,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pmpe.barebones import Template
-from pmpe.contracts.canonical import strict_loads
+from pmpe.contracts.canonical import canonical_digest, strict_loads
 from pmpe.process_gate_inputs import ProcessGateInputs
-from pmpe.process_sources import raw_digest
+from pmpe.process_sources import engine_sources, raw_digest
 
 _FIELDS = {
     "schema_version",
@@ -67,6 +67,41 @@ def _file(root: Path, value: object, what: str) -> Path:
     if not current.is_file():
         raise BundleError(f"bundle {what} file is missing: {value}")
     return current
+
+
+def _directory(root: Path, value: object, what: str) -> Path:
+    """A directory under ``root`` reached without any symlink component."""
+    current = root
+    for part in _relative(value, what).parts:
+        current = current / part
+        if current.is_symlink():
+            raise BundleError(f"bundle {what} path contains a symlink: {value}")
+    if not current.is_dir():
+        raise BundleError(f"bundle {what} must be a directory: {value}")
+    return current
+
+
+def _bind_to_source_manifest(
+    manifest_bytes: bytes, template: Template, profile: bytes, source_paths: Mapping[str, Path]
+) -> None:
+    """Tie bundle-supplied bindings, profile and sources to the approved source manifest.
+
+    bundle.json names these outside the approval freeze, so the loader checks them
+    itself instead of relying on the contract declaring a digest-boundary gate.
+    """
+    manifest = _json(manifest_bytes, "source manifest")
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("artifacts"), dict):
+        raise BundleError("bundle source manifest has no artifact inventory")
+    if manifest.get("template_digest") != canonical_digest(asdict(template)):
+        raise BundleError("bundle bindings differ from the approved source manifest")
+    if manifest.get("execution_profile_sha256") != raw_digest(profile):
+        raise BundleError("bundle execution profile differs from the approved source manifest")
+    paths = {**engine_sources(), **source_paths}
+    artifacts = manifest["artifacts"]
+    if set(artifacts) != set(paths) or any(
+        artifacts[name] != raw_digest(path.read_bytes()) for name, path in paths.items()
+    ):
+        raise BundleError("bundle sources differ from the approved source manifest")
 
 
 def _snapshot(directory: Path) -> dict[str, bytes]:
@@ -200,7 +235,7 @@ def load_approved_bundle(
     if not isinstance(controls, dict):
         raise BundleError("bundle negative_controls must map identifiers to directories")
     negative_controls = {
-        identifier: _snapshot(directory / _relative(relative, "negative control"))
+        identifier: _snapshot(_directory(directory, relative, "negative control"))
         for identifier, relative in controls.items()
     }
     generation = manifest["generation"]
@@ -228,10 +263,14 @@ def load_approved_bundle(
             manifest["real_sandbox_leg"], {"status", "reason"}, "real sandbox leg"
         ),
     )
+    template = _template(_file(directory, manifest["bindings"], "bindings").read_bytes())
+    _bind_to_source_manifest(
+        payloads["source_manifest"], template, inputs.execution_profile, source_paths
+    )
     return ApprovedBundle(
         contract=contract,
         receipt=receipt,
         receipt_bytes=payloads["receipt"],
-        template=_template(_file(directory, manifest["bindings"], "bindings").read_bytes()),
+        template=template,
         inputs=inputs,
     )

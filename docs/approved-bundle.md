@@ -27,7 +27,7 @@ The command relaunches itself in a source-only interpreter (`-B` plus a fresh, e
 | `generation` | `mode` and `provider_attestation` (`kind`, `statement`), passed through unchanged. The fresh-generation gate (G4) keeps its current behaviour until owner decision D2. |
 | `real_sandbox_leg` | `status` and `reason` disclosure. |
 
-Unknown fields, symlinks, absolute or `..` paths, missing files and digest mismatches are refused.
+Unknown fields, symlinks, absolute or `..` paths, missing files and digest mismatches are refused. A symlink anywhere in a path, including a parent directory of a negative control, is refused. The bindings, execution profile and source files must match the approved source manifest, whichever process gates the contract declares.
 
 ## Limits
 
