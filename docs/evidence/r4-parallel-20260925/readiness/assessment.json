@@ -84,9 +84,9 @@
     "retained_context_binding": "UNVERIFIED"
   },
   "sequence": [
-    "final source and permitted review",
-    "freshness design decision and usable capability",
-    "implementation and independent review",
+    "parallel architecture and freshness workstreams after their separate decisions; internal dependencies sequential",
+    "freshness capability, implementation and review required before fresh delivery",
+    "integrate required implementations and complete permitted final-source review",
     "regenerate exact source-bound draft",
     "owner approval of exact final draft",
     "publish approved artifacts and recompile approved plan",
