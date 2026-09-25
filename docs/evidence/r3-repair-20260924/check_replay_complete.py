@@ -19,6 +19,9 @@ import rfc8785
 FREEZE = "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
 # replay-commands.json as published with the historical engine at c1ab2def (#210).
 LAUNCH_RECORD = "sha256:b7f352715dcb194067147d16da7ba2b99c574f369f0fa5d0dbb9114d9c5ad99c"
+# examples/barebones/contract-file.py as published with the historical engine at c1ab2def;
+# it is outside the 218-artifact freeze, so it is pinned here independently.
+ADAPTER = "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387"
 PRODUCT_EXIT_CODES = frozenset({0, 1, 2})
 INTERPRETER = re.compile(r"python3?(\.[0-9]+)?")
 EXPECTED_FAILURES = {
@@ -251,9 +254,22 @@ def check(directory, packet, source, case):
     # The command entry is a later adapter, outside the original freeze.
     entry_relative = "examples/barebones/contract-file.py"
     entry_hash = raw((source / entry_relative).read_bytes())
+    require(entry_hash == ADAPTER, "supplied adapter differs from the pinned historical adapter")
     execution = read(root / "execution-source.json")
+    kinds = {
+        value.value
+        for node in ast.walk(ast.parse((source / entry_relative).read_text()))
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and key.value == "kind" and isinstance(value, ast.Constant)
+    }
+    require(len(kinds) == 1, "pinned adapter execution-source kind is ambiguous")
     require(
-        execution["entry_digest"] == entry_hash and execution["freeze_digest"] == FREEZE,
+        isinstance(execution, dict)
+        and set(execution) == {"argv", "entry_digest", "freeze_digest", "kind"}
+        and execution["kind"] in kinds
+        and execution["entry_digest"] == entry_hash
+        and execution["freeze_digest"] == FREEZE,
         "execution source binding mismatch",
     )
     recorded_roots, recorded_packet = recorded_paths(execution["argv"])
