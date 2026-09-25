@@ -1558,12 +1558,19 @@ def test_candidate_privacy_effects_are_attested_by_an_external_supervisor(
     root = Path(__file__).resolve().parents[2]
     policy_path = root / "security" / "security-profile-policy.json"
     verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
+    # The isolated (-I) candidate child ignores PYTHONDONTWRITEBYTECODE; run it on an
+    # exact copy so it cannot leave bytecode in this checkout for later gated tests.
+    candidate = tmp_path / "candidate"
+    for source in ("src", "products/pm-evals-web/backend/src"):
+        shutil.copytree(root / source, candidate / source)
+    before = set((root / "src").rglob("*.pyc"))
     evidence = _supervise_candidate_runtime(
         SHA,
         policy_path,
-        root,
+        candidate,
         tmp_path / "probe",
     )
+    assert set((root / "src").rglob("*.pyc")) - before == set()
     artifact_path = tmp_path / "privacy-evidence.json"
     artifact_path.write_text(json.dumps(evidence))
 
