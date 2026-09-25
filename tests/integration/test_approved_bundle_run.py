@@ -11,7 +11,7 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
 
@@ -36,9 +36,36 @@ json.dump({{"request_digest": request["request_digest"],
 """
 
 
-def write_bundle(tmp_path: Path) -> tuple[Path, str, Any, dict[str, Any], bytes]:
-    """Lay the fixture's approved packet out as a bundle directory."""
-    inputs, approved, receipt_bytes = approved_fixture(tmp_path / "fixture")
+def write_bundle(
+    tmp_path: Path,
+    *,
+    omit: tuple[str, ...] = (),
+    replace_artifact: dict[str, bytes] | None = None,
+    **fixture: Any,
+) -> tuple[Path, str, Any, dict[str, Any], bytes]:
+    """Lay the fixture's approved packet out as a bundle directory.
+
+    ``omit`` and ``replace_artifact`` re-freeze a changed packet, as a careless or hostile
+    packager could, so the external digest still matches.
+    """
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path / "fixture", **fixture)
+    if omit or replace_artifact:
+        paths = {key: path for key, path in inputs.approval_paths.items() if key not in omit}
+        for key, content in (replace_artifact or {}).items():
+            paths[key].write_bytes(content)
+        freeze = json.dumps(
+            {
+                "schema_version": "1",
+                "artifacts": {key: raw_digest(path.read_bytes()) for key, path in paths.items()},
+            },
+            sort_keys=True,
+        ).encode()
+        inputs = replace(
+            inputs,
+            approval_freeze=freeze,
+            approval_freeze_expected_digest=raw_digest(freeze),
+            approval_paths=paths,
+        )
     bundle = tmp_path / "bundle"
     approval: dict[str, str] = {}
     for key, source in inputs.approval_paths.items():
@@ -397,3 +424,56 @@ def test_reserved_source_names_are_refused(tmp_path: Path, name: str) -> None:
     (bundle / "bundle.json").write_text(json.dumps(manifest))
     with pytest.raises(BundleError, match="reserved"):
         load(bundle, digest)
+
+
+@pytest.mark.parametrize("artifact", ["draft", "plan", "publisher_input"])
+def test_criterion_only_bundle_still_needs_the_full_approval_packet(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], artifact: str
+) -> None:
+    """Codex #228 P1: admission checks the whole packet, whatever gates the contract has."""
+    bundle, digest, *_ = write_bundle(tmp_path, process_bindings=False, omit=(artifact,))
+    code, marker = run_cli(tmp_path, bundle, digest)
+    output = refused_before_side_effects(tmp_path, code, marker, capsys)
+    assert "approval packet" in output["detail"]
+
+
+def test_criterion_only_bundle_plan_must_be_this_contract_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixture_plan = approved_fixture(tmp_path / "probe", process_bindings=False)[0].approval_paths
+    plan = json.loads(fixture_plan["plan"].read_text())
+    plan["criteria"] = plan["criteria"][:-1]
+    bundle, digest, *_ = write_bundle(
+        tmp_path,
+        process_bindings=False,
+        replace_artifact={"plan": json.dumps(plan).encode()},
+    )
+    code, marker = run_cli(tmp_path, bundle, digest)
+    output = refused_before_side_effects(tmp_path, code, marker, capsys)
+    assert "approval packet" in output["detail"]
+
+
+def test_complete_criterion_only_bundle_reaches_the_provider(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bundle, digest, *_ = write_bundle(tmp_path, process_bindings=False)
+    code, marker = run_cli(tmp_path, bundle, digest)
+    output = json.loads(capsys.readouterr().out)
+    assert marker.exists(), output
+    assert output["state"] != "HALTED" or output["cause"] != "CONTRACT_INVALID", output
+
+
+@pytest.mark.parametrize("value", ["1000", True, 0, -1, 1.5, None])
+def test_malformed_build_budget_is_refused_before_side_effects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], value: Any
+) -> None:
+    """Codex #228 P2: budget values are checked before the engine creates anything."""
+    budget = {"max_attempts": 1, "max_model_calls": 8, "max_model_output_bytes": value}
+    # No process gates, so nothing but the budget can refuse this approved bundle.
+    bundle, digest, *_ = write_bundle(
+        tmp_path, process_bindings=False, profile_extra={"build_budget": budget}
+    )
+    code, marker = run_cli(tmp_path, bundle, digest)
+    output = refused_before_side_effects(tmp_path, code, marker, capsys)
+    assert "budget" in output["detail"]
+    assert not (tmp_path / "evidence" / ".pmpe").exists()
