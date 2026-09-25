@@ -27,15 +27,18 @@ if __name__ == "__main__" and not (
     _options = sys.orig_argv[1 : len(sys.orig_argv) - len(sys.argv)]
     if sys.orig_argv[len(_options) + 1 :] != sys.argv:
         raise SystemExit("cannot relaunch source-only: interpreter options are ambiguous")
+    # A trailing "--" ends the interpreter options, so the added flags go before it.
+    _terminator = _options[-1:] == ["--"]
     _private_import_cache = tempfile.mkdtemp(prefix="pmpe-clean-import-")
     os.execv(
         sys.executable,
         [
             sys.executable,
-            *_options,
+            *(_options[:-1] if _terminator else _options),
             "-B",
             "-X",
             "pycache_prefix=" + _private_import_cache,
+            *(["--"] if _terminator else []),
             *sys.argv,
         ],
     )

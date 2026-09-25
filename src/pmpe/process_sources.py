@@ -37,12 +37,45 @@ def _startup_record(name: str) -> list[bytes] | None:
         return None
 
 
+def _interpreter_xoptions(cmdline: list[bytes]) -> list[bytes]:
+    """``-X`` values given to the interpreter itself, before the script, ``-c`` or ``-m``.
+
+    Anything after that boundary is an argument to the program, not a startup option.
+    """
+    values: list[bytes] = []
+    index = 1
+    while index < len(cmdline):
+        token = cmdline[index]
+        if token == b"--" or token == b"-" or not token.startswith(b"-"):
+            break
+        if token.startswith(b"--"):
+            index += 2 if token == b"--check-hash-based-pycs" else 1
+            continue
+        flags = token[1:]
+        for position in range(len(flags)):
+            flag = flags[position : position + 1]
+            if flag in (b"c", b"m"):
+                return values
+            if flag in (b"X", b"W"):
+                inline = flags[position + 1 :]
+                if not inline:
+                    index += 1
+                    inline = cmdline[index] if index < len(cmdline) else b""
+                if flag == b"X":
+                    values.append(inline)
+                break
+        index += 1
+    return values
+
+
 def _given_at_startup(cmdline: list[bytes], option: str) -> bool:
-    value = b"pycache_prefix=" + os.fsencode(option)
-    return any(
-        token == b"-X" + value or (token == value and index > 0 and cmdline[index - 1] == b"-X")
-        for index, token in enumerate(cmdline)
-    )
+    """The last ``pycache_prefix`` the interpreter received at startup is ``option``."""
+    prefixes = [
+        value.removeprefix(b"pycache_prefix=")
+        for value in _interpreter_xoptions(cmdline)
+        if value.startswith(b"pycache_prefix=")
+    ]
+    return bool(prefixes) and prefixes[-1] == os.fsencode(option)
 
 
 def _startup_pycache_prefix() -> str | None:
@@ -184,7 +217,10 @@ def implementation_identity(implementation: object) -> dict[str, Any]:
     canonical = namespace.get(parts[0])
     for name in parts[1:]:
         canonical = vars(canonical).get(name) if isinstance(canonical, type) else None
-    if canonical is not cls:
+    # A dict that merely claims the module's name (for example one filled by exec) is not
+    # the loaded module; the class's own functions must close over the real module's dict.
+    module = inspect.getmodule(cls)
+    if canonical is not cls or module is None or vars(module) is not namespace:
         raise ValueError("process gate implementation is not its canonical module class")
     source = inspect.getsourcefile(cls)
     if source is None:
