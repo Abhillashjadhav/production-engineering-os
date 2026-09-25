@@ -254,6 +254,20 @@ def check(directory, packet, source, case):
             and INTERPRETER.fullmatch(Path(interpreter).name) is not None,
             "observer interpreter is not an absolute Python executable",
         )
+        # The operator's launch record beside the case directories is written by the
+        # outer replay driver, not by the observed engine. It is still a retained
+        # operator record: this binds the two records, it does not authenticate the binary.
+        launches = read(root.parent / "replay-commands.json")
+        require(isinstance(launches, list), "replay launch record is not a list")
+        matching = [
+            item for item in launches if isinstance(item, dict) and item.get("case") == case
+        ]
+        require(len(matching) == 1, "replay launch record must name this case exactly once")
+        command = matching[0].get("command")
+        require(
+            isinstance(command, list) and bool(command) and command[0] == interpreter,
+            "observer interpreter differs from the operator's replay launch record",
+        )
         for index, (criterion, process) in enumerate(zip(plan.criteria, processes, strict=True)):
             require(
                 type(process["check_index"]) is int and process["check_index"] == index,
