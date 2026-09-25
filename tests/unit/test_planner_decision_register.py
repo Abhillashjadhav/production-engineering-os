@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -66,12 +67,28 @@ SOURCE_FORMAT = re.compile(
 )
 
 
+def _real_timestamps(source: str) -> bool:
+    """Every date and clock time in a source is a real one (ranges end after they start)."""
+    stamp = re.search(r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?:-(\d{2}:\d{2}))?", source)
+    if stamp is None:
+        return True
+    try:
+        start = datetime.strptime(f"{stamp[1]} {stamp[2]}", "%Y-%m-%d %H:%M")
+        end = datetime.strptime(f"{stamp[1]} {stamp[3]}", "%Y-%m-%d %H:%M") if stamp[3] else start
+    except ValueError:
+        return False
+    return end >= start
+
+
 def source_errors(value: dict[str, Any]) -> list[str]:
     """Sources locate private material and never carry it (answers are paraphrased)."""
     return [
         decision_id
         for decision_id, decision in value["decisions"].items()
-        if decision["status"] != "OPEN" and not SOURCE_FORMAT.fullmatch(decision["source"])
+        if decision["status"] != "OPEN"
+        and not (
+            SOURCE_FORMAT.fullmatch(decision["source"]) and _real_timestamps(decision["source"])
+        )
     ]
 
 
