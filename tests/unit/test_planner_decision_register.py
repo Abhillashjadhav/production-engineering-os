@@ -7,6 +7,7 @@ unanswered decision, and no decision may be recorded as answered without its sou
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,19 @@ def requirement_errors(value: dict[str, Any]) -> list[str]:
         if requirement["status"] != ("BLOCKED" if expected else "SETTLED"):
             errors.append(requirement_id + ": status contradicts its decisions")
     return errors
+
+
+SOURCE_LOCATOR = re.compile(
+    r"(owner (interview|message) \d{4}-\d{2}-\d{2} \d{2}:\d{2}(-\d{2}:\d{2})? IST"
+    r"|owner task instructions, this session's opening request)"
+)
+
+
+def test_every_answer_source_names_a_time_or_an_exact_message() -> None:
+    """A source must let an auditor find the answer: a clock time or the exact message."""
+    for decision_id, decision in register()["decisions"].items():
+        if decision["status"] != "OPEN":
+            assert SOURCE_LOCATOR.match(decision["source"]), decision_id
 
 
 def test_requirements_reference_known_decisions_and_block_on_open_parts() -> None:
