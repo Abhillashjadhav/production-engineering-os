@@ -175,3 +175,11 @@ def test_bytecode_paths_match_the_import_system(
         for level in ("", "1", "2")
     )
     assert tuple(path.absolute() for path in bytecode_paths(source)) == expected
+
+
+def test_relative_startup_cache_prefix_is_refused(tmp_path: Path) -> None:
+    """A relative prefix names a different directory after a chdir (Codex #227 P1)."""
+    (tmp_path / "relative-cache").mkdir()
+    result = run_probe(tmp_path, ["-B", "-X", "pycache_prefix=relative-cache"])
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "absolute" in result.stdout

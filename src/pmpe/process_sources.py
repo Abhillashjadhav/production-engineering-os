@@ -56,6 +56,9 @@ def require_source_only_interpreter() -> Path:
             "and keep it unchanged"
         )
     prefix = Path(startup)
+    if not prefix.is_absolute():
+        # A relative prefix names a different directory after any chdir.
+        raise ValueError("process gate requires an absolute private bytecode prefix fixed at start")
     if prefix.exists() and (
         not prefix.is_dir() or any(path.is_file() for path in prefix.rglob("*"))
     ):

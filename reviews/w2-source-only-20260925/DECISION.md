@@ -17,7 +17,7 @@ A gated run is admitted only when the interpreter:
 
 1. was started with bytecode writes disabled (`sys.flags.dont_write_bytecode`), and
    they are still disabled;
-2. was started with a cache prefix (`-X pycache_prefix` or `PYTHONPYCACHEPREFIX`)
+2. was started with an absolute cache prefix (`-X pycache_prefix` or `PYTHONPYCACHEPREFIX`)
    and `sys.pycache_prefix` still equals it;
 3. has an empty prefix directory.
 
