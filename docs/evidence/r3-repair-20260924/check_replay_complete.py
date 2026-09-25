@@ -522,7 +522,8 @@ def check(directory, packet, source, case):
                 ) and all(_assertion_passes(x, {"result": value}) for x in criterion.then)
             require(
                 argv[-3:-1] == target.split(":")
-                and canonical(decode(argv[-1])) == canonical(arguments),
+                # _run_action passes json.dumps(arguments) verbatim as the last argument.
+                and argv[-1] == json.dumps(arguments),
                 "observer target or arguments differ",
             )
             # The host fallback rewrites only the '/workspace' constant of the engine runner.
