@@ -97,6 +97,13 @@ def test_every_answer_source_names_a_time_or_an_exact_message() -> None:
     assert source_errors(register()) == []
 
 
+def test_open_decisions_carry_no_source() -> None:
+    """An unanswered decision has nothing to locate, so it cannot carry text (Codex #219)."""
+    value = register()
+    value["decisions"]["D2"]["source"] = "copied private text"
+    assert source_errors(value) == ["D2"]
+
+
 def test_impossible_source_timestamps_are_refused() -> None:
     """An auditor cannot locate 2026-99-99 99:99 (Codex #219)."""
     for stamp in ("2026-99-99 99:99", "2026-09-25 16:61", "2026-09-25 16:23-25:00"):
