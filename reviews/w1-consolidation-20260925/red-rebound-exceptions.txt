@@ -1,0 +1,4 @@
+# base ef19a2a + tests only (Codex #223 P1: rebound assertion classes)
+FAILED tests/e2e/test_barebones_evals.py::test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red[rebound-pytest-fail-exception]
+FAILED tests/e2e/test_barebones_evals.py::test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red[rebound-builtin-assertion-error]
+2 failed, 6 passed, 42 deselected in 3.74s
