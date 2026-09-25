@@ -67,14 +67,14 @@ they must not be rerun, rephrased, relocated, or replaced with equivalent execut
 
 # BAR — install the owner-supplied gate
 
-## Unit — replay checker hardening from Codex review, rounds 1–19 (2026-09-25)
+## Unit — replay checker hardening from Codex review, rounds 1–20 (2026-09-25)
 
-Round 19 (`4ea8e39`) pins the three replayed candidate trees to their retained digests on the launch `--candidate` path, pins the frozen evaluator source, and bounds the measure's values to the evaluator's domain (one `range(N)` workload, `0 <= value <= sample_size <= N`, distinct positive integer `missing_ids`).
+Round 19 (`4ea8e39`) pins the three replayed candidate trees to their retained digests on the launch `--candidate` path, pins the frozen evaluator source, and bounds the measure's values to the evaluator's domain (one `range(N)` workload, `0 <= value <= sample_size <= N`, distinct positive integer `missing_ids`). Round 20 pins the compatibility report's runtime to the exact recorded `sys.version` string instead of a `3.12.` prefix.
 
 1. **Already exists? Yes.** Extend the existing `check_replay_complete.py` and its `test_replay_checker.py`; no second checker or evaluator.
-2. **Reproduced blocker? Yes.** Each round answers a Codex finding on #221/#226 that a tampered retained replay was accepted; round 19 answers the P1 findings on #226 `0680376` (candidate binding, sample bound) and the P2 on #221 `85dd770` (`missing_ids` domain).
-3. **Changes behaviour with callers/tests? Yes.** The checker's callers are its regression suite and the W3 evidence recipe (#231). A retained replay is now refused if a candidate tree differs from its pinned digest, the evaluator source differs from its pin, or a measure value falls outside the evaluator's domain. Replays of other candidates or evaluators cannot be checked without new pins; whether the checker should be candidate-specific at all is owner question Q22 and is not decided here. The three historical cases still pass, and the 14 historical criteria and frozen evidence are unchanged.
-4. **Failing check first? Yes.** `docs/evidence/r4-repair-20260924/codex-review-20260925/red-round19.txt` (6 failures, tests only on `85dd770`) and `green-round19.txt` (36/36 on the fix); rounds 1–18 have their own `red-roundN.txt` / `green-roundN.txt`.
+2. **Reproduced blocker? Yes.** Each round answers a Codex finding on #221/#226 that a tampered retained replay was accepted; round 19 answers the P1 findings on #226 `0680376` (candidate binding, sample bound) and the P2 on #221 `85dd770` (`missing_ids` domain); round 20 answers the P2 on #226 `2ffd31a` (same-prefix runtime).
+3. **Changes behaviour with callers/tests? Yes.** The checker's callers are its regression suite and the W3 evidence recipe (#231). A retained replay is now refused if a candidate tree differs from its pinned digest, the evaluator source differs from its pin, a measure value falls outside the evaluator's domain, or its compatibility report names any other runtime. Replays of other candidates or evaluators cannot be checked without new pins; whether the checker should be candidate-specific at all is owner question Q22 and is not decided here. The three historical cases still pass, and the 14 historical criteria and frozen evidence are unchanged.
+4. **Failing check first? Yes.** `docs/evidence/r4-repair-20260924/codex-review-20260925/red-round19.txt` (6 failures, tests only on `85dd770`) and `green-round19.txt` (36/36 on the fix); `red-round20.txt` (1 failure) and `green-round20.txt` (36/36); rounds 1–18 have their own `red-roundN.txt` / `green-roundN.txt`.
 5. **Revert as one unit? Yes.** Each round is a test commit plus a fix commit touching only the checker, its tests and this evidence directory.
 6. **New setting/dependency/extension? No.** No dependency, flag or policy; the pins are constants in the checker, read from retained evidence.
 

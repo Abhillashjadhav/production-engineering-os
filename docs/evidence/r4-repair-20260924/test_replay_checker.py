@@ -313,6 +313,7 @@ class ReplayCheckerRegression(unittest.TestCase):
         """Every field of the adapter's report is fixed by the frozen profile and runtime."""
         changes = {
             "runtime": lambda value: value.update(runtime="3.11.9 (main) [GCC]"),
+            "same-prefix-runtime": lambda value: value.update(runtime="3.12.forged"),
             "dependencies": lambda value: value.update(dependencies=["requests"]),
             "isolations": lambda value: value.update(missing_isolations=[]),
             "scope": lambda value: value.update(scope="delivery guaranteed"),
