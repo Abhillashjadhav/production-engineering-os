@@ -1,0 +1,3 @@
+# head: 3a71d8670154ad6866e546a3bcad7789a69dbcc7  worktree-dirty: 0 files
+# cmd: pytest tests/unit/test_contract_file_entry.py tests/unit/test_session_file_provider.py tests/unit/test_acceptance_compiler.py tests/unit/test_barebones_cli_journey.py
+89 passed in 3.72s

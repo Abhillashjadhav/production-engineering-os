@@ -1,0 +1,38 @@
+{
+  "status": "DEMONSTRATED FOR THE APPROVED FEATURE",
+  "walkthrough_attempt": 1,
+  "walkthrough_exit_code": 0,
+  "fresh_github_clones": true,
+  "commits": {
+    "peos": "02959731e06d977e9ed61cfd15c962e5ebb85ee5",
+    "pmos": "9d55bf650d6586d90a0028241b468559349487c3"
+  },
+  "standard_venv": true,
+  "system_site_packages": false,
+  "criteria_passed": 14,
+  "criteria_total": 14,
+  "journey_commands_passed": 8,
+  "digests": {
+    "verification": {
+      "observations": 30,
+      "mismatches": 0
+    },
+    "journey": {
+      "observations": 16,
+      "mismatches": 0
+    }
+  },
+  "product_sha256": "sha256:5ef500b5304cc7a5ba1a0e8498675cb01641b71c9c3e5e38bf01d5226e24ade5",
+  "manual_product_repairs": 0,
+  "new_model_generation": false,
+  "walkthrough_commands_match_document": true,
+  "remaining_implementation_stages_in_approved_experiment": 0,
+  "unverified_execution_legs": [
+    "real sandbox; owner closed retries"
+  ],
+  "new_product_decisions_required": [],
+  "integration_separate_from_phase5": [
+    "independent review",
+    "owner-authorized merge"
+  ]
+}

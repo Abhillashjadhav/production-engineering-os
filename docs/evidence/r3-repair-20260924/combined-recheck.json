@@ -1,0 +1,9 @@
+{
+  "exit_code": 0,
+  "observed_pass_markers": 346,
+  "source_commit": "766e13d553705b8465701bb97f9949bb58f4c415",
+  "source_tree": "046017d372b995c391657fb115378b9c1b859eb0",
+  "command_source": "../integration-review-20260924/combined-summary.json",
+  "stdout_sha256": "3ec253a81f098da7871a7ed71a85ce42843587e9a1ad3d02369d5e15f2688edf",
+  "kind": "same exact retained test command re-run; no new model generation"
+}

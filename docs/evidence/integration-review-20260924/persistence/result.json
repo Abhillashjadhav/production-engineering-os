@@ -1,0 +1,100 @@
+{
+  "criteria": {
+    "AC-001": "PASS",
+    "AC-002": "FAIL",
+    "AC-003": "FAIL",
+    "AC-004": "FAIL",
+    "AC-005": "FAIL",
+    "AC-006": "FAIL",
+    "AC-007": "FAIL",
+    "AC-008": "PASS",
+    "AC-009": "FAIL",
+    "AC-010": "FAIL",
+    "AC-011": "PASS",
+    "AC-012": "PASS",
+    "AC-013": "FAIL",
+    "AC-014": "FAIL"
+  },
+  "findings": [
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-002"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-003"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-004"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-005"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-006"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-007"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-009"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-010"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled measure assertion failed",
+      "subject_id": "AC-013"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-014"
+    }
+  ]
+}

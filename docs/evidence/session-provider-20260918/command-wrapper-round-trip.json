@@ -1,0 +1,18 @@
+{
+  "entrypoint": "pmpe.cli.barebones_cmd.CommandModelProvider.invoke",
+  "command": "/workspace/scratch/f9ac546f3a50/peos/.venv/bin/python examples/barebones/session-file-provider.py --handoff-dir docs/evidence/session-provider-20260918/command-wrapper",
+  "request_digest": "sha256:21aac16e9a328030728baa451f261f21cc9db5d1ebaff8c8cd33ff4dc8ad3168",
+  "response": {
+    "provider_metadata": {
+      "model": "session-model-unreported",
+      "prompt_version": "session-file-v1",
+      "provider": "in-session-file-handoff"
+    },
+    "request_digest": "sha256:21aac16e9a328030728baa451f261f21cc9db5d1ebaff8c8cd33ff4dc8ad3168",
+    "summary": "The approved task-tracker contract still needs a real build, protected acceptance checks, and evidence that broken persistence and filtering fail those unchanged checks. WRAPPER-P0-6555a582e1d1424e9e42ea28bbb007c1"
+  },
+  "elapsed_ms": 9177.658066000731,
+  "status": "PASS",
+  "model_identity": "session-model-unreported",
+  "headless_reproduction": false
+}

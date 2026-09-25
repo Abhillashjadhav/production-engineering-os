@@ -1,0 +1,15 @@
+{
+  "classification": "TEST-ONLY ordinary handoff, no adversarial replay or model service",
+  "pmos_source": "3f6eee3; only BAR and CI pin changed afterward",
+  "peos_local": "412c870f16e9eaef4b4334d6f770df1ad6a351d2",
+  "peos_public": "297a11d79e5d1e1eda1f8f94b7bec3046c41a0d6",
+  "peos_tree": "c2d6ba8467eae13e774f5c9f161dda18099c3961",
+  "command": "PYTHONPATH=<exact PEOS source>/src python -B tests/decision-to-contract/validate_contract.py --evidence-dir <new empty directory>",
+  "exit_code": 0,
+  "outcomes": {
+    "positive": "RELEASE_READY",
+    "broken-candidate": "HALTED",
+    "unbound-gate": "CONTRACT_BLOCKED"
+  },
+  "publication": "Review-only source branch; existing PR heads and remote CI are not advanced in this session."
+}

@@ -1,0 +1,211 @@
+{
+  "observed_at": "2026-09-24T10:26:51.826Z",
+  "status": "IMPLEMENTED_NOT_MERGED",
+  "peos": [
+    {
+      "name": "admission",
+      "sha": "db605aa48898cfd6f1a045b6e51f3a7972eda714",
+      "checks": [
+        {
+          "name": "security",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/runs/107591142963"
+        },
+        {
+          "name": "build-smoke",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123446"
+        },
+        {
+          "name": "product-backend (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123433"
+        },
+        {
+          "name": "tests (3.11)",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123432"
+        },
+        {
+          "name": "tests (3.12)",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123393"
+        },
+        {
+          "name": "product-preview",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123378"
+        },
+        {
+          "name": "format-lint",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123364"
+        },
+        {
+          "name": "candidate-isolation (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123347"
+        },
+        {
+          "name": "security-static",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123311"
+        },
+        {
+          "name": "candidate-isolation (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123306"
+        },
+        {
+          "name": "product-backend (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123304"
+        },
+        {
+          "name": "product-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123261"
+        },
+        {
+          "name": "types",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123241"
+        },
+        {
+          "name": "product-frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986753957/job/107591123071"
+        },
+        {
+          "name": "trusted-security-runner",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986751199/job/107591117329"
+        },
+        {
+          "name": "review",
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35986751172/job/107591116589"
+        }
+      ]
+    },
+    {
+      "name": "migration",
+      "sha": "524fee6f8ab7ab33d745d26b4c2ed63356d68e90",
+      "checks": [
+        {
+          "name": "security",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/runs/107592358160"
+        },
+        {
+          "name": "trusted-security-runner",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130697/job/107592331363"
+        },
+        {
+          "name": "review",
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130585/job/107592330665"
+        },
+        {
+          "name": "tests (3.12)",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592330239"
+        },
+        {
+          "name": "product-frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329975"
+        },
+        {
+          "name": "product-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329935"
+        },
+        {
+          "name": "build-smoke",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329913"
+        },
+        {
+          "name": "tests (3.11)",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329907"
+        },
+        {
+          "name": "product-preview",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329896"
+        },
+        {
+          "name": "format-lint",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329826"
+        },
+        {
+          "name": "product-backend (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329820"
+        },
+        {
+          "name": "security-static",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329774"
+        },
+        {
+          "name": "candidate-isolation (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329726"
+        },
+        {
+          "name": "candidate-isolation (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329721"
+        },
+        {
+          "name": "product-backend (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329704"
+        },
+        {
+          "name": "types",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35987130778/job/107592329473"
+        }
+      ]
+    }
+  ],
+  "note": "Technical checks shown in_progress are pending, not passed. Review failure is the deliberate draft-PR admission block; admission log was inspected. Local bounded checks and independent reviews are separate evidence."
+}

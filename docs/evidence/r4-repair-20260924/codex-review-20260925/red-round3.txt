@@ -1,0 +1,4 @@
+# base 146b4f9ba7dda8f9d8d569c0f75ab2a457a2b009 + tests only (Codex review #226 round 3)
+FAIL: test_python_named_fake_interpreter_rejected (__main__.ReplayCheckerRegression.test_python_named_fake_interpreter_rejected)
+Ran 13 tests
+FAILED (failures=1)

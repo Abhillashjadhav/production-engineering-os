@@ -1,0 +1,9 @@
+# base 85dd770 + tests only (Codex P1 x2 on #226 0680376: candidate binding, sample bound; P2 on #221 85dd770: missing_ids domain)
+FAIL: test_candidate_replaced_under_the_source_rejected (__main__.ReplayCheckerRegression.test_candidate_replaced_under_the_source_rejected)
+FAIL: test_measure_values_outside_the_evaluator_domain_rejected (__main__.ReplayCheckerRegression.test_measure_values_outside_the_evaluator_domain_rejected) (change='sample-over-workload')
+FAIL: test_measure_values_outside_the_evaluator_domain_rejected (__main__.ReplayCheckerRegression.test_measure_values_outside_the_evaluator_domain_rejected) (change='value-over-sample')
+FAIL: test_measure_values_outside_the_evaluator_domain_rejected (__main__.ReplayCheckerRegression.test_measure_values_outside_the_evaluator_domain_rejected) (change='string-id')
+FAIL: test_measure_values_outside_the_evaluator_domain_rejected (__main__.ReplayCheckerRegression.test_measure_values_outside_the_evaluator_domain_rejected) (change='non-positive-id')
+FAIL: test_measure_values_outside_the_evaluator_domain_rejected (__main__.ReplayCheckerRegression.test_measure_values_outside_the_evaluator_domain_rejected) (change='duplicate-ids')
+Ran 36 tests in 39.268s
+FAILED (failures=6)

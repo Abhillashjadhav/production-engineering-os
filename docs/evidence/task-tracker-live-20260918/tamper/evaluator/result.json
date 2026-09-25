@@ -1,0 +1,6 @@
+{
+  "candidate_executed": false,
+  "error": "APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/tmp/pmpe-verification-cc5jvb7g/tests/acceptance/task_tracker.py', 'expected': 'sha256:7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66', 'actual': 'sha256:17382cbc61cb2f03915817190a0ff122b29d0845a92bd71c5f5f10208ad9e97c'}]",
+  "modified_evaluator_sha256": "sha256:17382cbc61cb2f03915817190a0ff122b29d0845a92bd71c5f5f10208ad9e97c",
+  "rejected": true
+}

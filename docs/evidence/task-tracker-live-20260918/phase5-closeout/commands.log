@@ -1,0 +1,68 @@
++ set -euo pipefail
++ mkdir task-tracker-reproduction
++ cd task-tracker-reproduction
++ git clone --single-branch --branch feat/contract-file-run --no-tags https://github.com/Abhillashjadhav/production-engineering-os.git peos
+Cloning into 'peos'...
++ git -C peos checkout --detach 02959731e06d977e9ed61cfd15c962e5ebb85ee5
+HEAD is now at 0295973 fix(barebones): satisfy strict typing and retain unchanged-candidate replay
++ git clone --single-branch --branch docs/task-tracker-acceptance --no-tags https://github.com/Abhillashjadhav/PM-agent-OS.git pmos
+Cloning into 'pmos'...
++ git -C pmos checkout --detach 9d55bf650d6586d90a0028241b468559349487c3
+HEAD is now at 9d55bf6 docs(contract): link frozen handoff to live delivery evidence
++ cd peos
++ python3 --version
+Python 3.12.14
++ command -v prlimit
+/usr/bin/prlimit
++ python3 -m venv .venv
++ .venv/bin/python -m pip install -e .
+Obtaining file:///workspace/scratch/f9ac546f3a50/phase5-reproduction-20260921/check/task-tracker-reproduction/peos
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Collecting PyYAML==6.0.3 (from pmpe==0.2.0)
+  Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
+Collecting jsonschema==4.25.1 (from pmpe==0.2.0)
+  Downloading jsonschema-4.25.1-py3-none-any.whl.metadata (7.6 kB)
+Collecting rfc8785==0.1.4 (from pmpe==0.2.0)
+  Downloading rfc8785-0.1.4-py3-none-any.whl.metadata (3.4 kB)
+Collecting attrs>=22.2.0 (from jsonschema==4.25.1->pmpe==0.2.0)
+  Downloading attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+Collecting jsonschema-specifications>=2023.03.6 (from jsonschema==4.25.1->pmpe==0.2.0)
+  Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+Collecting referencing>=0.28.4 (from jsonschema==4.25.1->pmpe==0.2.0)
+  Downloading referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+Collecting rpds-py>=0.7.1 (from jsonschema==4.25.1->pmpe==0.2.0)
+  Downloading rpds_py-2026.6.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+Collecting typing-extensions>=4.4.0 (from referencing>=0.28.4->jsonschema==4.25.1->pmpe==0.2.0)
+  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Downloading jsonschema-4.25.1-py3-none-any.whl (90 kB)
+Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (807 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 807.9/807.9 kB 7.8 MB/s eta 0:00:00
+Downloading rfc8785-0.1.4-py3-none-any.whl (9.2 kB)
+Downloading attrs-26.1.0-py3-none-any.whl (67 kB)
+Downloading jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+Downloading referencing-0.37.0-py3-none-any.whl (26 kB)
+Downloading rpds_py-2026.6.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (366 kB)
+Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Building wheels for collected packages: pmpe
+  Building editable for pmpe (pyproject.toml): started
+  Building editable for pmpe (pyproject.toml): finished with status 'done'
+  Created wheel for pmpe: filename=pmpe-0.2.0-0.editable-py3-none-any.whl size=1739 sha256=592e9a1009e917dd3e179e8e9396303865ad0c2fdbd68891dbf5d9c421f7ccb4
+  Stored in directory: /tmp/pip-ephem-wheel-cache-ks5bxd7t/wheels/19/0b/04/6501aa2ada7982af19114ba5fbe815c0ee32c3c03c407d381b
+Successfully built pmpe
+Installing collected packages: typing-extensions, rpds-py, rfc8785, PyYAML, attrs, referencing, jsonschema-specifications, jsonschema, pmpe
+Successfully installed PyYAML-6.0.3 attrs-26.1.0 jsonschema-4.25.1 jsonschema-specifications-2025.9.1 pmpe-0.2.0 referencing-0.37.0 rfc8785-0.1.4 rpds-py-2026.6.3 typing-extensions-4.16.0
++ .venv/bin/python examples/barebones/contract-file.py verify --packet ../pmos/reviews/task-tracker-v1 --root PM-agent-OS=../pmos --root production-engineering-os=. --freeze-digest sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2 --candidate docs/evidence/task-tracker-live-20260918/live/candidate --output ../verification --authorized-host-fallback
+{"criteria": {"AC-001": "PASS", "AC-002": "PASS", "AC-003": "PASS", "AC-004": "PASS", "AC-005": "PASS", "AC-006": "PASS", "AC-007": "PASS", "AC-008": "PASS", "AC-009": "PASS", "AC-010": "PASS", "AC-011": "PASS", "AC-012": "PASS", "AC-013": "PASS", "AC-014": "PASS"}, "findings": []}
++ cd ..
++ cp -R peos/docs/evidence/task-tracker-live-20260918/live/candidate candidate
++ mkdir journey
++ cp peos/docs/evidence/task-tracker-live-20260918/clean-install/journey.py journey/journey.py
++ peos/.venv/bin/python journey/journey.py /workspace/scratch/f9ac546f3a50/phase5-reproduction-20260921/check/task-tracker-reproduction
+PASS: eight sequential user commands from a clean venv; rejection preserves ID 1, duplicate create allocates ID 2, completion retry and status filters persist across process restarts.

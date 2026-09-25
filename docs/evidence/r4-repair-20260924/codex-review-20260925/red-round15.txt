@@ -1,0 +1,5 @@
+# base 421122c + tests only (Codex review round 15 on #221): nested _call records that no assertion reads
+FAIL: test_fields_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_fields_the_frozen_evaluator_cannot_return_rejected) (change='unasserted-observation')
+FAIL: test_fields_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_fields_the_frozen_evaluator_cannot_return_rejected) (change='setup-observation')
+Ran 32 tests in 27.143s
+FAILED (failures=2)

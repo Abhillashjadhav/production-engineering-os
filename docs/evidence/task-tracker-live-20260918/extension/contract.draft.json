@@ -1,0 +1,133 @@
+{
+  "acceptance_criteria": [
+    {
+      "criterion": "Fixture echoes hello unchanged.",
+      "given": [
+        {
+          "operator": "eq",
+          "path": "fixture.ready",
+          "value": true
+        }
+      ],
+      "id": "AC-001",
+      "requirement": "FR-001",
+      "then": [
+        {
+          "operator": "eq",
+          "path": "result.message",
+          "value": "hello"
+        }
+      ],
+      "when": {
+        "action": "greeting.echo",
+        "arguments": {
+          "message": "hello"
+        }
+      }
+    }
+  ],
+  "approved_at": "",
+  "approved_by": "",
+  "approved_product_decisions": [
+    {
+      "decision": "Test fixture only; no product approval claimed.",
+      "id": "APD-001"
+    }
+  ],
+  "binary_release_gates": [
+    {
+      "description": "Fixture assertion passes.",
+      "id": "GATE-001"
+    }
+  ],
+  "contract_id": "EXTENSION-FIXTURE-001",
+  "contract_status": "DRAFT",
+  "contract_version": 1,
+  "desired_outcome": "The user can create, complete and find the intended tasks with correct durable state, without manually repairing software or stored data.",
+  "functional_requirements": [
+    {
+      "capability": "greeting.echo",
+      "description": "Return the supplied greeting.",
+      "id": "FR-001",
+      "title": "Echo fixture"
+    }
+  ],
+  "golden_cases": [
+    "Fixture echoes hello unchanged."
+  ],
+  "guardrails": [
+    "No approved requirement or expected outcome changed to obtain a pass.",
+    "All missing records count in AC-013 and failed acknowledgement workload cannot pass its minimum sample.",
+    "Track false passes against known-bad candidates, manual interventions, actual runtime and available usage without inventing token or cost figures.",
+    "Root access and forgeable receipts remain permanent limitations; recorded digests are tamper evidence, not prevention."
+  ],
+  "known_risks": [
+    {
+      "description": "Root can modify evaluator/checker/evidence or change and restore bytes between digest observations; this run does not establish adversarial tamper prevention.",
+      "level": "high"
+    },
+    {
+      "description": "Existing approval receipts can be forged from public hashes; external signing authority is deferred by owner direction.",
+      "level": "high"
+    },
+    {
+      "description": "The real sandbox still cannot establish a UID map in this environment; any candidate run here uses the expressly admitted weaker isolation and must state dropped protections.",
+      "level": "high"
+    },
+    {
+      "description": "Named limitation \u2014 Creation is not idempotent. Duplicate-on-retry is approved behavior, not a defect; this experiment must not claim retry-safety for create. Completion idempotency is covered by AC-007.",
+      "level": "medium"
+    }
+  ],
+  "leading_metrics": [
+    "First-pass contract compatibility; first-attempt criterion pass count; model build attempts."
+  ],
+  "non_functional_requirements": [
+    {
+      "category": "durability",
+      "id": "NFR-001",
+      "requirement": "A successful task acknowledgement remains observable after that process exits and another process opens the same store."
+    },
+    {
+      "category": "measurement",
+      "id": "NFR-002",
+      "requirement": "AC-013 runs ten strictly sequential creates, each process exiting before the next starts, in a fresh temporary store with fresh titles; then a new list process observes the stored records. Units are records missing after restart, threshold exactly zero, sample.minimum ten distinct valid acknowledgements. Concurrent creation is out of scope; do not test parallel writers. This is deterministic, not statistical AI quality or a latency claim."
+    },
+    {
+      "category": "execution",
+      "id": "NFR-003",
+      "requirement": "Standard-library CLI with no paid dependency. Execution limits, file-handoff provider and admitted weaker-isolation limitations are pinned in execution-profile.json."
+    }
+  ],
+  "north_star_metric": "Proposed outcome: share of approved task-management journeys completed with correct durable state and no manual repair. This one-feature experiment does not estimate representative platform delivery rate.",
+  "out_of_scope": [
+    "Concurrent creation and other concurrent writers; no parallel-writer tests. Deletion, editing titles, due dates, login, sync, HTTP APIs and databases.",
+    "Deduplicating repeated creates or guaranteeing idempotent create retries after an uncertain acknowledgement.",
+    "Crash during a write, power failure, network isolation guarantees, adversarial root containment, signing-authority repair and production-readiness claims."
+  ],
+  "problem": "A person needs a dependable local list of tasks whose completion state survives closing and reopening the CLI.",
+  "product_name": "Unapproved extension fixture",
+  "required_approvals": [
+    {
+      "for": "Owner requested one-line confirmation of the amended grid before freezing this exact DRAFT contract, acceptance grid, evaluator and digest manifest, then continuing to Phases 3 and 4. The previously proposed identifier, duplicate and repeated-completion rules are already approved.",
+      "role": "product-owner"
+    },
+    {
+      "for": "Renew approval for changes affecting artifact, evaluator or execution-profile meaning.",
+      "role": "product-owner"
+    }
+  ],
+  "scope": [
+    "Fixture only: echo a supplied greeting through a new action identifier."
+  ],
+  "scored_eval_rubric": [
+    {
+      "criterion": "Report functional evidence coverage as approved criteria with independently observed passing behavior divided by all fourteen criteria; this descriptive score cannot override any binary gate.",
+      "id": "RUB-001",
+      "scale": "0 through 14 passed criteria"
+    }
+  ],
+  "source_digest": "sha256:91f0dec4c12c6dd8221fd27c465839c80edb2567b6869c73b46cac542276f066",
+  "target_user": "A single person managing tasks on one machine through a CLI.",
+  "unresolved_questions": []
+}
