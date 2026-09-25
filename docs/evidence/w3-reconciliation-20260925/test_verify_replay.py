@@ -142,6 +142,24 @@ class VerifyReplayRegression(unittest.TestCase):
             with self.subTest(change=name):
                 self.refused(change, "publisher")
 
+    def test_retained_historical_input_claims_must_hold(self):
+        """The freeze and original-contract provenance must match the recorded run (Codex #231)."""
+        cases = {
+            "freeze-digest": {"historical_freeze_digest": "sha256:" + "0" * 64},
+            "artifacts-bound": {"historical_artifacts_bound": 217},
+            "contract-canonical": {"original_contract_canonical_digest": "sha256:" + "0" * 64},
+            "contract-raw": {"original_contract_raw_digest": "sha256:" + "0" * 64},
+            "extra-field": {"historical_engine": "forged"},
+        }
+        for label, change in cases.items():
+            with self.subTest(change=label):
+                self.refused(
+                    lambda replay, change=change: self.change_json(
+                        replay / "migration.json", lambda value: value.update(change)
+                    ),
+                    "migration.json",
+                )
+
     def test_exported_candidate_and_mutants_must_match_the_ledger(self):
         """The product and negative controls behind the verdicts are the bound ones (Codex)."""
         cases = {
