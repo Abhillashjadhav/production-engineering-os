@@ -11,7 +11,7 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +24,31 @@ SCHEMA_PATH = REPO_ROOT / "schemas" / "mvp_spec.schema.json"
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
 
 SpecMutator = Callable[[dict[str, Any]], None]
+
+
+def _cache_entries(prefix: str | None) -> list[str]:
+    if not prefix or not os.path.isdir(prefix):
+        return []
+    return sorted(os.listdir(prefix))
+
+
+@pytest.fixture(autouse=True)
+def _private_cache_prefix_stays_empty() -> Iterator[None]:
+    """Name the test whose child process writes bytecode into the startup cache prefix.
+
+    Gated runs admit only an empty startup prefix (source-only admission), and CI shares
+    one prefix across the whole test job. One polluting child would otherwise surface as
+    "bytecode prefix is not empty" in every later gated test.
+    """
+    prefix = os.environ.get("PYTHONPYCACHEPREFIX")
+    was_empty = not _cache_entries(prefix)
+    yield
+    written = _cache_entries(prefix)
+    if was_empty and written:
+        pytest.fail(
+            f"test wrote into the shared bytecode prefix {prefix}: {written[:3]}; "
+            "run child interpreters with -B and without PYTHONPYCACHEPREFIX"
+        )
 
 
 @pytest.fixture(scope="session")
