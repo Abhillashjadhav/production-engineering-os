@@ -169,7 +169,7 @@ def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
             "--chdir",
             "/",
             "--",
-            drift_eval.sys.executable,
+            sys.executable,
             "-I",
             "-B",
             "-S",
