@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/workspace/scratch/b6efdedb2992/pmos-parallel-20260925/provenance/docs/evidence/r4-parallel-20260925/provenance/verify_provenance.py", line 101, in <module>
+    main()
+  File "/workspace/scratch/b6efdedb2992/pmos-parallel-20260925/provenance/docs/evidence/r4-parallel-20260925/provenance/verify_provenance.py", line 40, in main
+    require(map_path.is_file(), "C7-01 direct provenance map is absent")
+  File "/workspace/scratch/b6efdedb2992/pmos-parallel-20260925/provenance/docs/evidence/r4-parallel-20260925/provenance/verify_provenance.py", line 23, in require
+    raise ValueError(message)
+ValueError: C7-01 direct provenance map is absent
