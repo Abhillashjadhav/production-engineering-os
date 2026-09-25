@@ -1,0 +1,44 @@
+{
+  "checked_on": "2026-09-25",
+  "method": "GitHub Git-data API GET; relevant-field projection",
+  "commits": {
+    "8be179fab325b78f170adf474057536d944b788c": {
+      "sha": "8be179fab325b78f170adf474057536d944b788c",
+      "tree": "537b78a0492328e2b29737db9b2763413eb11f38",
+      "parents": [
+        "e091917babec860aea7e789c00fd22e4ea2a43c9"
+      ],
+      "source_url": "https://api.github.com/repos/Abhillashjadhav/production-engineering-os/git/commits/8be179fab325b78f170adf474057536d944b788c",
+      "commit_url": "https://github.com/Abhillashjadhav/production-engineering-os/commit/8be179fab325b78f170adf474057536d944b788c"
+    },
+    "e091917babec860aea7e789c00fd22e4ea2a43c9": {
+      "sha": "e091917babec860aea7e789c00fd22e4ea2a43c9",
+      "tree": "460d443b7f5cae7585d6182db661c991193e7d38",
+      "parents": [
+        "fe08321d4e9123cdbac2182d42b761e64e3a56ea"
+      ],
+      "source_url": "https://api.github.com/repos/Abhillashjadhav/production-engineering-os/git/commits/e091917babec860aea7e789c00fd22e4ea2a43c9",
+      "commit_url": "https://github.com/Abhillashjadhav/production-engineering-os/commit/e091917babec860aea7e789c00fd22e4ea2a43c9"
+    }
+  },
+  "files": [
+    {
+      "path": "reviews/r3-process-gates/FINAL.json",
+      "ref": "524fee6f8ab7ab33d745d26b4c2ed63356d68e90",
+      "git_blob": "1762fccb2005edf7e833000223573c7ea559b88a",
+      "source_url": "https://github.com/Abhillashjadhav/production-engineering-os/blob/524fee6f8ab7ab33d745d26b4c2ed63356d68e90/reviews/r3-process-gates/FINAL.json"
+    },
+    {
+      "path": "docs/evidence/r3-repair-20260924/final-publication.json",
+      "ref": "4c7f3ea0e1f72decfc7c5ecbae4fd84e5cebef9a",
+      "git_blob": "e1ce12e0541eae075bdf088db46025fd4e070a7b",
+      "source_url": "https://github.com/Abhillashjadhav/production-engineering-os/blob/4c7f3ea0e1f72decfc7c5ecbae4fd84e5cebef9a/docs/evidence/r3-repair-20260924/final-publication.json"
+    }
+  ],
+  "direct_local_sha_lookup": {
+    "sha": "733a409d5b0a72f7ad0550db974f70623e259992",
+    "status": 422,
+    "message": "No commit found for SHA",
+    "scope": "The local SHA itself does not resolve remotely; this does not negate the verified equivalent-tree public commit."
+  }
+}
