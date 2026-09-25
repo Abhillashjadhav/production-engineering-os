@@ -384,3 +384,16 @@ def test_unmaterializable_paths_are_refused_at_load(tmp_path: Path, where: str) 
         (control / "bad name.py").write_text("# never materialized\n")
     with pytest.raises(BundleError, match="path"):
         load(bundle, digest)
+
+
+@pytest.mark.parametrize("name", ["engine/barebones.py", "approval/contract", "protected/x"])
+def test_reserved_source_names_are_refused(tmp_path: Path, name: str) -> None:
+    """Codex #228 P1: a bundle source may not shadow an engine or evidence namespace."""
+    from pmpe.approved_bundle import BundleError
+
+    bundle, digest, *_ = write_bundle(tmp_path)
+    manifest = json.loads((bundle / "bundle.json").read_text())
+    manifest["source_paths"][name] = {"root": "repository", "path": "src/pmpe/barebones.py"}
+    (bundle / "bundle.json").write_text(json.dumps(manifest))
+    with pytest.raises(BundleError, match="reserved"):
+        load(bundle, digest)
