@@ -268,6 +268,46 @@ class ReplayCheckerRegression(unittest.TestCase):
 
         self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
 
+    def change_json(self, root, filename, change):
+        path = root / filename
+        value = json.loads(path.read_text())
+        change(value)
+        path.write_text(json.dumps(value, indent=2) + "\n")
+
+    def test_incompatible_or_reprofiled_report_rejected(self):
+        """The adapter aborts before any execution when compatibility is false."""
+        changes = {
+            "incompatible": lambda value: value.update(compatible=False),
+            "reasons": lambda value: value.update(reasons=["runtime changed"]),
+            "profile": lambda value: value.update(profile_digest="sha256:" + "0" * 64),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_json(
+                        root, "compatibility.json", change
+                    ),
+                )
+
+    def test_recorded_invocation_differs_from_launch_rejected(self):
+        """execution-source.json must repeat the pinned launch command after the interpreter."""
+        changes = {
+            "build": lambda value: value["argv"].__setitem__(1, "build"),
+            "no-fallback": lambda value: value["argv"].remove("--authorized-host-fallback"),
+            "other-candidate": lambda value: value["argv"].__setitem__(
+                value["argv"].index("--candidate") + 1, "elsewhere/candidate"
+            ),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_json(
+                        root, "execution-source.json", change
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
