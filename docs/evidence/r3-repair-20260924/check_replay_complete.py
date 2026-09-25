@@ -19,6 +19,9 @@ import rfc8785
 FREEZE = "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
 # replay-commands.json as published with the historical engine at c1ab2def (#210).
 LAUNCH_RECORD = "sha256:b7f352715dcb194067147d16da7ba2b99c574f369f0fa5d0dbb9114d9c5ad99c"
+# examples/barebones/contract-file.py as published with the historical engine at c1ab2def;
+# it is outside the 218-artifact freeze, so it is pinned here independently.
+ADAPTER = "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387"
 PRODUCT_EXIT_CODES = frozenset({0, 1, 2})
 INTERPRETER = re.compile(r"python3?(\.[0-9]+)?")
 EXPECTED_FAILURES = {
@@ -192,6 +195,15 @@ def frozen_output_limit(source, entry_relative):
     raise ValueError("frozen adapter output limit not found")
 
 
+def min_captured_bytes(text):
+    """Fewest raw bytes that decode (errors="replace") to ``text``.
+
+    Every character re-encodes to its own UTF-8 bytes, except that U+FFFD may stand
+    for a single invalid byte, so each one can account for as little as one byte.
+    """
+    return len(text.encode("utf-8")) - 2 * text.count("\ufffd")
+
+
 # HostExecution.run adds exit_code/stdout/stderr only after success and "error" only
 # from its exception branch, so a successful record has exactly these keys.
 SUCCESS_RECORD_KEYS = frozenset(
@@ -242,9 +254,22 @@ def check(directory, packet, source, case):
     # The command entry is a later adapter, outside the original freeze.
     entry_relative = "examples/barebones/contract-file.py"
     entry_hash = raw((source / entry_relative).read_bytes())
+    require(entry_hash == ADAPTER, "supplied adapter differs from the pinned historical adapter")
     execution = read(root / "execution-source.json")
+    kinds = {
+        value.value
+        for node in ast.walk(ast.parse((source / entry_relative).read_text()))
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and key.value == "kind" and isinstance(value, ast.Constant)
+    }
+    require(len(kinds) == 1, "pinned adapter execution-source kind is ambiguous")
     require(
-        execution["entry_digest"] == entry_hash and execution["freeze_digest"] == FREEZE,
+        isinstance(execution, dict)
+        and set(execution) == {"argv", "entry_digest", "freeze_digest", "kind"}
+        and execution["kind"] in kinds
+        and execution["entry_digest"] == entry_hash
+        and execution["freeze_digest"] == FREEZE,
         "execution source binding mismatch",
     )
     recorded_roots, recorded_packet = recorded_paths(execution["argv"])
@@ -325,6 +350,11 @@ def check(directory, packet, source, case):
             "compatibility report is not the frozen profile's compatible report",
         )
         result = read(root / "result.json")
+        # contract-file.py's verify flow writes exactly these two fields.
+        require(
+            isinstance(result, dict) and set(result) == {"criteria", "findings"},
+            "result.json has fields the adapter does not write",
+        )
         ids = [c.criterion_id for c in plan.criteria]
         require(ids == [f"AC-{i:03d}" for i in range(1, 15)], "criterion coverage")
         observations, processes = rows(root / "digest-checks.jsonl"), rows(root / "processes.jsonl")
@@ -336,6 +366,24 @@ def check(directory, packet, source, case):
             "boundary sequence incomplete",
         )
         require([p["criterion_id"] for p in processes] == ids, "process coverage incomplete")
+        # DigestGuard.check writes exactly these fields, with a list of mismatches.
+        require(
+            all(
+                isinstance(o, dict)
+                and set(o)
+                == {
+                    "stage",
+                    "subject",
+                    "checked",
+                    "expected_inventory_digest",
+                    "observed_inventory_digest",
+                    "mismatches",
+                }
+                and isinstance(o["mismatches"], list)
+                for o in observations
+            ),
+            "digest observation is not one DigestGuard.check writes",
+        )
         mismatch_count = sum(len(o["mismatches"]) for o in observations)
         require(mismatch_count == 0, "recorded digest mismatches")
         inventory_mismatches = 0
@@ -448,21 +496,27 @@ def check(directory, packet, source, case):
                 process.get("timeout_seconds") == timeout and process.get("mode") == mode,
                 "observer timeout or execution mode differs from the frozen engine",
             )
-            # Each captured byte decodes to at most one character, so more characters
-            # than LIMIT means the adapter would have refused the output.
+            # The adapter caps captured bytes; min_captured_bytes is a lower bound on them.
             elapsed = process.get("elapsed_ms")
             require(
                 set(process) == SUCCESS_RECORD_KEYS
                 and type(elapsed) is float
                 and 0.0 <= elapsed < float("inf")
                 and isinstance(process["stdout"], str)
-                and len(process["stdout"]) <= limit
+                and min_captured_bytes(process["stdout"]) <= limit
                 and isinstance(process["stderr"], str)
-                and len(process["stderr"]) <= limit,
+                and min_captured_bytes(process["stderr"]) <= limit,
                 "process record is not one the adapter's success path emits",
             )
             value = decode(process["stdout"])
             canonical(value)
+            # The frozen runner prints json.dumps(v, sort_keys=True, separators=(",", ":"))
+            # once, so a successful record's stdout is exactly that line.
+            require(
+                process["stdout"]
+                == json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n",
+                "observer stdout is not the frozen runner's serialization",
+            )
             require(not crash_marker(value), "observer crash/timeout marker")
             if criterion.form == "measure":
                 target = template.measures[criterion.measure]
@@ -484,7 +538,8 @@ def check(directory, packet, source, case):
                 ) and all(_assertion_passes(x, {"result": value}) for x in criterion.then)
             require(
                 argv[-3:-1] == target.split(":")
-                and canonical(decode(argv[-1])) == canonical(arguments),
+                # _run_action passes json.dumps(arguments) verbatim as the last argument.
+                and argv[-1] == json.dumps(arguments),
                 "observer target or arguments differ",
             )
             # The host fallback rewrites only the '/workspace' constant of the engine runner.
