@@ -409,6 +409,19 @@ class ReplayCheckerRegression(unittest.TestCase):
                     ),
                 )
 
+    def test_reformatted_action_argument_rejected(self):
+        """The frozen engine passes arguments as the exact output of json.dumps(arguments)."""
+
+        def change(rows):
+            for row in rows:
+                if row["argv"][-1] != "{}":
+                    value = json.loads(row["argv"][-1])
+                    row["argv"][-1] = json.dumps(value, separators=(",", ":"))
+                    return
+            raise AssertionError("no record with non-empty arguments")
+
+        self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
+
 
 if __name__ == "__main__":
     unittest.main()
