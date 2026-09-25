@@ -1,11 +1,13 @@
 # W3 — proof reconciliation on the repaired source (2026-09-25)
 
-Source under test: the W2 head `cecf9e93e64a8aa95faf2c8b8ed2eadfff2d5e36`. It contains:
+Source under test: the W2 head `1b680fff5cc3f5aaa58c7e21cd12ce8bcd75510c` (#227). It contains:
 - the R4 process line `ccabeecc`
 - W1a/W1b (#222, #223)
 - the checker and contract-file line (#221, merged in #226)
 - W2 source-only admission (#227)
-- the fixes from today's review: #225, #229, and per-gate negative-control scoping
+- the fixes from today's review: #225, #229, per-gate negative-control scoping, the protected-inventory binding, and checker round 3 (interpreter bound to the launch record)
+
+The first version of this evidence ran on `cecf9e9`, before the protected-inventory binding. It was refreshed on `1b680ff`: criteria, gate statuses and reasons, record counts and the scanner result are unchanged, and only the source-bound digests differ.
 
 Historical inputs are unchanged: the PM-agent-OS packet at `33a35962` (`reviews/task-tracker-v1`, 218-artifact freeze) and the historical PEOS engine at `c1ab2def189f`. This unit adds evidence only; no source or frozen artifact changes.
 
