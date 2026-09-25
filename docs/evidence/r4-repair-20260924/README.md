@@ -23,8 +23,10 @@ Exact commands, source identities and exits are in `resume-validation.json`. The
 | --- | --- |
 | PEOS admission and retained reader | [297a11d](https://github.com/Abhillashjadhav/production-engineering-os/commit/297a11d79e5d1e1eda1f8f94b7bec3046c41a0d6) |
 | PEOS integrated process gates | [ccabeec](https://github.com/Abhillashjadhav/production-engineering-os/commit/ccabeecc7346dffa7354e88c1deec53b1674428a) |
-| Historical replay checker | [39a9cf8](https://github.com/Abhillashjadhav/production-engineering-os/commit/39a9cf8f0d01dc3debd43c79e6a393695e27a1e0) |
+| Historical replay checker (pre-review publication, superseded below) | [39a9cf8](https://github.com/Abhillashjadhav/production-engineering-os/commit/39a9cf8f0d01dc3debd43c79e6a393695e27a1e0) |
 | PMOS handoff, dependency pin and guidance | [c954693](https://github.com/Abhillashjadhav/PM-agent-OS/commit/c95469338b64f22edcd9d260246e3c9186b0d302) |
+
+The final checker is **not** `39a9cf8`: the Codex review rounds of 2026-09-25 changed it on this branch (#221). Review the checker at this PR's head; each round's RED and GREEN runs are in `codex-review-20260925/`. `39a9cf8` remains the historical publication the table records.
 
 Local/public tree identities and test-before-repair histories are preserved in the publication maps. Review-only branches retain these commits without using PR-triggered CI to relocate the blocked checks.
 

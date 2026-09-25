@@ -1,0 +1,4 @@
+# base 613563a + test only (Codex #227 P1: entries in the cache prefix)
+FAILED tests/unit/test_process_source_only_admission.py::test_any_entry_in_startup_cache_prefix_is_refused[directory-symlink]
+FAILED tests/unit/test_process_source_only_admission.py::test_any_entry_in_startup_cache_prefix_is_refused[empty-directory]
+2 failed, 1 passed, 13 deselected in 1.78s

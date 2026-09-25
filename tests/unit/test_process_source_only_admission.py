@@ -183,3 +183,63 @@ def test_relative_startup_cache_prefix_is_refused(tmp_path: Path) -> None:
     result = run_probe(tmp_path, ["-B", "-X", "pycache_prefix=relative-cache"])
     assert result.returncode == 3, result.stdout + result.stderr
     assert "absolute" in result.stdout
+
+
+@pytest.mark.parametrize("entry", ["directory-symlink", "empty-directory", "file-symlink"])
+def test_any_entry_in_startup_cache_prefix_is_refused(tmp_path: Path, entry: str) -> None:
+    """CPython follows directory symlinks in the parallel cache tree; rglob files do not
+    see through them, so a supposedly empty prefix must hold no entry at all (Codex #227 P1).
+    """
+    prefix = empty_prefix(tmp_path)
+    outside = tmp_path / "outside-cache"
+    outside.mkdir()
+    (outside / "stale.pyc").write_bytes(b"inert cache-presence marker; never executed")
+    if entry == "directory-symlink":
+        (prefix / "usr").symlink_to(outside, target_is_directory=True)
+    elif entry == "empty-directory":
+        (prefix / "usr").mkdir()
+    else:
+        (prefix / "stale.pyc").symlink_to(outside / "stale.pyc")
+    result = run_probe(tmp_path, ["-B", "-X", f"pycache_prefix={prefix}"])
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "not empty" in result.stdout
+
+
+@pytest.mark.skipif(not Path("/proc/self/cmdline").exists(), reason="needs /proc startup records")
+@pytest.mark.parametrize("forged", ["environment", "xoption"])
+def test_prefix_forged_after_startup_is_refused(tmp_path: Path, forged: str) -> None:
+    """Runtime edits to os.environ or sys._xoptions are not startup evidence (Codex #227 P1)."""
+    runtime_prefix = empty_prefix(tmp_path, "runtime-cache")
+    if forged == "environment":
+        forge = f"import os; os.environ['PYTHONPYCACHEPREFIX'] = {str(runtime_prefix)!r}"
+    else:
+        forge = f"sys._xoptions['pycache_prefix'] = {str(runtime_prefix)!r}"
+    result = run_probe(
+        tmp_path,
+        ["-B"],
+        pre=forge + f"\nsys.pycache_prefix = {str(runtime_prefix)!r}",
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "source-only" in result.stdout
+
+
+def test_environment_prefix_fixed_at_startup_is_admitted(tmp_path: Path) -> None:
+    prefix = empty_prefix(tmp_path)
+    adapter = tmp_path / "adapter" / "runner.py"
+    adapter.parent.mkdir(exist_ok=True)
+    adapter.write_text("# exact adapter source; never imported\n")
+    environment = {key: value for key, value in os.environ.items() if key not in {"PYTHONPATH"}}
+    environment.update(
+        PYTHONPATH=str(ROOT / "src"), PYTHONDONTWRITEBYTECODE="1", PYTHONPYCACHEPREFIX=str(prefix)
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", PROBE.format(pre="", adapter=str(adapter))],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ADMITTED" in result.stdout
