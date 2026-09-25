@@ -368,6 +368,13 @@ class ReplayCheckerRegression(unittest.TestCase):
 
         self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
 
+    def test_extra_result_field_rejected(self):
+        """The adapter's verify flow writes result.json with exactly criteria and findings."""
+        self.mutate(
+            "persistence",
+            lambda root: self.change_json(root, "result.json", lambda v: v.update(cause="PASS")),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
