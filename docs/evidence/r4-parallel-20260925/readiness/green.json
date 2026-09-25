@@ -1,0 +1,14 @@
+{
+  "command": "python3 -B docs/evidence/r4-parallel-20260925/readiness/verify_static.py --process /workspace/scratch/f9ac546f3a50/r4-20260924/peos-process --pmos /workspace/scratch/b6efdedb2992/pmos-r4-resume/pmos-runtime-worktree --historical /workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof",
+  "exit_code": 0,
+  "result": {
+    "status": "PASS",
+    "scope": "static source and saved-report consistency only",
+    "product_code_imported": false,
+    "fresh_model_calls": 0,
+    "adversarial_execution": false
+  },
+  "source_files_hashed": 17,
+  "red_commit": "33338c3",
+  "limitation": "This checks the report, not runtime correctness or release readiness. The two screening-stopped final adversarial rechecks remain UNVERIFIED."
+}

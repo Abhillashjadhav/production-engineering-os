@@ -1,0 +1,135 @@
+{
+  "actions": {
+    "approval_created": false,
+    "fresh_model_calls": 0,
+    "frozen_v1_modified": false,
+    "product_code_imported": false,
+    "provider_invocations": 0,
+    "remote_writes": false,
+    "security_probes_executed": false
+  },
+  "assessment_date": "2026-09-25",
+  "entrypoints": {
+    "default_cli_supplies_process_inputs": false,
+    "fresh_approved_invocation_ready": false,
+    "migration": "DRAFT plus optional retained replay only"
+  },
+  "existing_access": {
+    "command_provider": "JSON subprocess transport; no verified per-invocation model provenance",
+    "paid_api_required": "NOT_ESTABLISHED",
+    "service_capability_checked": false,
+    "session_file_handoff": "local request-response records; no independent invocation authentication",
+    "subscription_cli_example": "retains adapted result, labels and usage; does not expose independently verifiable call proof to PEOS",
+    "verifiable_provenance_capability": "UNESTABLISHED"
+  },
+  "gate003": {
+    "needed": [
+      "exact owner-approved draft",
+      "approved contract and receipt",
+      "approved-contract compiled plan",
+      "publisher input",
+      "source manifest",
+      "exact mutant artifacts",
+      "outer freeze with externally retained expected digest"
+    ],
+    "owner_authenticated": false,
+    "pass_path_implemented": true,
+    "reason": "APPROVAL_PACKET_NOT_BOUND",
+    "saved_status": "NOT_EVALUATED"
+  },
+  "gate004": {
+    "approval_alone_unblocks": false,
+    "freshness_verified": false,
+    "pass_reachable": false,
+    "reachable_statuses": [
+      "FAIL",
+      "NOT_EVALUATED"
+    ],
+    "retained_pass_accepted": false
+  },
+  "observed_product_criteria": {
+    "basis": "Existing R4 README; no product re-execution in this assessment",
+    "passed": 14,
+    "total": 14
+  },
+  "observed_replay": {
+    "approval": {
+      "status": "UNVERIFIED_DIRECT_CALL"
+    },
+    "digest_boundaries": 117,
+    "fresh_model_calls": 0,
+    "gates": {
+      "GATE-001": "PASS",
+      "GATE-002": "PASS",
+      "GATE-003": "NOT_EVALUATED",
+      "GATE-004": "NOT_EVALUATED",
+      "GATE-005": "PASS"
+    },
+    "process_records": 56,
+    "state": "HALTED"
+  },
+  "owner_decision": {
+    "alternative": "Defer fresh delivery; complete only independently established source/replay review with incomplete delivery explicit.",
+    "api_spend_requested": false,
+    "attestation_pass_proposed": false,
+    "exact_contract_approval": "Separate later decision after final implementation and regenerated source-bound draft.",
+    "provider_choice_requested": false,
+    "recommended": "Authorize bounded freshness-verification design using existing subscription/command access only if independently verifiable per-invocation evidence is available; preserve GATE-004 and block delivery otherwise.",
+    "status": "UNAPPROVED"
+  },
+  "schema_version": 1,
+  "scope": "Static exact-source inspection and existing retained summary; no product execution",
+  "screening_stopped_checks": {
+    "active_external_cache": "UNVERIFIED",
+    "retained_context_binding": "UNVERIFIED"
+  },
+  "sequence": [
+    "parallel architecture and freshness workstreams after their separate decisions; internal dependencies sequential",
+    "freshness capability, implementation and review required before fresh delivery",
+    "integrate required implementations and complete permitted final-source review",
+    "regenerate exact source-bound draft",
+    "owner approval of exact final draft",
+    "publish approved artifacts and recompile approved plan",
+    "outer freeze and independent anchor",
+    "fresh bounded generation and sequential criterion evaluation",
+    "retained inspection and separate delivery verdict"
+  ],
+  "sources": {
+    "historical": {
+      "commit": "4d4a9afdc8a5a75b28fce10499ec5ff405b1b60d",
+      "files": {
+        "examples/barebones/codex-cli-provider.py": "98efcf27edaa6bf0ca4c8b3b45790df81b63d2bded5f8f6f381504c4e9871427",
+        "examples/barebones/session-file-provider.py": "ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6"
+      },
+      "tree": "ab13172635a9cf4bb94bceb6e95d338523f9d922"
+    },
+    "peos": {
+      "commit": "c67716638731ba3be4ceeab20be6e6fdee631fd3",
+      "files": {
+        "scripts/r3_task_store_migration.py": "2ab77b25bdbb642ae945c13a7c95bf068f52b5bed997a5b4faf8ddd929ac2185",
+        "src/pmpe/barebones.py": "d96b0bbb02bbbb647f7b652b14def71f2596d8dea677ce72a694980abae4bddc",
+        "src/pmpe/cli/barebones_cmd.py": "cd924f504d76b8cfa046343eabe13506b452b6fda01d8f4466256dd05bf949e0",
+        "src/pmpe/contracts/authoring.py": "0c43963cbe41edb7e36dc5d9c4bdea7948099a13290507a4d8548c16d1248b80",
+        "src/pmpe/contracts/process_gate_bindings.py": "3d59e93cf521f63c3ba8996b602c5bb21b089eb25fe0ca1df0f5ecede506ccbc",
+        "src/pmpe/evidence/process_gate_validation.py": "df3a7fc19a5bab03537c267e08078441e15055ddf8115e05926fee422b7d3e75",
+        "src/pmpe/evidence/release_gates.py": "327c6dc2bc202a9cfa59afb7260fa972ebf72345e0d308483852a454f615f8cc",
+        "src/pmpe/process_approval.py": "6dc95e366b3402907455d4b6c0c1cab1758ca40a5be29d489a4e871b80c082d4",
+        "src/pmpe/process_evaluators.py": "49e5a09b41a9498524114ac47bf0c2cf9819917ce50e3b8597083d6bffb1496b",
+        "src/pmpe/process_gate_inputs.py": "ac57169de4d984ab4c49408600bfb0e5c8b20c03485a3cc09062bd72ac134e01",
+        "src/pmpe/process_gates.py": "10869c9455069399f85b46b0b03e702ef6fd998d16fed0be6a9114bce66bafcd",
+        "src/pmpe/process_sources.py": "417d49a505e0bb303421dea273b18e1474dd4e1acfbb0b41c1d1a2844e419359",
+        "src/pmpe/release_gates.py": "9dae6321a93eeb53b5776e31375cae01233fc8457b3b02e3651cd62eaa1d81d0"
+      },
+      "tree": "872e53b7cb05bace2d825dca47ea7e27f78c7cf0"
+    },
+    "pmos": {
+      "commit": "639875203503ae5c9f15e2ff0f7f8317c788e5a1",
+      "files": {
+        "tests/decision-to-contract/fixtures.md": "f42fe5d19fde48207a02f2b91661672a484154830c971a4c2dd5a6e608c88439",
+        "tests/decision-to-contract/validate_contract.py": "ae906e23ae655a56bac1644dff034772023508cec27649a0b0630d44567b8e0e"
+      },
+      "tree": "1ff086e93938ffa048b93fa7a258aff37bcd0c6d"
+    }
+  },
+  "status": "BLOCKED"
+}
