@@ -1,0 +1,747 @@
+{
+  "as_of": "2026-09-24T06:42:37.742Z",
+  "scope": "Confirmed external-review engineering repairs and retained task-store replay; no PR merge/deployment or global readiness claim",
+  "prs": [
+    {
+      "unit": "peos-gates",
+      "repo": "Abhillashjadhav/production-engineering-os",
+      "number": 209,
+      "head": "5ccc46ce220092451032397cd7a951a0e8d163e0",
+      "expected": "5ccc46ce220092451032397cd7a951a0e8d163e0",
+      "base": "main",
+      "draft": true,
+      "merged": false,
+      "changed_files": 19,
+      "url": "https://github.com/Abhillashjadhav/production-engineering-os/pull/209",
+      "checks": [
+        {
+          "id": 107519170128,
+          "name": "security",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/runs/107519170128"
+        },
+        {
+          "id": 107519150734,
+          "name": "trusted-security-runner",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963947092/job/107519150734"
+        },
+        {
+          "id": 107518309926,
+          "name": "trusted-security-runner",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963949340/job/107518309926"
+        },
+        {
+          "id": 107518302796,
+          "name": "tests (3.11)",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302796"
+        },
+        {
+          "id": 107518302777,
+          "name": "build-smoke",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302777"
+        },
+        {
+          "id": 107518302767,
+          "name": "product-backend (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302767"
+        },
+        {
+          "id": 107518302764,
+          "name": "tests (3.12)",
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302764"
+        },
+        {
+          "id": 107518302752,
+          "name": "security-static",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302752"
+        },
+        {
+          "id": 107518302735,
+          "name": "product-frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302735"
+        },
+        {
+          "id": 107518302731,
+          "name": "product-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302731"
+        },
+        {
+          "id": 107518302726,
+          "name": "format-lint",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302726"
+        },
+        {
+          "id": 107518302724,
+          "name": "candidate-isolation (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302724"
+        },
+        {
+          "id": 107518302693,
+          "name": "types",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302693"
+        },
+        {
+          "id": 107518302684,
+          "name": "product-preview",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302684"
+        },
+        {
+          "id": 107518302637,
+          "name": "product-backend (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302637"
+        },
+        {
+          "id": 107518302542,
+          "name": "candidate-isolation (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963948705/job/107518302542"
+        },
+        {
+          "id": 107518298486,
+          "name": "review",
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963947124/job/107518298486"
+        }
+      ]
+    },
+    {
+      "unit": "peos-loopback",
+      "repo": "Abhillashjadhav/production-engineering-os",
+      "number": 208,
+      "head": "7b754b77635f8529d644f4777060cdb2258770ff",
+      "expected": "7b754b77635f8529d644f4777060cdb2258770ff",
+      "base": "main",
+      "draft": true,
+      "merged": false,
+      "changed_files": 12,
+      "url": "https://github.com/Abhillashjadhav/production-engineering-os/pull/208",
+      "checks": [
+        {
+          "id": 107514503485,
+          "name": "security",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/runs/107514503485"
+        },
+        {
+          "id": 107514490186,
+          "name": "trusted-security-runner",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701484/job/107514490186"
+        },
+        {
+          "id": 107514489316,
+          "name": "review",
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701524/job/107514489316"
+        },
+        {
+          "id": 107514488965,
+          "name": "product-backend (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488965"
+        },
+        {
+          "id": 107514488940,
+          "name": "product-backend (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488940"
+        },
+        {
+          "id": 107514488927,
+          "name": "candidate-isolation (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488927"
+        },
+        {
+          "id": 107514488923,
+          "name": "product-frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488923"
+        },
+        {
+          "id": 107514488916,
+          "name": "security-static",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488916"
+        },
+        {
+          "id": 107514488911,
+          "name": "product-preview",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488911"
+        },
+        {
+          "id": 107514488906,
+          "name": "build-smoke",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488906"
+        },
+        {
+          "id": 107514488893,
+          "name": "product-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488893"
+        },
+        {
+          "id": 107514488869,
+          "name": "candidate-isolation (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488869"
+        },
+        {
+          "id": 107514488864,
+          "name": "tests (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488864"
+        },
+        {
+          "id": 107514488827,
+          "name": "types",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488827"
+        },
+        {
+          "id": 107514488802,
+          "name": "tests (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488802"
+        },
+        {
+          "id": 107514488742,
+          "name": "format-lint",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701491/job/107514488742"
+        },
+        {
+          "id": 107514488075,
+          "name": "completed-run-connection",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35962701458/job/107514488075"
+        }
+      ]
+    },
+    {
+      "unit": "aipm-runtime",
+      "repo": "Abhillashjadhav/AI-PM-essential-skills",
+      "number": 64,
+      "head": "155bc180a33b5917808f472718484a23beafac63",
+      "expected": "155bc180a33b5917808f472718484a23beafac63",
+      "base": "fix/aipm-json-membership-20260923",
+      "draft": true,
+      "merged": false,
+      "changed_files": 15,
+      "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/pull/64",
+      "checks": [
+        {
+          "id": 107516403201,
+          "name": "OPTIONAL Claude review",
+          "status": "completed",
+          "conclusion": "skipped",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963314455/job/107516403201"
+        },
+        {
+          "id": 107516348116,
+          "name": "validate",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963314451/job/107516348116"
+        },
+        {
+          "id": 107516348099,
+          "name": "Deterministic required checks",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963314455/job/107516348099"
+        },
+        {
+          "id": 107516347897,
+          "name": "public-quickstarts",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963314505/job/107516347897"
+        },
+        {
+          "id": 107516347860,
+          "name": "test",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963314488/job/107516347860"
+        },
+        {
+          "id": 107516264367,
+          "name": "test",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963288533/job/107516264367"
+        }
+      ]
+    },
+    {
+      "unit": "aipm-docs",
+      "repo": "Abhillashjadhav/AI-PM-essential-skills",
+      "number": 65,
+      "head": "e17a6c3e060120cc5fe92db7d95ef5de24f8fb8c",
+      "expected": "e17a6c3e060120cc5fe92db7d95ef5de24f8fb8c",
+      "base": "codex/pdc-repository-pilot-runtime",
+      "draft": true,
+      "merged": false,
+      "changed_files": 2,
+      "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/pull/65",
+      "checks": [
+        {
+          "id": 107516531455,
+          "name": "OPTIONAL Claude review",
+          "status": "completed",
+          "conclusion": "skipped",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963359438/job/107516531455"
+        },
+        {
+          "id": 107516481569,
+          "name": "test",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963359468/job/107516481569"
+        },
+        {
+          "id": 107516481472,
+          "name": "Deterministic required checks",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963359438/job/107516481472"
+        },
+        {
+          "id": 107516481041,
+          "name": "validate",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963359486/job/107516481041"
+        },
+        {
+          "id": 107516480912,
+          "name": "public-quickstarts",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963359430/job/107516480912"
+        },
+        {
+          "id": 107516473036,
+          "name": "test",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/actions/runs/35963356668/job/107516473036"
+        }
+      ]
+    },
+    {
+      "unit": "pmos-runtime",
+      "repo": "Abhillashjadhav/PM-agent-OS",
+      "number": 63,
+      "head": "0b6bd55152efc918f9a042fc898e961dcf527b96",
+      "expected": "0b6bd55152efc918f9a042fc898e961dcf527b96",
+      "base": "main",
+      "draft": true,
+      "merged": false,
+      "changed_files": 42,
+      "url": "https://github.com/Abhillashjadhav/PM-agent-OS/pull/63",
+      "checks": [
+        {
+          "id": 107518663635,
+          "name": "Deterministic PR quality gate",
+          "status": "completed",
+          "conclusion": "skipped",
+          "url": "https://github.com/Abhillashjadhav/PM-agent-OS/actions/runs/35964066202/job/107518663635"
+        },
+        {
+          "id": 107518662733,
+          "name": "current-handoff",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/PM-agent-OS/actions/runs/35964066193/job/107518662733"
+        },
+        {
+          "id": 107518662585,
+          "name": "audit",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/PM-agent-OS/actions/runs/35964066193/job/107518662585"
+        },
+        {
+          "id": 107518662339,
+          "name": "public-quickstart",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/PM-agent-OS/actions/runs/35964066185/job/107518662339"
+        }
+      ]
+    },
+    {
+      "unit": "pmos-docs",
+      "repo": "Abhillashjadhav/PM-agent-OS",
+      "number": 64,
+      "head": "f7c1f41289e37690fc196dc7082991afe4e74d94",
+      "expected": "f7c1f41289e37690fc196dc7082991afe4e74d94",
+      "base": "fix/current-peos-handoff-20260924",
+      "draft": true,
+      "merged": false,
+      "changed_files": 4,
+      "url": "https://github.com/Abhillashjadhav/PM-agent-OS/pull/64",
+      "checks": [
+        {
+          "id": 107518680726,
+          "name": "Deterministic PR quality gate",
+          "status": "completed",
+          "conclusion": "skipped",
+          "url": "https://github.com/Abhillashjadhav/PM-agent-OS/actions/runs/35964071789/job/107518680726"
+        },
+        {
+          "id": 107518679400,
+          "name": "audit",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/PM-agent-OS/actions/runs/35964071822/job/107518679400"
+        },
+        {
+          "id": 107518679166,
+          "name": "current-handoff",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/PM-agent-OS/actions/runs/35964071822/job/107518679166"
+        },
+        {
+          "id": 107518679088,
+          "name": "public-quickstart",
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/Abhillashjadhav/PM-agent-OS/actions/runs/35964071847/job/107518679088"
+        }
+      ]
+    }
+  ],
+  "tested_local_trees": {
+    "peos_combined": "046017d372b995c391657fb115378b9c1b859eb0",
+    "peos_gate": "6d481cd6245f7742111cc6d88ecbb17b607dae89",
+    "peos_loopback": "fc7c36e3f442514956694c57d075f9f3596422a5",
+    "aipm_runtime": "166e242dd98f78a0076712a060b7987e037c2924",
+    "aipm_docs": "eb96efd4d4e42cc2ebf82e8387df54ba9b5ab1ee",
+    "pmos_runtime": "66432bddf807c295a5e78d03ce1f58e5d597bb11",
+    "pmos_docs": "a55a67e323cc532234c225e4c34a1298ba2c34ee"
+  },
+  "commit_mappings": {
+    "peos_gate": [
+      {
+        "local": "1b807a68dd2020bcabad0c5cfd649c236f602219",
+        "remote": "6863831a1e829fe88f358af8d62af18a58bade95",
+        "tree": "f45ccf854e9a16d39a282a5f14fdefbc30e8eda4",
+        "files": 4
+      },
+      {
+        "local": "91383de192b6483d721e4573d92634e8a8b645c6",
+        "remote": "85358d5130700315a513640524f64837ae4bd1e9",
+        "tree": "4f1bd0babc90f25ed7c5feff4ca93762d97e23fd",
+        "files": 10
+      },
+      {
+        "local": "417b0a01f8b402890813bc93b68e23d1a5563381",
+        "remote": "c26d3b8b3ba10500b6a99c124542d975c1e43575",
+        "tree": "7a2ef8d8a204910733bec14bb069e9ad925757cd",
+        "files": 2
+      },
+      {
+        "local": "aacfde34088abc425fb6d467cba388e5d54852de",
+        "remote": "b1d1fa7c86d016d518005368c96a07f44e881fbc",
+        "tree": "be48f33c466b6f0f2f50658d4a1c17764038dc92",
+        "files": 3
+      },
+      {
+        "local": "f18395a3edb53d7c450fc87660e55b1dc1ce073b",
+        "remote": "5ccc46ce220092451032397cd7a951a0e8d163e0",
+        "tree": "6d481cd6245f7742111cc6d88ecbb17b607dae89",
+        "files": 6
+      }
+    ],
+    "peos_loopback": [
+      {
+        "local": "d151a5edeb211e45f1b063c7e27cfb69ae8af92f",
+        "remote": "717cae0e92a67282b27f49354308e917ea9bbb33",
+        "tree": "0d34c2ff22968091bc3197d55194abf5d73bbc1c"
+      },
+      {
+        "local": "a925dcffa36cf171e4917ac9e089d1b6bdb85ff3",
+        "remote": "633b040b6cd8d6eddb86ebcf2cef6f3540fd6f44",
+        "tree": "0b098c3cbd5ee9cea579e0fa9b6ae5d9735b21d7"
+      },
+      {
+        "local": "22838d489d52854daa8788b2345301adc4853cce",
+        "remote": "7b754b77635f8529d644f4777060cdb2258770ff",
+        "tree": "fc7c36e3f442514956694c57d075f9f3596422a5"
+      }
+    ],
+    "aipm_runtime": [
+      {
+        "local": "bb2d33e5b97af512533cbc6f3a77f31e343fc0e1",
+        "remote": "0f93d89f9f42e62ea0abeae3af0a596258a7340f",
+        "tree": "dcf1b16d599fb2f69ea93df023139a363c14b315",
+        "files": 1
+      },
+      {
+        "local": "ba7e8683c7257253eb2a0e88f29d464acdb1be7d",
+        "remote": "fa2086b93897e506c1251f0fd8843e1ce89e114b",
+        "tree": "e6bbf679f8d81b6a186033bc18b1f0f769084bc5",
+        "files": 2
+      },
+      {
+        "local": "ef46230b9756cc37d7b5ec06c06054336cdfaed4",
+        "remote": "7e06135d8a2175e10034b01f10f6c0ec5ffc20bc",
+        "tree": "3deac48c45bce2dff8d443fd28db38b848b8f836",
+        "files": 5
+      },
+      {
+        "local": "58dbb0a5c511cacdebe3560f55358b81351da889",
+        "remote": "155bc180a33b5917808f472718484a23beafac63",
+        "tree": "166e242dd98f78a0076712a060b7987e037c2924",
+        "files": 7
+      }
+    ],
+    "aipm_docs": {
+      "local": "f32a1beb15d53802c884c830a2989332b5efae51",
+      "remote": "e17a6c3e060120cc5fe92db7d95ef5de24f8fb8c",
+      "tree": "eb96efd4d4e42cc2ebf82e8387df54ba9b5ab1ee",
+      "files": 2
+    },
+    "pmos_runtime": [
+      {
+        "local": "b13a9a75e8b7e30b390b1075cef4b3b27f70e7ea",
+        "remote": "5ae4fab895426ce1c2d79f27ae1b4bac36fbb219",
+        "tree": "d96fa080ad29c337592c8d9ffd852e72c8653cd8",
+        "files": 2
+      },
+      {
+        "local": "c03616310b8ba53998396de1eb900c45596014d8",
+        "remote": "7af92c467d019eb65591d18f4f6ef880b22bf3cf",
+        "tree": "fb2e8668a919ac2573f54b159559675babd73dea",
+        "files": 1
+      },
+      {
+        "local": "06d4362f42de7b3a87814edad400c54a666e8866",
+        "remote": "0d0740828bcb3b77acf5c68f30fb157943e57b92",
+        "tree": "b89d12c631751f48f8151fd4ba02eeab7981c1bf",
+        "files": 1
+      },
+      {
+        "local": "66968f4e9c9786db1e039336a903019fc44e5fc7",
+        "remote": "5d9cd06c5eca562361a4d080d09ea00bc5eee1a3",
+        "tree": "123309d52d0c6e1ff0ccd673954371e550662a58",
+        "files": 37
+      },
+      {
+        "local": "44acff50651bb44ee57d7f619365cf55e35fe9ae",
+        "remote": "be0158d8c7c1ddb544fa882099fcd7374cdbadbe",
+        "tree": "5624f2d542b86d66bbea5dc47b324028d4a34823",
+        "files": 3
+      },
+      {
+        "local": "7a77eef14945981cc3495feff6d5a07d16d10fdd",
+        "remote": "2ac0f5791813bea528f3516d291a00beb2435c71",
+        "tree": "ac6213be49ce33cae425d3fdd59459aee6dbcbe4",
+        "files": 1
+      },
+      {
+        "local": "23bd265825294f6d387c8669ccb709b4fbf7f926",
+        "remote": "0b6bd55152efc918f9a042fc898e961dcf527b96",
+        "tree": "66432bddf807c295a5e78d03ce1f58e5d597bb11",
+        "files": 4
+      }
+    ],
+    "pmos_docs": {
+      "local": "5e9008c2671cd935a0dcb96f13e17e784e82af91",
+      "remote": "f7c1f41289e37690fc196dc7082991afe4e74d94",
+      "tree": "a55a67e323cc532234c225e4c34a1298ba2c34ee",
+      "files": 4
+    }
+  },
+  "prior_gate_failed_head": "b1d1fa7c86d016d518005368c96a07f44e881fbc",
+  "prior_failed_checks": [
+    {
+      "unit": "peos-gates",
+      "repo": "Abhillashjadhav/production-engineering-os",
+      "sha": "b1d1fa7c86d016d518005368c96a07f44e881fbc",
+      "runs": [
+        {
+          "id": 107516473440,
+          "name": "security",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/runs/107516473440"
+        },
+        {
+          "id": 107516458918,
+          "name": "trusted-security-runner",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351441/job/107516458918"
+        },
+        {
+          "id": 107516458780,
+          "name": "security-static",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458780"
+        },
+        {
+          "id": 107516458714,
+          "name": "build-smoke",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458714"
+        },
+        {
+          "id": 107516458708,
+          "name": "tests (3.12)",
+          "status": "in_progress",
+          "conclusion": null,
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458708"
+        },
+        {
+          "id": 107516458703,
+          "name": "candidate-isolation (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458703"
+        },
+        {
+          "id": 107516458698,
+          "name": "product-backend (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458698"
+        },
+        {
+          "id": 107516458681,
+          "name": "format-lint",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458681"
+        },
+        {
+          "id": 107516458653,
+          "name": "candidate-isolation (3.11)",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458653"
+        },
+        {
+          "id": 107516458635,
+          "name": "product-frontend",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458635"
+        },
+        {
+          "id": 107516458634,
+          "name": "tests (3.11)",
+          "status": "in_progress",
+          "conclusion": null,
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458634"
+        },
+        {
+          "id": 107516458631,
+          "name": "review",
+          "status": "completed",
+          "conclusion": "failure",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351377/job/107516458631"
+        },
+        {
+          "id": 107516458622,
+          "name": "product-backend (3.12)",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458622"
+        },
+        {
+          "id": 107516458589,
+          "name": "product-preview",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458589"
+        },
+        {
+          "id": 107516458588,
+          "name": "product-e2e",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458588"
+        },
+        {
+          "id": 107516458483,
+          "name": "types",
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/35963351318/job/107516458483"
+        }
+      ]
+    }
+  ],
+  "security_check_race": {
+    "reason": "A cancelled concurrent trusted-security attempt left the required named security check cancelled despite a later successful exact-head verifier. Re-run only the cancelled job on unchanged candidate to obtain an unambiguous required check.",
+    "candidate": "5ccc46ce220092451032397cd7a951a0e8d163e0",
+    "cancelledJob": 107518299443,
+    "successfulJob": 107518309926,
+    "resolution": "Re-ran only the cancelled trusted-security job on the unchanged candidate. The new trusted-security-runner and named security check both succeeded.",
+    "successfulRerunJob": 107519150734,
+    "successfulRequiredCheck": 107519170128
+  },
+  "limitations": [
+    "CI state is a point-in-time snapshot, not a promise of future success.",
+    "PR review/quality checks may intentionally block or skip drafts; not counted as passing.",
+    "Old approved task-store contract remains blocked on changed engine until new exact-digest approval and supported gate bindings.",
+    "No paid or live model calls, Mac access, release or deployment."
+  ]
+}

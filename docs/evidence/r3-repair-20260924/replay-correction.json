@@ -1,0 +1,101 @@
+{
+  "supersedes_remote": "a1b89c2adfb2bf2f692fd66b95ee883857b78149",
+  "before": {
+    "retained": {
+      "coverage": "FAIL",
+      "reason": "boundary sequence incomplete",
+      "digest_observations": 28,
+      "process_records": 13
+    },
+    "persistence": {
+      "coverage": "FAIL",
+      "reason": "boundary sequence incomplete",
+      "digest_observations": 28,
+      "process_records": 13
+    },
+    "filtering": {
+      "coverage": "FAIL",
+      "reason": "boundary sequence incomplete",
+      "digest_observations": 26,
+      "process_records": 12
+    }
+  },
+  "after": {
+    "retained": {
+      "command": [
+        "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/python",
+        "examples/barebones/contract-file.py",
+        "verify",
+        "--packet",
+        "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1",
+        "--root",
+        "PM-agent-OS=/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved",
+        "--root",
+        "production-engineering-os=/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof",
+        "--freeze-digest",
+        "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+        "--candidate",
+        "docs/evidence/task-tracker-live-20260918/live/candidate",
+        "--output",
+        "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/retained",
+        "--authorized-host-fallback"
+      ],
+      "exit_code": 0,
+      "coverage": "PASS",
+      "digest_observations": 30,
+      "process_records": 14,
+      "digest_mismatches": 0
+    },
+    "persistence": {
+      "command": [
+        "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/python",
+        "examples/barebones/contract-file.py",
+        "verify",
+        "--packet",
+        "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1",
+        "--root",
+        "PM-agent-OS=/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved",
+        "--root",
+        "production-engineering-os=/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof",
+        "--freeze-digest",
+        "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+        "--candidate",
+        "docs/evidence/task-tracker-live-20260918/mutations/persistence/candidate",
+        "--output",
+        "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/persistence",
+        "--authorized-host-fallback"
+      ],
+      "exit_code": 1,
+      "coverage": "PASS",
+      "digest_observations": 30,
+      "process_records": 14,
+      "digest_mismatches": 0
+    },
+    "filtering": {
+      "command": [
+        "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/python",
+        "examples/barebones/contract-file.py",
+        "verify",
+        "--packet",
+        "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1",
+        "--root",
+        "PM-agent-OS=/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved",
+        "--root",
+        "production-engineering-os=/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof",
+        "--freeze-digest",
+        "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+        "--candidate",
+        "docs/evidence/task-tracker-live-20260918/mutations/filtering/candidate",
+        "--output",
+        "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/filtering",
+        "--authorized-host-fallback"
+      ],
+      "exit_code": 1,
+      "coverage": "PASS",
+      "digest_observations": 30,
+      "process_records": 14,
+      "digest_mismatches": 0
+    }
+  },
+  "reason": "R3 identified truncated published evidence; regenerate after subprocess terminal exit, validate then copy atomically at directory level. Original cause unverified."
+}

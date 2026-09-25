@@ -1,0 +1,2 @@
+{"checked": 220, "expected_inventory_digest": "sha256:597050f68e785eb53c03a43a8c71521a3ee93df50e53c0c4328a515b475ef141", "mismatches": [], "observed_inventory_digest": "sha256:597050f68e785eb53c03a43a8c71521a3ee93df50e53c0c4328a515b475ef141", "stage": "before", "subject": "command"}
+{"checked": 220, "expected_inventory_digest": "sha256:597050f68e785eb53c03a43a8c71521a3ee93df50e53c0c4328a515b475ef141", "mismatches": [], "observed_inventory_digest": "sha256:597050f68e785eb53c03a43a8c71521a3ee93df50e53c0c4328a515b475ef141", "stage": "after", "subject": "command"}

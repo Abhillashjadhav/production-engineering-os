@@ -1,0 +1,229 @@
+[
+  {
+    "case": "retained",
+    "command": [
+      "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/python",
+      "examples/barebones/contract-file.py",
+      "verify",
+      "--packet",
+      "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1",
+      "--root",
+      "PM-agent-OS=/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved",
+      "--root",
+      "production-engineering-os=/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof",
+      "--freeze-digest",
+      "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+      "--candidate",
+      "docs/evidence/task-tracker-live-20260918/live/candidate",
+      "--output",
+      "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/retained",
+      "--authorized-host-fallback"
+    ],
+    "exit_code": 0,
+    "expected_exit_code": 0,
+    "passed": true,
+    "criteria": {
+      "AC-001": "PASS",
+      "AC-002": "PASS",
+      "AC-003": "PASS",
+      "AC-004": "PASS",
+      "AC-005": "PASS",
+      "AC-006": "PASS",
+      "AC-007": "PASS",
+      "AC-008": "PASS",
+      "AC-009": "PASS",
+      "AC-010": "PASS",
+      "AC-011": "PASS",
+      "AC-012": "PASS",
+      "AC-013": "PASS",
+      "AC-014": "PASS"
+    },
+    "findings": [],
+    "new_model_generation": false,
+    "evidence_copied_after_exit": true
+  },
+  {
+    "case": "persistence",
+    "command": [
+      "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/python",
+      "examples/barebones/contract-file.py",
+      "verify",
+      "--packet",
+      "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1",
+      "--root",
+      "PM-agent-OS=/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved",
+      "--root",
+      "production-engineering-os=/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof",
+      "--freeze-digest",
+      "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+      "--candidate",
+      "docs/evidence/task-tracker-live-20260918/mutations/persistence/candidate",
+      "--output",
+      "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/persistence",
+      "--authorized-host-fallback"
+    ],
+    "exit_code": 1,
+    "expected_exit_code": 1,
+    "passed": true,
+    "criteria": {
+      "AC-001": "PASS",
+      "AC-002": "FAIL",
+      "AC-003": "FAIL",
+      "AC-004": "FAIL",
+      "AC-005": "FAIL",
+      "AC-006": "FAIL",
+      "AC-007": "FAIL",
+      "AC-008": "PASS",
+      "AC-009": "FAIL",
+      "AC-010": "FAIL",
+      "AC-011": "PASS",
+      "AC-012": "PASS",
+      "AC-013": "FAIL",
+      "AC-014": "FAIL"
+    },
+    "findings": [
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-002"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-003"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-004"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-005"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-006"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-007"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-009"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-010"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled measure assertion failed",
+        "subject_id": "AC-013"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-014"
+      }
+    ],
+    "new_model_generation": false,
+    "evidence_copied_after_exit": true
+  },
+  {
+    "case": "filtering",
+    "command": [
+      "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/python",
+      "examples/barebones/contract-file.py",
+      "verify",
+      "--packet",
+      "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1",
+      "--root",
+      "PM-agent-OS=/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved",
+      "--root",
+      "production-engineering-os=/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof",
+      "--freeze-digest",
+      "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+      "--candidate",
+      "docs/evidence/task-tracker-live-20260918/mutations/filtering/candidate",
+      "--output",
+      "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/filtering",
+      "--authorized-host-fallback"
+    ],
+    "exit_code": 1,
+    "expected_exit_code": 1,
+    "passed": true,
+    "criteria": {
+      "AC-001": "PASS",
+      "AC-002": "PASS",
+      "AC-003": "PASS",
+      "AC-004": "FAIL",
+      "AC-005": "FAIL",
+      "AC-006": "PASS",
+      "AC-007": "PASS",
+      "AC-008": "PASS",
+      "AC-009": "PASS",
+      "AC-010": "PASS",
+      "AC-011": "PASS",
+      "AC-012": "PASS",
+      "AC-013": "PASS",
+      "AC-014": "PASS"
+    },
+    "findings": [
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-004"
+      },
+      {
+        "code": "ASSERTION_FAILED",
+        "files": [
+          "tests/acceptance/task_tracker.py"
+        ],
+        "message": "compiled acceptance assertion failed",
+        "subject_id": "AC-005"
+      }
+    ],
+    "new_model_generation": false,
+    "evidence_copied_after_exit": true
+  }
+]

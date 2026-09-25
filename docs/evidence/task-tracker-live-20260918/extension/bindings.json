@@ -1,0 +1,16 @@
+{
+  "actions": {
+    "greeting.echo": "tests.acceptance.greeting:echo"
+  },
+  "context": {
+    "fixture": {
+      "ready": true
+    }
+  },
+  "files": {
+    "tests/__init__.py": "",
+    "tests/acceptance/__init__.py": "",
+    "tests/acceptance/greeting.py": "def echo(message):\n    return {\"message\": message}\n"
+  },
+  "version": "greeting-fixture-v1"
+}

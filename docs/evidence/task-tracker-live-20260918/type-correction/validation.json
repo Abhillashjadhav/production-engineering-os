@@ -1,0 +1,14 @@
+{
+  "candidate_criteria_passed": 14,
+  "checker_setup_note": "Initial local whole-repo check found only an absent packaging stub/library in an existing CI script; installed packaging==26.3 from requirements.lock and reran. Both logs retained.",
+  "ci_before_errors": 39,
+  "ci_before_head": "90c1bd1ef1f4ae518a6873c08671cee2c2d2f07c",
+  "correction_attempt": 1,
+  "entry_sha256": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+  "focused_unit_tests": 6,
+  "freeze_artifacts_changed": 0,
+  "new_live_model_calls": 0,
+  "normalization": "erase annotations and imports, normalize verification_result to result; compare against 3f74a2d entry",
+  "normalized_executable_AST_unchanged": true,
+  "strict_mypy": "PASS: 199 source files"
+}

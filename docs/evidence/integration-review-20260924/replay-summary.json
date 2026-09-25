@@ -1,0 +1,54 @@
+{
+  "verification_date": "2026-09-24",
+  "kind": "retained candidate replay; no new generation; existing Python 3.12 venv",
+  "pmos_remote_head": "33a35962d13fb13163d61beb938f9e593a742197",
+  "pmos_verified_tree": "cdd94b8aebe8c20c4f6e3db2cd3a045771d5cd67",
+  "peos_remote_head": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1",
+  "peos_verified_tree": "381f105d7d577a1f0fd8a6e6ecefa1f3cd9affef",
+  "original_contract_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "original_freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "cases": {
+    "retained": {
+      "pass_count": 14,
+      "fail_ids": [],
+      "digest_observations": 30,
+      "digest_mismatches": 0,
+      "process_records": 14
+    },
+    "persistence": {
+      "pass_count": 4,
+      "fail_ids": [
+        "AC-002",
+        "AC-003",
+        "AC-004",
+        "AC-005",
+        "AC-006",
+        "AC-007",
+        "AC-009",
+        "AC-010",
+        "AC-013",
+        "AC-014"
+      ],
+      "digest_observations": 30,
+      "digest_mismatches": 0,
+      "process_records": 14
+    },
+    "filtering": {
+      "pass_count": 12,
+      "fail_ids": [
+        "AC-004",
+        "AC-005"
+      ],
+      "digest_observations": 30,
+      "digest_mismatches": 0,
+      "process_records": 14
+    }
+  },
+  "limitations": [
+    "Authorized container-process fallback; no additional isolation",
+    "Root can modify evidence; digest checks are not tamper prevention",
+    "No owner Mac, Ollama, Qwen, TypeSafe or new live generation exercised",
+    "Historical approved runtime preserved; stricter release gate compiler assessed separately"
+  ],
+  "correction": "R3: replaces incomplete 28/28/26 prefixes with terminal 30/30/30 observations; frozen source unchanged."
+}
