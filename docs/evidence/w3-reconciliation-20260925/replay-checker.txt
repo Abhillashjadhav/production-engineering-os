@@ -1,4 +1,6 @@
-# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker last changed in 85dd770, carried by the #227 head 80cd230)
+# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker last changed in 4ea8e39, round 19, carried by the #227 head f6df6a2)
+test_candidate_replaced_under_the_source_rejected (__main__.ReplayCheckerRegression.test_candidate_replaced_under_the_source_rejected)
+The candidate the pinned launch names is bound to its published bytes (Codex #226). ... ok
 test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected)
 Every field of the adapter's report is fixed by the frozen profile and runtime. ... ok
 test_duplicate_or_altered_findings_rejected (__main__.ReplayCheckerRegression.test_duplicate_or_altered_findings_rejected) ... ok
@@ -19,6 +21,8 @@ test_invalid_measure_sample_type_rejected (__main__.ReplayCheckerRegression.test
 The frozen engine aborts on a non-integer sample_size; it never yields FAIL. ... ok
 test_malformed_digest_observation_rejected (__main__.ReplayCheckerRegression.test_malformed_digest_observation_rejected)
 DigestGuard.check writes six fields with a list of mismatches. ... ok
+test_measure_values_outside_the_evaluator_domain_rejected (__main__.ReplayCheckerRegression.test_measure_values_outside_the_evaluator_domain_rejected)
+sample_size counts at most ten creations; missing_ids are distinct positive IDs. ... ok
 test_multibyte_output_over_byte_limit_rejected (__main__.ReplayCheckerRegression.test_multibyte_output_over_byte_limit_rejected)
 The adapter limits captured bytes, not decoded characters. ... ok
 test_nested_signal_exit_code_rejected (__main__.ReplayCheckerRegression.test_nested_signal_exit_code_rejected)
@@ -59,6 +63,6 @@ test_values_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerR
 Literal and derived return values are fixed by the frozen source (Codex #221/#226). ... ok
 
 ----------------------------------------------------------------------
-Ran 34 tests in 34.195s
+Ran 36 tests in 51.892s
 
 OK

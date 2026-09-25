@@ -9,6 +9,8 @@ Source under test: the W2 head `80cd230ca37f3d75e3aa2d1dd0733d8e464b45e0` (#227)
 
 Earlier versions of this evidence ran on `cecf9e9`, `1b680ff` and `933fdc7`. It was refreshed on `80cd230`. That head adds the later Codex-review repairs to source-only admission (startup-record prefix precedence, code-bound implementation identity), the CI prefix ordering, checker rounds 14–18, and the ported #233 and #234 fixes. Criteria, gate statuses and reasons, record counts and the scanner result are unchanged; only the source-bound digests differ.
 
+This PR's head also carries #227 `f6df6a2`, which adds checker round 19 (pinned candidate trees and the measure's value domain). It changes only `docs/evidence/r3-repair-20260924/check_replay_complete.py` and its tests, no file under `src/`, `scripts/` or `tests/`, so the replay and scanner evidence from `80cd230` stands. The checker run in `replay-checker.txt` was refreshed on this head.
+
 Historical inputs are unchanged: the PM-agent-OS packet at `33a35962` (`reviews/task-tracker-v1`, 218-artifact freeze) and the historical PEOS engine at `c1ab2def189f`. This unit adds evidence only; no source or frozen artifact changes.
 
 ## Four separate verdicts
@@ -16,7 +18,7 @@ Historical inputs are unchanged: the PM-agent-OS packet at `33a35962` (`reviews/
 | Dimension | Verdict | Evidence in this directory |
 |---|---|---|
 | Source correctness (settled repairs) | **REPAIRED, pending CI and review on the stack** | The architecture scanner, unchanged, reports `unapproved_edges: []` (`architecture-scanner.json`). The release-gate suites fail 108 of 131 on `main` and pass 131 on this head (`release-gates-main-vs-head.txt`). Malformed-binding and setup-crash RED/GREEN evidence is in #222/#223. |
-| Replay proof (historical task store) | **REPRODUCED, bounded** | **14/14** historical criteria PASS. 56 process records, 117 digest boundaries, 0 fresh model calls. G1/G2/G5 PASS; G3 NOT_EVALUATED (`APPROVAL_PACKET_NOT_BOUND`); G4 NOT_EVALUATED (`FRESH_MODEL_SESSION_NOT_ATTESTED`); state HALTED (`verdicts.json`, `replay-summary.json`). The hardened historical checker passes all 34 tests: 1 aggregate historical test (3 historical case subtests) and 33 tamper tests (`replay-checker.txt`). This replays retained behaviour; it does not authenticate the historical execution. |
+| Replay proof (historical task store) | **REPRODUCED, bounded** | **14/14** historical criteria PASS. 56 process records, 117 digest boundaries, 0 fresh model calls. G1/G2/G5 PASS; G3 NOT_EVALUATED (`APPROVAL_PACKET_NOT_BOUND`); G4 NOT_EVALUATED (`FRESH_MODEL_SESSION_NOT_ATTESTED`); state HALTED (`verdicts.json`, `replay-summary.json`). The hardened historical checker passes all 36 tests: 1 aggregate historical test (3 historical case subtests) and 35 tamper tests (`replay-checker.txt`). This replays retained behaviour; it does not authenticate the historical execution. |
 | Fresh approved delivery | **NOT ESTABLISHED** | There is no owner-approved v2 contract or receipt and no outer freeze, and no model was called. G4 has no PASS path until owner decision D2; the G2 claim waits on D3. |
 | Merge readiness | **NOT READY** | Stacked PRs are open and unmerged. The lower PRs carry the known `ARCHITECTURE_BOUNDARY_DRIFT` until #227 is merged into them (proposed top-down merge). A named human makes every merge decision. |
 
