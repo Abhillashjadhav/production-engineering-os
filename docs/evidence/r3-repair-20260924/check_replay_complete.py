@@ -17,6 +17,8 @@ from pathlib import Path
 import rfc8785
 
 FREEZE = "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+# replay-commands.json as published with the historical engine at c1ab2def (#210).
+LAUNCH_RECORD = "sha256:b7f352715dcb194067147d16da7ba2b99c574f369f0fa5d0dbb9114d9c5ad99c"
 PRODUCT_EXIT_CODES = frozenset({0, 1, 2})
 INTERPRETER = re.compile(r"python3?(\.[0-9]+)?")
 EXPECTED_FAILURES = {
@@ -58,8 +60,13 @@ def pairs(items):
     return value
 
 
+def reject_constant(token):
+    # The frozen engine refuses NaN and infinities before producing any result.
+    raise ValueError("non-JSON constant " + token)
+
+
 def decode(value):
-    return json.loads(value, object_pairs_hook=pairs)
+    return json.loads(value, object_pairs_hook=pairs, parse_constant=reject_constant)
 
 
 def read(path):
@@ -255,15 +262,25 @@ def check(directory, packet, source, case):
             "observer interpreter is not an absolute Python executable",
         )
         # The operator's launch record beside the case directories is written by the
-        # outer replay driver, not by the observed engine. It is still a retained
-        # operator record: this binds the two records, it does not authenticate the binary.
-        launches = read(root.parent / "replay-commands.json")
+        # outer replay driver, not by the observed engine. Its bytes are pinned to the
+        # copy published at c1ab2def, so it cannot be re-paired with edited records.
+        # This still does not authenticate the interpreter binary itself.
+        launch_bytes = (root.parent / "replay-commands.json").read_bytes()
+        require(raw(launch_bytes) == LAUNCH_RECORD, "replay launch record differs from pin")
+        launches = decode(launch_bytes)
         require(isinstance(launches, list), "replay launch record is not a list")
         matching = [
             item for item in launches if isinstance(item, dict) and item.get("case") == case
         ]
         require(len(matching) == 1, "replay launch record must name this case exactly once")
-        command = matching[0].get("command")
+        launch = matching[0]
+        require(
+            type(launch.get("exit_code")) is int
+            and launch["exit_code"] == launch.get("expected_exit_code")
+            and launch.get("passed") is True,
+            "operator launch record reports a failed or crashed replay",
+        )
+        command = launch.get("command")
         require(
             isinstance(command, list) and bool(command) and command[0] == interpreter,
             "observer interpreter differs from the operator's replay launch record",
@@ -303,12 +320,14 @@ def check(directory, packet, source, case):
             if criterion.form == "measure":
                 target = template.measures[criterion.measure]
                 arguments = {}
-                passed = (
-                    type(value.get("sample_size")) is int
-                    and value["sample_size"] >= criterion.minimum_sample
-                    and _assertion_passes(
-                        PropertyAssertion("value", criterion.operator, criterion.value), value
-                    )
+                # The frozen engine aborts (ContractInvalidError) on these; they never FAIL.
+                require(isinstance(value, dict), "measure did not return a JSON object")
+                require(
+                    type(value.get("sample_size")) is int,
+                    "measure did not return an integer sample_size",
+                )
+                passed = value["sample_size"] >= criterion.minimum_sample and _assertion_passes(
+                    PropertyAssertion("value", criterion.operator, criterion.value), value
                 )
             else:
                 target = template.actions[criterion.when.action]
