@@ -245,6 +245,120 @@ class ReplayCheckerRegression(unittest.TestCase):
                     lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
                 )
 
+    def test_replaced_execution_environment_rejected(self):
+        """A PATH naming a fake prlimit keeps argv intact; the frozen environment is fixed."""
+        for key, value in (("PATH", "/tmp/fake-bin:/usr/bin:/bin"), ("PYTHONPATH", "/tmp/x")):
+            with self.subTest(key=key):
+
+                def change(rows, key=key, value=value):
+                    for row in rows:
+                        row["environment"][key] = value
+
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
+                )
+
+    def test_integer_outside_canonical_domain_rejected(self):
+        """The frozen engine canonicalizes every action value; 2**53 cannot be produced."""
+
+        def change(rows):
+            text = rows[0]["stdout"].rstrip()
+            rows[0]["stdout"] = text[:-1] + ', "extra": 9007199254740992}\n'
+
+        self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
+
+    def change_json(self, root, filename, change):
+        path = root / filename
+        value = json.loads(path.read_text())
+        change(value)
+        path.write_text(json.dumps(value, indent=2) + "\n")
+
+    def test_incompatible_or_reprofiled_report_rejected(self):
+        """The adapter aborts before any execution when compatibility is false."""
+        changes = {
+            "incompatible": lambda value: value.update(compatible=False),
+            "reasons": lambda value: value.update(reasons=["runtime changed"]),
+            "profile": lambda value: value.update(profile_digest="sha256:" + "0" * 64),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_json(
+                        root, "compatibility.json", change
+                    ),
+                )
+
+    def test_recorded_invocation_differs_from_launch_rejected(self):
+        """execution-source.json must repeat the pinned launch command after the interpreter."""
+        changes = {
+            "build": lambda value: value["argv"].__setitem__(1, "build"),
+            "no-fallback": lambda value: value["argv"].remove("--authorized-host-fallback"),
+            "other-candidate": lambda value: value["argv"].__setitem__(
+                value["argv"].index("--candidate") + 1, "elsewhere/candidate"
+            ),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_json(
+                        root, "execution-source.json", change
+                    ),
+                )
+
+    def test_compatibility_report_fields_rejected(self):
+        """Every field of the adapter's report is fixed by the frozen profile and runtime."""
+        changes = {
+            "runtime": lambda value: value.update(runtime="3.11.9 (main) [GCC]"),
+            "dependencies": lambda value: value.update(dependencies=["requests"]),
+            "isolations": lambda value: value.update(missing_isolations=[]),
+            "scope": lambda value: value.update(scope="delivery guaranteed"),
+            "extra": lambda value: value.update(sandbox="full"),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_json(
+                        root, "compatibility.json", change
+                    ),
+                )
+
+    def test_process_timeout_or_mode_rejected(self):
+        """Each record states the frozen 10 s timeout and the host-fallback mode."""
+        for key, value in (("timeout_seconds", 30.0), ("mode", "FULL_ISOLATION")):
+            with self.subTest(key=key):
+
+                def change(rows, key=key, value=value):
+                    rows[0][key] = value
+
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
+                )
+
+    def test_record_the_adapter_cannot_emit_rejected(self):
+        """Success records have a fixed key set, a non-negative elapsed time and bounded output."""
+        changes = {
+            "error-key": lambda row: row.update(error="TimeoutExpired: fabricated"),
+            "negative-elapsed": lambda row: row.update(elapsed_ms=-1.0),
+            "string-elapsed": lambda row: row.update(elapsed_ms="120"),
+            "stdout-over-limit": lambda row: row.update(
+                stdout=row["stdout"].rstrip("\n") + " " * 1_000_001 + "\n"
+            ),
+            "stderr-over-limit": lambda row: row.update(stderr="x" * 1_000_001),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(
+                        root, "processes.jsonl", lambda rows: change(rows[0])
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
