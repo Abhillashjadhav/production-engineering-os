@@ -1073,8 +1073,10 @@ def test_compare_reverifies_approval_binding(
 @pytest.mark.parametrize(
     ("event_type", "expected_detail"),
     (
-        ("coder_completed", "Coder behavior is not bound to the approved contract"),
-        ("release_ready", "release candidate is not bound to the approved contract"),
+        # The R4 release-gate inspection checks every event's subject against the
+        # approved contract before compare's own per-event bindings, which it subsumes.
+        ("coder_completed", "release gate contract identity is inconsistent"),
+        ("release_ready", "release gate contract identity is inconsistent"),
     ),
 )
 def test_compare_rejects_cross_subject_coder_and_release_evidence(
@@ -1203,4 +1205,6 @@ def test_compare_recompiles_the_contract_instead_of_trusting_a_fabricated_plan(
     comparison = json.loads(capsys.readouterr().out)
     assert comparison["state"] == "HALTED"
     assert comparison["cause"] == "EVIDENCE_INVALID"
-    assert comparison["detail"] == "recorded plan does not match deterministic compilation"
+    # The retained compiled-plan check (R4) refuses the forged plan before compare
+    # recompiles it; both refuse the same forgery.
+    assert comparison["detail"] == "retained compiled plan semantics differ from the contract"
