@@ -45,6 +45,26 @@ item below is documentation evidence, not integration evidence.
 | 20:00 scheduling | macOS launchd runs a missed job on wake; Windows Task Scheduler can "run as soon as possible" after a miss. A powered-off laptop runs nothing. | D21 decides catch-up and late-input behaviour. |
 | Clickable pop-ups | Browser notifications from a localhost UI support action buttons through a service worker, but the browser must be running. OS-native options need helpers (alerter on macOS, toast plus a protocol handler on Windows). | D7 decides the surface. |
 
+### Sources (accessed 2026-09-25)
+
+Pages marked † could not be fetched directly from this cloud session because the proxy blocked the domain. Their content was taken from search-engine excerpts of the official page and should be re-read before a decision.
+
+- ChatGPT export: OpenAI Help Center, "How do I export my ChatGPT history and data?" https://help.openai.com/en/articles/7260999 †
+- ChatGPT apps and connectors have no history read path: OpenAI Help Center, "Developer mode and MCP apps in ChatGPT", https://help.openai.com/en/articles/12584461 †. Community threads: https://community.openai.com/t/api-to-retrieve-chat-conversations-in-chatgpt/563302 and https://community.openai.com/t/retrieving-conversation-history/1364494
+- OpenAI Terms of Use (automated extraction clause): https://openai.com/policies/row-terms-of-use/ †
+- ChatGPT macOS app encrypts its local store (2024 fix): https://9to5mac.com/2024/07/03/chatgpt-macos-conversations-plain-text/
+- ChatGPT Record mode: https://help.openai.com/en/articles/11487532 †
+- Codex CLI with a ChatGPT plan: https://help.openai.com/en/articles/11369540 † and https://chatgpt.com/codex/pricing/ †
+- Claude Code headless mode (`-p`, `--bare` needs an API key): https://code.claude.com/docs/en/headless
+- Claude Code session files are internal and unstable: https://code.claude.com/docs/en/sessions
+- Claude plan usage with the Agent SDK / `-p`: https://support.claude.com/en/articles/15036540 and https://code.claude.com/docs/en/legal-and-compliance
+- Claude.ai data export: https://privacy.claude.com/en/articles/9450526 †
+- Wispr Flow local database: https://docs.wisprflow.ai/articles/9507793190 and https://docs.wisprflow.ai/articles/3884018196 †
+- Google OAuth refresh tokens expire after 7 days in Testing mode: https://developers.google.com/identity/protocols/oauth2 † and "Unverified apps", https://support.google.com/cloud/answer/7454865 †
+- Google Calendar event IDs and 409 duplicates: https://developers.google.com/calendar/api/guides/errors †. Extended properties: https://developers.google.com/workspace/calendar/api/guides/extended-properties †. Quota: https://developers.google.com/workspace/calendar/api/guides/quota †
+- launchd `StartCalendarInterval` on wake: https://keith.github.io/xcode-man-pages/launchd.plist.5.html
+- Web Notifications with actions (service worker): https://developer.mozilla.org/en-US/docs/Web/API/ServiceWorkerRegistration/showNotification
+
 ## Access requests (technical facts needed from the owner, not product choices)
 
 1. Laptop operating system and version (macOS or Windows): this determines the scheduler, notifications and file paths.

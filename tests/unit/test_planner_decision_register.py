@@ -35,22 +35,35 @@ def test_every_decision_has_status_question_and_answer_source() -> None:
             assert decision["open_parts"], decision_id
 
 
-def test_requirements_reference_known_decisions_and_block_on_open_parts() -> None:
-    value = register()
+def requirement_errors(value: dict[str, Any]) -> list[str]:
+    """Blockers are derived from every referenced decision, never trusted as listed."""
     decisions = value["decisions"]
+    errors = []
     for requirement_id, requirement in value["requirements"].items():
         refs = requirement["decision_refs"]
-        assert refs and set(refs) <= set(decisions), requirement_id
-        blocking = sorted(
-            ref for ref in requirement["blocked_by"] if decisions[ref]["status"] != "DECIDED"
-        )
-        assert set(requirement["blocked_by"]) <= set(decisions), requirement_id
-        assert requirement["blocked_by"] == blocking, requirement_id
-        expected = "BLOCKED" if blocking else "SETTLED"
-        assert requirement["status"] == expected, requirement_id
-        # A settled requirement's own decisions must all be fully decided.
-        if expected == "SETTLED":
-            assert all(decisions[ref]["status"] == "DECIDED" for ref in refs), requirement_id
+        if not refs or not set(refs) <= set(decisions):
+            errors.append(requirement_id + ": unknown or missing decision reference")
+            continue
+        expected = sorted(ref for ref in refs if decisions[ref]["status"] != "DECIDED")
+        if requirement["blocked_by"] != expected:
+            errors.append(f"{requirement_id}: blocked_by must be {expected}")
+        if requirement["status"] != ("BLOCKED" if expected else "SETTLED"):
+            errors.append(requirement_id + ": status contradicts its decisions")
+    return errors
+
+
+def test_requirements_reference_known_decisions_and_block_on_open_parts() -> None:
+    assert requirement_errors(register()) == []
+
+
+def test_dropped_or_invented_blockers_are_detected() -> None:
+    dropped = register()
+    dropped["requirements"]["R2"]["blocked_by"] = ["D20"]
+    invented = register()
+    invented["requirements"]["R1"]["blocked_by"] = ["D14"]
+    invented["requirements"]["R1"]["status"] = "BLOCKED"
+    assert any(error.startswith("R2:") for error in requirement_errors(dropped))
+    assert any(error.startswith("R1:") for error in requirement_errors(invented))
 
 
 def test_no_open_decision_carries_an_implementation_default() -> None:
