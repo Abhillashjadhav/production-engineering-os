@@ -236,6 +236,10 @@ def load_approved_bundle(
     if not isinstance(manifest["source_paths"], dict) or not manifest["source_paths"]:
         raise BundleError("bundle source_paths must name the manifested sources")
     for name, entry in manifest["source_paths"].items():
+        # These namespaces belong to the engine and the evidence; a bundle entry must not
+        # shadow them when merged with engine_sources().
+        if not isinstance(name, str) or name.startswith(("engine/", "approval/", "protected/")):
+            raise BundleError("bundle source name uses a reserved namespace: " + str(name))
         if not isinstance(entry, dict) or set(entry) != {"root", "path"}:
             raise BundleError("bundle source path entries need exactly root and path")
         if entry["root"] not in named_roots:
