@@ -249,6 +249,24 @@ def default_errors(value: dict[str, Any]) -> list[str]:
     ]
 
 
+def test_decided_entries_carry_no_open_parts() -> None:
+    """A DECIDED entry that still lists open parts cannot settle a requirement (Codex #219)."""
+    value = register()
+    value["decisions"]["D17"]["open_parts"] = ["which dates count as upcoming"]
+    assert "D17: a DECIDED entry has open_parts" in requirement_errors(value)
+
+
+def test_every_requirement_keeps_its_statement() -> None:
+    """An ID without its obligation is not a requirement (Codex #219)."""
+    for statement in (None, "", "   "):
+        value = register()
+        value["requirements"]["R2"]["statement"] = statement
+        assert "R2: statement is missing" in requirement_errors(value), statement
+    value = register()
+    del value["requirements"]["R2"]["statement"]
+    assert "R2: statement is missing" in requirement_errors(value)
+
+
 def test_no_open_decision_carries_an_implementation_default() -> None:
     assert default_errors(register()) == []
 
