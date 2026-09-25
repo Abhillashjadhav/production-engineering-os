@@ -308,6 +308,37 @@ class ReplayCheckerRegression(unittest.TestCase):
                     ),
                 )
 
+    def test_compatibility_report_fields_rejected(self):
+        """Every field of the adapter's report is fixed by the frozen profile and runtime."""
+        changes = {
+            "runtime": lambda value: value.update(runtime="3.11.9 (main) [GCC]"),
+            "dependencies": lambda value: value.update(dependencies=["requests"]),
+            "isolations": lambda value: value.update(missing_isolations=[]),
+            "scope": lambda value: value.update(scope="delivery guaranteed"),
+            "extra": lambda value: value.update(sandbox="full"),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_json(
+                        root, "compatibility.json", change
+                    ),
+                )
+
+    def test_process_timeout_or_mode_rejected(self):
+        """Each record states the frozen 10 s timeout and the host-fallback mode."""
+        for key, value in (("timeout_seconds", 30.0), ("mode", "FULL_ISOLATION")):
+            with self.subTest(key=key):
+
+                def change(rows, key=key, value=value):
+                    rows[0][key] = value
+
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
