@@ -31,8 +31,11 @@ export PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$(mktemp -d)"
 PYTHONPATH=src python scripts/r3_task_store_migration.py \
   --packet <PM-agent-OS@33a35962>/reviews/task-tracker-v1 \
   --historical-engine <production-engineering-os@c1ab2def189f> --output <new dir> --replay
-# Verify the new directory itself: ledger chain, ledger-bound gate evidence, verdicts, summary.
+# Verify the new directory itself: ledger chain, ledger-bound gate evidence and source
+# manifest, verdicts, and the summary including its status and approval fields.
 PYTHONPATH=src python -B docs/evidence/w3-reconciliation-20260925/verify-replay.py <new dir>
+# The verifier's own regressions over the retained archive (forged approval, swapped manifest):
+python -B docs/evidence/w3-reconciliation-20260925/test_verify_replay.py -v
 # Separately, the hardened checker's regression suite over the historical retained cases
 # (it reads docs/evidence/integration-review-20260924, not <new dir>):
 R4_REPLAY_PACKET=<packet> R4_REPLAY_SOURCE=<historical engine> \

@@ -8,10 +8,13 @@ Checks, exiting 1 on the first failure:
 2. its one release_gates_evaluated event is the summary's gate_evidence_event_digest, and
    <dir>/gate-evidence.json equals that event's payload;
 3. criterion and gate verdicts derived from that ledger payload equal verdicts.json;
-4. state, cause, gates and record counts in <dir>/replay-summary.json equal the
-   recorded replay-summary.json (source-bound digests are expected to differ).
+4. <dir>/source-manifest.json hashes to the source_manifest_digest that the ledger's
+   gate evidence and <dir>/migration.json both bind;
+5. status, approval, state, cause, gates and record counts in <dir>/replay-summary.json
+   equal the recorded replay-summary.json (source-bound digests are expected to differ).
 """
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -19,12 +22,33 @@ from pathlib import Path
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 HERE = Path(__file__).resolve().parent
-STABLE = ("state", "cause", "gates", "process_records", "digest_boundaries", "fresh_model_calls")
+STABLE = (
+    "status",
+    "approval",
+    "state",
+    "cause",
+    "gates",
+    "process_records",
+    "digest_boundaries",
+    "fresh_model_calls",
+)
 
 
 def fail(message):
     print("FAIL: " + message)
     raise SystemExit(1)
+
+
+def bound_manifest_digests(value):
+    """Every source_manifest_digest recorded anywhere in a JSON value."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "source_manifest_digest":
+                yield item
+            yield from bound_manifest_digests(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from bound_manifest_digests(item)
 
 
 def main(directory):
@@ -39,6 +63,13 @@ def main(directory):
     evidence = events[0]["payload"]
     if json.loads((directory / "gate-evidence.json").read_text()) != evidence:
         fail("gate-evidence.json differs from the ledger's gate-evidence event")
+    manifest = (
+        "sha256:" + hashlib.sha256((directory / "source-manifest.json").read_bytes()).hexdigest()
+    )
+    bound = set(bound_manifest_digests(evidence))
+    migration = json.loads((directory / "migration.json").read_text())
+    if bound != {manifest} or migration.get("source_manifest_digest") != manifest:
+        fail("source-manifest.json differs from the manifest the ledger and migration bind")
     criteria, gates = {}, {}
     for gate in evidence["gates"]:
         reasons = gate.get("evidence", {}).get("reasons", [])
