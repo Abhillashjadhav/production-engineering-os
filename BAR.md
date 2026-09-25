@@ -196,3 +196,12 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Check existing boundary/process coverage before regeneration, rerun to terminal exit and require full ordered coverage before copying.
 5. **Yes.** One evidence repair commit can be reverted separately.
 6. **No.** No dependency, signing, sandbox change or new approval.
+
+## Unit — R4 parallel work coordination, 2026-09-25
+
+1. **Yes, restructured.** Extend the existing R4 review packet with bounded worker ownership and dependencies; reuse its source branches and publication maps.
+2. **Yes.** The owner explicitly requested independent work in parallel and dependent work sequentially after the R4 review.
+3. **No.** This unit records ownership and status only; it changes no runtime, approval, contract, workflow, or frozen artifact.
+4. **Yes.** Before editing, `test -e docs/evidence/r4-parallel-20260925/OWNERSHIP.md` exited 1. Afterward, check that all four isolated workstreams, their boundaries and sequential dependencies are recorded.
+5. **Yes.** One documentation commit can be reverted without changing the independently owned workstreams.
+6. **No.** No dependency, setting, execution surface or new verification authority is introduced.
