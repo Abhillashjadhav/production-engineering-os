@@ -575,6 +575,66 @@ class ReplayCheckerRegression(unittest.TestCase):
                     ),
                 )
 
+    def test_candidate_replaced_under_the_source_rejected(self):
+        """The candidate the pinned launch names is bound to its published bytes (Codex #226)."""
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            shutil.copytree(SOURCE, source, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+            mutations = source / "docs/evidence/task-tracker-live-20260918/mutations"
+            product = mutations / "persistence/candidate/product.py"
+            product.write_bytes(b"# arbitrary replacement candidate\n")
+            root = Path(temporary) / "cases" / "persistence"
+            shutil.copytree(EVIDENCE / "persistence", root)
+            shutil.copyfile(EVIDENCE / "replay-commands.json", root.parent / "replay-commands.json")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(CHECKER),
+                    str(root),
+                    "--packet",
+                    str(PACKET),
+                    "--peos-source",
+                    str(source),
+                    "--case",
+                    "persistence",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("candidate", result.stdout)
+
+    def test_measure_values_outside_the_evaluator_domain_rejected(self):
+        """sample_size counts at most ten creations; missing_ids are distinct positive IDs."""
+
+        def change_output(change):
+            def apply(row):
+                value = json.loads(row["stdout"])
+                change(value)
+                row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+            return apply
+
+        # Persistence AC-013 (row 12) already FAILs with value 1 and missing_ids [1].
+        cases = {
+            "sample-over-workload": lambda v: v.update(sample_size=11),
+            "value-over-sample": lambda v: v.update(sample_size=0),
+            "string-id": lambda v: v.update(missing_ids=["x"]),
+            "non-positive-id": lambda v: v.update(missing_ids=[0]),
+            "duplicate-ids": lambda v: v.update(missing_ids=[1, 1], value=2, sample_size=2),
+        }
+        for name, change in cases.items():
+            apply = change_output(change)
+            with self.subTest(change=name):
+                self.mutate(
+                    "persistence",
+                    lambda root, apply=apply: self.change_rows(
+                        root, "processes.jsonl", lambda rows: apply(rows[12])
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
