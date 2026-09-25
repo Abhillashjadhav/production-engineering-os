@@ -54,17 +54,16 @@ def requirement_errors(value: dict[str, Any]) -> list[str]:
     return errors
 
 
-SOURCE_LOCATOR = re.compile(
-    r"(owner (interview|message) \d{4}-\d{2}-\d{2} \d{2}:\d{2}(-\d{2}:\d{2})? IST"
-    r"|owner task instructions, this session's opening request)"
-)
-
-# The whole source: a locator plus exactly one approved annotation, nothing else.
-SOURCE_FORMAT = re.compile(
+# A timed answer: a locator plus exactly one approved annotation, nothing else.
+TIMED_SOURCE = re.compile(
     r"owner (interview|message) \d{4}-\d{2}-\d{2} \d{2}:\d{2}(-\d{2}:\d{2})? IST"
     r" \((private handoff|this session); paraphrased\)"
-    r"|owner task instructions, this session's opening request \(constraint list; paraphrased\)"
 )
+
+# Untimed session instructions, each bound to the one decision it answers.
+INSTRUCTION_SOURCES = {
+    "D25": "owner task instructions, this session's opening request (constraint list; paraphrased)",
+}
 
 
 def _real_timestamps(source: str) -> bool:
@@ -90,8 +89,13 @@ def source_errors(value: dict[str, Any]) -> list[str]:
             if decision["status"] == "OPEN"
             else not (
                 isinstance(decision["source"], str)
-                and SOURCE_FORMAT.fullmatch(decision["source"])
-                and _real_timestamps(decision["source"])
+                and (
+                    decision["source"] == INSTRUCTION_SOURCES.get(decision_id)
+                    or (
+                        TIMED_SOURCE.fullmatch(decision["source"])
+                        and _real_timestamps(decision["source"])
+                    )
+                )
             )
         )
     ]
