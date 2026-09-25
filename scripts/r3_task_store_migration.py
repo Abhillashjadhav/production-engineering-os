@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -13,11 +14,19 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-# Set before importing the engine. -B alone still reads existing local .pyc files.
-if __name__ == "__main__":
-    _private_import_cache = tempfile.TemporaryDirectory(prefix="pmpe-clean-import-")
-    sys.pycache_prefix = _private_import_cache.name
-    sys.dont_write_bytecode = True
+# Gated runs need a source-only interpreter (owner decision 2026-09-25): bytecode writes
+# off and an empty private cache prefix, both fixed at start. -B alone still reads
+# existing .pyc files, and a prefix assigned now cannot vouch for earlier imports, so
+# relaunch with the same arguments before importing the engine.
+if __name__ == "__main__" and not (
+    sys.flags.dont_write_bytecode
+    and (sys._xoptions.get("pycache_prefix") or os.environ.get("PYTHONPYCACHEPREFIX"))
+):
+    _private_import_cache = tempfile.mkdtemp(prefix="pmpe-clean-import-")
+    os.execv(
+        sys.executable,
+        [sys.executable, "-B", "-X", "pycache_prefix=" + _private_import_cache, *sys.argv],
+    )
 
 import pmpe
 import pmpe.barebones

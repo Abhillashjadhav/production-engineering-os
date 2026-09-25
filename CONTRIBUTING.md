@@ -10,6 +10,9 @@ one concern per PR.
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
+# Gated process runs require a source-only interpreter (bytecode writes off and an
+# empty private cache prefix fixed at start), exactly as CI's tests job runs:
+export PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$(mktemp -d)"
 pytest                      # full suite (unit + integration + e2e, ~2 min)
 ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py
 ruff check src tests/unit tests/integration tests/e2e tests/conftest.py
