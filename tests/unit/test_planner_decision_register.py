@@ -85,9 +85,14 @@ def source_errors(value: dict[str, Any]) -> list[str]:
     return [
         decision_id
         for decision_id, decision in value["decisions"].items()
-        if decision["status"] != "OPEN"
-        and not (
-            SOURCE_FORMAT.fullmatch(decision["source"]) and _real_timestamps(decision["source"])
+        if (
+            decision["source"] is not None
+            if decision["status"] == "OPEN"
+            else not (
+                isinstance(decision["source"], str)
+                and SOURCE_FORMAT.fullmatch(decision["source"])
+                and _real_timestamps(decision["source"])
+            )
         )
     ]
 
