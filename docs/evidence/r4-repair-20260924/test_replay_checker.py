@@ -245,6 +245,29 @@ class ReplayCheckerRegression(unittest.TestCase):
                     lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
                 )
 
+    def test_replaced_execution_environment_rejected(self):
+        """A PATH naming a fake prlimit keeps argv intact; the frozen environment is fixed."""
+        for key, value in (("PATH", "/tmp/fake-bin:/usr/bin:/bin"), ("PYTHONPATH", "/tmp/x")):
+            with self.subTest(key=key):
+
+                def change(rows, key=key, value=value):
+                    for row in rows:
+                        row["environment"][key] = value
+
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
+                )
+
+    def test_integer_outside_canonical_domain_rejected(self):
+        """The frozen engine canonicalizes every action value; 2**53 cannot be produced."""
+
+        def change(rows):
+            text = rows[0]["stdout"].rstrip()
+            rows[0]["stdout"] = text[:-1] + ', "extra": 9007199254740992}\n'
+
+        self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
+
 
 if __name__ == "__main__":
     unittest.main()
