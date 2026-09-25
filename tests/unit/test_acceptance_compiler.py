@@ -170,8 +170,87 @@ def test_human_test_is_path_and_digest_bound(tmp_path: Path) -> None:
         template_test_digests={},
     )
 
+    assert len(plan.criteria) == 1
+    assert plan.criteria[0].form == "human_test"
+    assert plan.criteria[0].requirement_refs == ("FR-001",)
     assert plan.criteria[0].human_test is not None
     assert plan.criteria[0].human_test.file_digest.startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    "human_test", [None, False, True, 0, 1, "", "test_safe", [], ["test_safe"], {}]
+)
+@pytest.mark.parametrize("canonical_array", [False, True])
+def test_invalid_human_test_cannot_compile_an_empty_plan(
+    tmp_path: Path, human_test: object, canonical_array: bool
+) -> None:
+    criterion = {"requirement_refs": ["FR-001"], "human_test": human_test}
+    contract = _contract(criterion)
+    if canonical_array:
+        contract["acceptance_criteria"] = [{"id": "AC-001", **criterion}]
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    diagnostics = {(item.code, item.subject_id) for item in failure.value.diagnostics}
+    assert ("INVALID_HUMAN_TEST_REFERENCE", "AC-001") in diagnostics
+    assert ("REQUIREMENT_UNCOVERED", "FR-001") in diagnostics
+
+
+def test_invalid_human_test_is_rejected_even_when_another_criterion_covers_requirement(
+    tmp_path: Path,
+) -> None:
+    contract = {
+        "functional_requirements": {"FR-001": {"statement": "health reports ok"}},
+        "acceptance_criteria": {
+            "AC-001": {"requirement_refs": ["FR-001"], "human_test": None},
+            "AC-002": {
+                "requirement_refs": ["FR-001"],
+                "satisfied_by_template": {
+                    "template_version": "barebones-1",
+                    "test_id": "template::health",
+                },
+            },
+        },
+    }
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_digests={"template::health": "sha256:" + "0" * 64},
+        )
+
+    assert [(item.code, item.subject_id) for item in failure.value.diagnostics] == [
+        ("INVALID_HUMAN_TEST_REFERENCE", "AC-001")
+    ]
+
+
+@pytest.mark.parametrize("criteria", [None, {}, []])
+def test_empty_criteria_collection_is_rejected(tmp_path: Path, criteria: object) -> None:
+    contract = _contract({})
+    contract["acceptance_criteria"] = criteria
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    diagnostics = {(item.code, item.subject_id) for item in failure.value.diagnostics}
+    assert ("CRITERIA_MISSING", "contract") in diagnostics
+    assert ("REQUIREMENT_UNCOVERED", "FR-001") in diagnostics
 
 
 def test_human_test_missing_fails_before_build(tmp_path: Path) -> None:

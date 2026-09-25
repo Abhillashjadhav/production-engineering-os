@@ -1,0 +1,3 @@
+# head: c352adb648470bbb58fff39ca969ff62dccb3ca7  worktree-dirty: 1 files
+# cmd: pytest tests/unit/test_acceptance_compiler.py tests/unit/test_release_gate_compiler.py tests/unit/test_release_gate_admission_boundaries.py
+192 passed in 0.67s

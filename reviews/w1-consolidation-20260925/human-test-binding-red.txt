@@ -1,0 +1,24 @@
+# head: ccabeecc7346dffa7354e88c1deec53b1674428a  worktree-dirty: 1 files
+# cmd: pytest tests/unit/test_acceptance_compiler.py
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-None]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-False]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-True]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-0]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-1]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-test_safe]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-human_test7]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-human_test8]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[False-human_test9]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-None]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-False]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-True]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-0]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-1]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-test_safe]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-human_test7]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-human_test8]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_cannot_compile_an_empty_plan[True-human_test9]
+FAILED tests/unit/test_acceptance_compiler.py::test_invalid_human_test_is_rejected_even_when_another_criterion_covers_requirement
+21 failed, 44 passed in 0.51s

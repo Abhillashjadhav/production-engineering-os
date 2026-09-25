@@ -17,3 +17,12 @@ No frozen source, trusted policy, scanner, allowlist, model, deployment, merge, 
 4. **Executable RED/GREEN? Yes.** The archived baseline gives one failure and three preserving controls in `package-red.txt`; the changed reader and full support file give 88 passes in `package-green.txt`.
 5. **Single-unit revert? Yes.** A pure sequence guard, one import/call substitution, and four direct tests form a separate commit.
 6. **Unrequested setting/dependency? No.** The existing package schema and caller distinguish this format. No marker, policy, scanner, or settings change is added.
+
+## W1a — malformed human-test bindings on the R4 process line (2026-09-25)
+
+1. **Already exists? Yes.** PR #205 (`bd3e081`) fixed this against `main`; this unit reuses its exact test and source change on `ccabeecc` instead of writing a parallel fix.
+2. **Reproduced blocker? Yes.** Handoff W1 / review P1: `human_test: null` compiles to zero criteria and still counts as requirement coverage. `reviews/w1-consolidation-20260925/human-test-binding-red.txt` records 21 failing / 44 passing on unchanged `ccabeecc` source.
+3. **Changes behaviour with callers/tests? Yes.** `compile_acceptance_plan` now raises for malformed bindings that were previously dropped silently; contracts that relied on that silent drop will be refused before any provider or sandbox call.
+4. **Failing check first? Yes.** Test commit precedes the fix commit.
+5. **Revert as one unit? Yes.** Two commits, one test file and one source function.
+6. **New setting/dependency/extension? No.**
