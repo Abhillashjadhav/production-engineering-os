@@ -80,6 +80,16 @@ def test_every_answer_source_names_a_time_or_an_exact_message() -> None:
     assert source_errors(register()) == []
 
 
+def test_impossible_source_timestamps_are_refused() -> None:
+    """An auditor cannot locate 2026-99-99 99:99 (Codex #219)."""
+    for stamp in ("2026-99-99 99:99", "2026-09-25 16:61", "2026-09-25 16:23-25:00"):
+        value = register()
+        value["decisions"]["D1"]["source"] = (
+            f"owner interview {stamp} IST (private handoff; paraphrased)"
+        )
+        assert source_errors(value) == ["D1"], stamp
+
+
 def test_free_text_in_a_source_is_refused() -> None:
     """Only a locator plus one approved annotation; no room for copied wording (Codex #219)."""
     for suffix in (" (verbatim private answer)", " (private handoff; 'quoted')", ""):
