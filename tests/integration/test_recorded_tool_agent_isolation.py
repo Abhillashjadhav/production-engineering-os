@@ -13,6 +13,8 @@ def test_recorded_agent_runs_in_a_scrubbed_linux_process(tmp_path: Path) -> None
     completed = subprocess.run(
         [
             sys.executable,
+            # -B keeps the scrubbed child from writing bytecode beside the engine sources.
+            "-B",
             str(ROOT / "examples/recorded-tool-agent/run.py"),
             str(output_root),
         ],
