@@ -88,6 +88,16 @@ def read(path):
     return decode(path.read_bytes())
 
 
+def adapter_json(path):
+    """A file exactly as the adapter's write_json() writes it: sorted, indent 2, newline."""
+    value = read(path)
+    require(
+        path.read_bytes() == (json.dumps(value, sort_keys=True, indent=2) + "\n").encode(),
+        path.name + " differs from the adapter's serialization",
+    )
+    return value
+
+
 def rows(path):
     """Each row exactly as the adapter's append() writes it: sorted json.dumps plus "\\n"."""
     text = path.read_bytes().decode("utf-8")
@@ -507,7 +517,7 @@ def check(directory, packet, source, case):
     entry_relative = "examples/barebones/contract-file.py"
     entry_hash = raw((source / entry_relative).read_bytes())
     require(entry_hash == ADAPTER, "supplied adapter differs from the pinned historical adapter")
-    execution = read(root / "execution-source.json")
+    execution = adapter_json(root / "execution-source.json")
     kinds = {
         value.value
         for node in ast.walk(ast.parse((source / entry_relative).read_text()))
@@ -572,7 +582,7 @@ def check(directory, packet, source, case):
         )
         # The adapter aborts before any execution unless the report is compatible with
         # the frozen profile, so a run with records cannot carry any other report.
-        compatibility = read(root / "compatibility.json")
+        compatibility = adapter_json(root / "compatibility.json")
         require(compatibility["plan_digest"] == plan.plan_digest, "recorded plan differs")
         # Every field is fixed by the adapter's compatibility(): the frozen profile, the
         # exact recorded CPython 3.12 runtime, and its literal scope statement.
@@ -600,7 +610,7 @@ def check(directory, packet, source, case):
             and compatibility["runtime"] == RUNTIME,
             "compatibility report is not the frozen profile's compatible report",
         )
-        result = read(root / "result.json")
+        result = adapter_json(root / "result.json")
         # contract-file.py's verify flow writes exactly these two fields.
         require(
             isinstance(result, dict) and set(result) == {"criteria", "findings"},
