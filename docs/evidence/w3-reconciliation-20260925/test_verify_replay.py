@@ -84,6 +84,25 @@ class VerifyReplayRegression(unittest.TestCase):
             with self.subTest(change=name):
                 self.refused(change, "source-manifest.json")
 
+    def test_summary_digests_must_match_the_ledger_evidence(self):
+        """Source-bound digests may differ between runs, never from their own ledger (Codex)."""
+        for field in ("contract_digest", "plan_digest"):
+            with self.subTest(field=field):
+                self.refused(
+                    lambda replay, field=field: self.change_json(
+                        replay / "replay-summary.json",
+                        lambda value: value.update({field: "sha256:" + "0" * 64}),
+                    ),
+                    "replay-summary.json",
+                )
+
+    def test_recorded_verdicts_name_a_file_in_the_retained_archive(self):
+        recorded = json.loads((HERE / "verdicts.json").read_text())
+        archive_name, _, member = recorded["source"].partition(" :: ")
+        self.assertEqual(archive_name, ARCHIVE.name)
+        with tarfile.open(ARCHIVE) as archive:
+            self.assertIn(member, archive.getnames())
+
 
 if __name__ == "__main__":
     unittest.main()
