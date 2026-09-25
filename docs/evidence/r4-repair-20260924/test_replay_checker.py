@@ -472,6 +472,80 @@ class ReplayCheckerRegression(unittest.TestCase):
                     ),
                 )
 
+    def test_fields_the_frozen_evaluator_cannot_return_rejected(self):
+        """observe(), the measure and _call() each return a fixed set of fields."""
+
+        def extra_top(row):
+            value = json.loads(row["stdout"])
+            value["extra"] = 1
+            row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+        def extra_nested(row):
+            value = json.loads(row["stdout"])
+            value["observations"][0]["extra"] = 1
+            row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+        def extra_setup(row):
+            value = json.loads(row["stdout"])
+            value["setup_observations"][0]["extra"] = 1
+            row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+        def missing_exit_code(row):
+            value = json.loads(row["stdout"])
+            del value["observations"][0]["exit_code"]
+            row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+        cases = {
+            "action-top-level": ("retained", 0, extra_top),
+            "action-observation": ("retained", 0, extra_nested),
+            # No `then` assertion reads these records, so only a shape check refuses them.
+            "unasserted-observation": ("persistence", 1, extra_nested),
+            "setup-observation": ("persistence", 2, extra_setup),
+            # _call always returns exit_code, even for timeouts and invalid JSON (Codex #226).
+            "missing-exit-code": ("persistence", 1, missing_exit_code),
+            "measure-top-level": ("persistence", 12, extra_top),
+        }
+        for name, (case, index, change) in cases.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    case,
+                    lambda root, index=index, change=change: self.change_rows(
+                        root, "processes.jsonl", lambda rows: change(rows[index])
+                    ),
+                )
+
+    def test_observation_counts_differ_from_the_action_arguments_rejected(self):
+        """observe() emits one _call record per step and setup entry, and counts them."""
+
+        def change_output(change):
+            def apply(row):
+                value = json.loads(row["stdout"])
+                change(value)
+                row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+            return apply
+
+        cases = {
+            "dropped-observation": (1, change_output(lambda v: v["observations"].pop())),
+            "dropped-setup-observation": (
+                2,
+                change_output(lambda v: v["setup_observations"].pop()),
+            ),
+            "process-count": (
+                1,
+                change_output(lambda v: v.update(process_count=v["process_count"] + 1)),
+            ),
+        }
+        # AC-002 and AC-003 already FAIL in the persistence case, so no assertion refuses these.
+        for name, (index, change) in cases.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "persistence",
+                    lambda root, index=index, change=change: self.change_rows(
+                        root, "processes.jsonl", lambda rows: change(rows[index])
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

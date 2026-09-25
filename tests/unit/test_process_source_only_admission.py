@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -245,15 +246,18 @@ def test_environment_prefix_fixed_at_startup_is_admitted(tmp_path: Path) -> None
     assert "ADMITTED" in result.stdout
 
 
-def test_class_exec_into_a_fake_module_namespace_is_refused() -> None:
+def test_class_in_a_fake_module_namespace_is_refused() -> None:
     """A dict that only claims the canonical module's name is not that module (Codex #227)."""
+
+    def forged_run(self: object) -> str:
+        return "forged"
+
     fake: dict[str, object] = {"__name__": CanonicalImplementation.__module__}
-    exec(
-        "class CanonicalImplementation:\n    def run(self):\n        return 'forged'\n",
-        fake,
-    )
-    forged = fake["CanonicalImplementation"]
-    assert isinstance(forged, type)
+    # The forgery dynamic code would build, written statically: a method whose globals
+    # are the fake dict, in a class labelled with the canonical module and name.
+    run = types.FunctionType(forged_run.__code__, fake, "run")
+    forged = type("CanonicalImplementation", (), {"__module__": fake["__name__"], "run": run})
+    fake["CanonicalImplementation"] = forged
     with pytest.raises(ValueError, match="canonical"):
         implementation_identity(forged())
 
