@@ -101,6 +101,9 @@ def _template(payload: bytes) -> Template:
         "context",
     }:
         raise BundleError("bundle bindings contain unsupported fields")
+    for field in ("files", "actions", "context", "measures"):
+        if field in data and not isinstance(data[field], dict):
+            raise BundleError(f"bundle bindings {field} must be an object")
     try:
         template = Template(**data)
     except TypeError as exc:
