@@ -14,7 +14,8 @@ Checks, exiting 1 on the first failure:
    compiled-plan.proposed.json hash to the bound contract and plan digests; candidate/
    and each mutants/<id>.manifest.json match the bound candidate and mutant digests; and
    migration.json's status, receipt and model-call claims and publisher-result.json's
-   approval match the recorded no-approval run;
+   approval match the recorded no-approval run; publisher-input.proposed.json hashes to
+   the contract's and the publisher result's source_digest;
 5. status, approval, state, cause, gates and record counts in <dir>/replay-summary.json
    equal the recorded replay-summary.json (source-bound digests are expected to differ).
 """
@@ -141,6 +142,15 @@ def main(directory):
         or publisher.get("draft_digest") != summary["contract_digest"]
     ):
         fail("publisher-result.json approval claim differs from the recorded run")
+    # The publisher input behind the draft is the one the ledger-bound contract names.
+    publisher_input = json.loads((directory / "publisher-input.proposed.json").read_text())
+    if not (
+        isinstance(publisher_input, dict)
+        and canonical_digest(publisher_input)
+        == contract.get("source_digest")
+        == publisher.get("source_digest")
+    ):
+        fail("publisher-input.proposed.json differs from the contract's bound source digest")
     criteria, gates = {}, {}
     for gate in evidence["gates"]:
         reasons = gate.get("evidence", {}).get("reasons", [])
