@@ -14,6 +14,8 @@ from typing import Any
 
 REGISTER = Path(__file__).resolve().parents[2] / "docs/ai-task-planner/decision-register.json"
 STATUSES = {"DECIDED", "PARTIALLY_DECIDED", "OPEN"}
+# The owner's requirement inventory (README table); none may silently disappear.
+REQUIREMENTS = {f"R{number}" for number in range(1, 18)}
 
 
 def register() -> dict[str, Any]:
@@ -41,6 +43,8 @@ def requirement_errors(value: dict[str, Any]) -> list[str]:
     """Blockers are derived from every referenced decision, never trusted as listed."""
     decisions = value["decisions"]
     errors = []
+    if set(value["requirements"]) != REQUIREMENTS:
+        errors.append("requirements: inventory must be R1-R17")
     for requirement_id, requirement in value["requirements"].items():
         refs = requirement["decision_refs"]
         if not refs or not set(refs) <= set(decisions):
