@@ -1,0 +1,5 @@
+# base e05f43217a52030fc1f1ca777ae090e3861eff5b + test only
+E       AssertionError: ['tests.env.PYTHONPYCACHEPREFIX']
+E       assert ['tests.env.P...YCACHEPREFIX'] == []
+FAILED tests/unit/test_ci_workflow_contexts.py::test_job_level_env_uses_only_contexts_github_allows[ci.yml]
+# GitHub evidence: run 36140292935 (push, e05f432) failed in 0s with the workflow path as its name; no ci checks exist for #220
