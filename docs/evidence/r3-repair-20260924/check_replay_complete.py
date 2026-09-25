@@ -135,6 +135,38 @@ def frozen_runner(source):
     raise ValueError("frozen engine action runner not found")
 
 
+def frozen_environment(source):
+    """The literal ``environment=`` mapping of ``sandbox.run`` in the frozen ``_run_action``.
+
+    Module-level string constants it names (``_SANDBOX_PATH``) are resolved from the same
+    digest-checked file.
+    """
+    tree = ast.parse((source / "src/pmpe/barebones.py").read_text())
+    constants = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and isinstance(node.value, ast.Constant):
+                constants[target.id] = node.value.value
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_action":
+            for call in ast.walk(node):
+                for keyword in getattr(call, "keywords", []):
+                    if keyword.arg == "environment" and isinstance(keyword.value, ast.Dict):
+                        environment = {}
+                        for key, value in zip(
+                            keyword.value.keys, keyword.value.values, strict=True
+                        ):
+                            require(isinstance(key, ast.Constant), "frozen environment key")
+                            if isinstance(value, ast.Name):
+                                require(value.id in constants, "frozen environment constant")
+                                environment[key.value] = constants[value.id]
+                            else:
+                                environment[key.value] = ast.literal_eval(value)
+                        return environment
+    raise ValueError("frozen engine action environment not found")
+
+
 def check(directory, packet, source, case):
     root, packet, source = Path(directory), Path(packet).resolve(), Path(source).resolve()
     local_roots = {"PM-agent-OS": packet.parents[1], "production-engineering-os": source}
@@ -241,6 +273,7 @@ def check(directory, packet, source, case):
         semantic = {}
         expected_findings = []
         runner = frozen_runner(source)
+        environment = frozen_environment(source)
         caps = read(packet / "execution-profile.json")["resource_caps"]
         # The historical host fallback's exact prlimit prefix, from the frozen profile.
         limits = [
@@ -315,7 +348,14 @@ def check(directory, packet, source, case):
             entries = base + protected + [(entry_label, entry_hash)]
             for record in observations[1 + 2 * index : 3 + 2 * index]:
                 inventory(record, entries)
+            # The frozen runner is launched with exactly this environment (no PATH or
+            # PYTHONPATH of the operator's choosing), then canonicalizes the value it read.
+            require(
+                process.get("environment") == environment,
+                "observer environment differs from the frozen engine",
+            )
             value = decode(process["stdout"])
+            canonical(value)
             require(not crash_marker(value), "observer crash/timeout marker")
             if criterion.form == "measure":
                 target = template.measures[criterion.measure]
