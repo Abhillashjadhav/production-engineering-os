@@ -35,6 +35,14 @@ R4_REPLAY_PACKET=<packet> R4_REPLAY_SOURCE=<historical engine> \
 
 The migration command relaunches itself source-only if started without those variables.
 
+Release-gate comparison (per-case outcomes in `release-gates-*.junit.xml`):
+
+```bash
+T="tests/unit/test_release_gate_compiler.py tests/unit/test_release_gate_admission_boundaries.py tests/integration/test_release_gate_runtime.py"
+PYTHONPATH=<main checkout>/src:. python -m pytest -p no:cacheprovider -q $T --junitxml=release-gates-main.junit.xml
+PYTHONPATH=src:. python -m pytest -p no:cacheprovider -q $T --junitxml=release-gates-head.junit.xml
+```
+
 ## Limits
 
 - The same trusted-operator boundary as before: in-process code could still tamper.
