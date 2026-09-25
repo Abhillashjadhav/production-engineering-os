@@ -138,6 +138,15 @@ def test_opening_request_locator_is_bound_to_its_decision() -> None:
     assert source_errors(value) == ["D1"]
 
 
+def test_no_requirement_can_go_missing() -> None:
+    """Deleting a requirement must not leave the register green (Codex #219)."""
+    for missing in (["R2"], [f"R{number}" for number in range(1, 18)]):
+        value = register()
+        for requirement_id in missing:
+            del value["requirements"][requirement_id]
+        assert "requirements: inventory must be R1-R17" in requirement_errors(value), missing
+
+
 def test_requirements_reference_known_decisions_and_block_on_open_parts() -> None:
     assert requirement_errors(register()) == []
 
