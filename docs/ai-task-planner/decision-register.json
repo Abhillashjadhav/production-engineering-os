@@ -237,7 +237,7 @@
       "status": "DECIDED",
       "question": "Spending constraint?",
       "answer": "Use existing subscriptions; no additional API or GPU spending without asking.",
-      "source": "owner task instructions, this session's opening request (constraint list: \"Use existing subscriptions. Do not introduce additional API or GPU spending without asking.\")"
+      "source": "owner task instructions, this session's opening request (constraint list; paraphrased)"
     },
     "D26": {
       "status": "OPEN",
