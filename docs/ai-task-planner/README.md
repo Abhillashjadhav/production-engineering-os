@@ -20,8 +20,8 @@ session instruction they come from, and are not copied from private material.
 | R6 place tasks with the existing scheduling rules | BLOCKED | D19b conflicts / priority |
 | R7 missing duration → ask | SETTLED | — |
 | R8 create new calendar entries automatically | BLOCKED | D12b calendar and attendees, D26 OAuth mode |
-| R9 changes to existing entries need a clickable approval | BLOCKED | D7 pop-up surface / UI |
-| R10 no duplicate events on reprocessing | SETTLED | — |
+| R9 changes to existing entries need a clickable approval | BLOCKED | D7 pop-up surface / UI, D21 approvals clicked after the batch |
+| R10 no duplicate events on reprocessing | BLOCKED | D18 unclear task identity |
 | R11 due-today completion prompt; silence ≠ done | BLOCKED | D13b prompt time and surface, what follows "not completed" |
 | R12 advance reminders and task chats | BLOCKED | D14 reminders, D15b task-chat destination |
 | R13 existing subscriptions only | SETTLED | — |

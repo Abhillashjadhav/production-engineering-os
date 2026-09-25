@@ -341,9 +341,11 @@
       "statement": "Changes to existing calendar entries require approval through a clickable pop-up.",
       "decision_refs": [
         "D11",
+        "D21",
         "D7"
       ],
       "blocked_by": [
+        "D21",
         "D7"
       ],
       "status": "BLOCKED"
@@ -351,10 +353,13 @@
     "R10": {
       "statement": "Reprocessing the same obligation never creates a duplicate calendar event.",
       "decision_refs": [
-        "D11"
+        "D11",
+        "D18"
       ],
-      "blocked_by": [],
-      "status": "SETTLED"
+      "blocked_by": [
+        "D18"
+      ],
+      "status": "BLOCKED"
     },
     "R11": {
       "statement": "For tasks due today without a completion update, ask 'Yes, I have completed it' / 'I have not completed it'; silence is not completion.",
