@@ -9,6 +9,15 @@
 
 No frozen source, trusted policy, scanner, allowlist, model, deployment, merge, or publication changes. A self-consistent unsigned rewrite remains unauthenticated without an independently retained head.
 
+## W5 — supported approved-bundle run (#224) — 2026-09-25
+
+1. **Already exists? Partly.** `examples/barebones/contract-file.py` loads frozen bindings, and the migration script assembles `ProcessGateInputs`. Neither is a supported CLI path. The loader's bindings and safe-path rules are promoted into `pmpe.approved_bundle`, and the example stays frozen as historical evidence.
+2. **Reproduced blocker? Yes.** The review (2026-09-25) found that `barebones_cmd._run` passes no bindings and no `ProcessGateInputs`, so gated contracts cannot run through the CLI.
+3. **Changes existing behaviour? No.** A new `run-bundle` subcommand; `run` and the other commands are unchanged.
+4. **Failing check first? Yes.** `reviews/w5-approved-bundle-20260925/red.txt`: 13 failing before implementation.
+5. **Revert as one unit? Yes.** Two new modules, one registration line, docs and tests.
+6. **New setting/dependency/extension? No new dependency.** The bundle layout is a fixed schema with no plugin surface. Measures must be frozen `tests/` files; actions may target explicit template modules, as the engine's default template does.
+
 ## W2 — source-only admission replaces registry scans (#217) — 2026-09-25
 
 Owner decision, 2026-09-25 18:29 IST, answering `reviews/r4-architecture-20260925/DECISION_REQUIRED.md`: **"Approve source-only start"**. Gated runs must start in a fresh source-only interpreter. The guard checks process state instead of scanning `sys.modules`. Gated direct calls in an unprepared interpreter are refused.

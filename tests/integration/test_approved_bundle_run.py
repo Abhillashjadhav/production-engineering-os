@@ -296,3 +296,24 @@ def test_unprepared_interpreter_relaunches_source_only(tmp_path: Path) -> None:
     assert completed.returncode == 3, completed.stderr
     assert "freeze" in output["detail"], output
     assert "source-only" not in output["detail"]
+
+
+@pytest.mark.parametrize(
+    ("measures", "files"),
+    [
+        ({"score": "product:health"}, {}),
+        ({"score": "tests.judge:score"}, {"tests/judge.py": "def score(): ...\n"}),
+    ],
+    ids=["evaluator-in-product-code", "missing-package-initializer"],
+)
+def test_bindings_keep_evaluators_frozen_and_explicit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], measures: Any, files: Any
+) -> None:
+    bundle, digest, *_ = write_bundle(tmp_path)
+    bindings = json.loads((bundle / "bindings.json").read_text())
+    bindings["measures"] = measures
+    bindings["files"].update(files)
+    (bundle / "bindings.json").write_text(json.dumps(bindings))
+    code, marker = run_cli(tmp_path, bundle, digest)
+    output = refused_before_side_effects(tmp_path, code, marker, capsys)
+    assert "bundle" in output["detail"]
