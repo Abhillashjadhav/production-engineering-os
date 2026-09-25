@@ -1,4 +1,4 @@
-# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker last changed in 4ea8e39, round 19, carried by the #227 head f6df6a2)
+# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker last changed in 5995927, round 20, carried by the #227 head feb49dc)
 test_candidate_replaced_under_the_source_rejected (__main__.ReplayCheckerRegression.test_candidate_replaced_under_the_source_rejected)
 The candidate the pinned launch names is bound to its published bytes (Codex #226). ... ok
 test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected)
@@ -63,6 +63,6 @@ test_values_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerR
 Literal and derived return values are fixed by the frozen source (Codex #221/#226). ... ok
 
 ----------------------------------------------------------------------
-Ran 36 tests in 51.892s
+Ran 36 tests in 49.388s
 
 OK

@@ -9,7 +9,7 @@ Source under test: the W2 head `80cd230ca37f3d75e3aa2d1dd0733d8e464b45e0` (#227)
 
 Earlier versions of this evidence ran on `cecf9e9`, `1b680ff` and `933fdc7`. It was refreshed on `80cd230`. That head adds the later Codex-review repairs to source-only admission (startup-record prefix precedence, code-bound implementation identity), the CI prefix ordering, checker rounds 14–18, and the ported #233 and #234 fixes. Criteria, gate statuses and reasons, record counts and the scanner result are unchanged; only the source-bound digests differ.
 
-This PR's head also carries #227 `f6df6a2`, which adds checker round 19 (pinned candidate trees and the measure's value domain). It changes only `docs/evidence/r3-repair-20260924/check_replay_complete.py` and its tests, no file under `src/`, `scripts/` or `tests/`, so the replay and scanner evidence from `80cd230` stands. The checker run in `replay-checker.txt` was refreshed on this head.
+This PR's head also carries #227 `f6df6a2` and `feb49dc`, which add checker rounds 19 (pinned candidate trees and the measure's value domain) and 20 (the exact recorded runtime string). They change only `docs/evidence/r3-repair-20260924/check_replay_complete.py`, its tests, its RED/GREEN logs and `BAR.md`, and no file under `src/`, `scripts/` or `tests/`, so the replay and scanner evidence from `80cd230` stands. The checker run in `replay-checker.txt` was refreshed on this head.
 
 Historical inputs are unchanged: the PM-agent-OS packet at `33a35962` (`reviews/task-tracker-v1`, 218-artifact freeze) and the historical PEOS engine at `c1ab2def189f`. This unit adds evidence only; no source or frozen artifact changes.
 
