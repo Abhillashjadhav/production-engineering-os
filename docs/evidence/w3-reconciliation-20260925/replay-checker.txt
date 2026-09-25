@@ -1,15 +1,21 @@
-# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker from b20dd0b2860a6f7835466f767bbc489d70b1ca54)
+# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker from c7b1b7c, the #221 head)
 test_duplicate_or_altered_findings_rejected (__main__.ReplayCheckerRegression.test_duplicate_or_altered_findings_rejected) ... ok
 test_fake_matching_inventories_rejected (__main__.ReplayCheckerRegression.test_fake_matching_inventories_rejected) ... ok
 test_forged_summary_rejected (__main__.ReplayCheckerRegression.test_forged_summary_rejected) ... ok
+test_nested_signal_exit_code_rejected (__main__.ReplayCheckerRegression.test_nested_signal_exit_code_rejected)
 A killed observer subprocess (137) inside an already-failing criterion. ... ok
+test_non_signal_abnormal_exit_rejected (__main__.ReplayCheckerRegression.test_non_signal_abnormal_exit_rejected)
 127 (command not found) is outside the frozen task tracker's 0/1/2 exits. ... ok
 test_observer_markers_rejected (__main__.ReplayCheckerRegression.test_observer_markers_rejected) ... ok
 test_optimized_interpreter_rejects_missing_boundary (__main__.ReplayCheckerRegression.test_optimized_interpreter_rejects_missing_boundary) ... ok
 test_original_cases_pass (__main__.ReplayCheckerRegression.test_original_cases_pass) ... ok
 test_process_crash_rejected (__main__.ReplayCheckerRegression.test_process_crash_rejected) ... ok
+test_python_named_fake_interpreter_rejected (__main__.ReplayCheckerRegression.test_python_named_fake_interpreter_rejected)
+A fake path with an accepted basename must not match the operator's launcher. ... ok
 test_replaced_interpreter_or_limits_rejected (__main__.ReplayCheckerRegression.test_replaced_interpreter_or_limits_rejected) ... ok
+test_replaced_runner_program_rejected (__main__.ReplayCheckerRegression.test_replaced_runner_program_rejected)
 A fabricated -c program that only prints the recorded stdout. ... ok
 test_swapped_stdout_rejected (__main__.ReplayCheckerRegression.test_swapped_stdout_rejected) ... ok
-Ran 12 tests
+----------------------------------------------------------------------
+Ran 13 tests in 10.487s
 OK
