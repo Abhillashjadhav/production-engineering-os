@@ -22,6 +22,16 @@ LAUNCH_RECORD = "sha256:b7f352715dcb194067147d16da7ba2b99c574f369f0fa5d0dbb9114d
 # examples/barebones/contract-file.py as published with the historical engine at c1ab2def;
 # it is outside the 218-artifact freeze, so it is pinned here independently.
 ADAPTER = "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387"
+# The candidate trees the pinned launch record names, as published with the historical
+# engine at c1ab2def: raw digest of the sorted {relative path: raw file digest} map.
+CANDIDATES = {
+    "retained": "sha256:7ea438807695bfeaed854941913373380f34853e215389e38a59cb4aff5457a4",
+    "persistence": "sha256:c0bec7f90556b77533044ff3aa5bd0b29ed748da548e08bb9f5ae28240ef8ff0",
+    "filtering": "sha256:ea6eda80e8564e1a2e41355620be8a98fde19ec85704f5de3d0f0edbe0883486",
+}
+# tests/acceptance/task_tracker.py inside the frozen template; the measure-domain facts in
+# check_measure_domain are read from exactly this source.
+EVALUATOR = "sha256:7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66"
 PRODUCT_EXIT_CODES = frozenset({0, 1, 2})
 INTERPRETER = re.compile(r"python3?(\.[0-9]+)?")
 EXPECTED_FAILURES = {
@@ -380,6 +390,57 @@ def check_returned_values(value, module_source, function):
                 )
 
 
+def tree_digest(root):
+    """Raw digest of the sorted {relative path: raw digest} map of a regular-file tree."""
+    require(root.is_dir() and not root.is_symlink(), "candidate is not a directory")
+    files = {}
+    for path in sorted(root.rglob("*")):
+        require(not path.is_symlink(), "candidate tree contains a symlink")
+        if path.is_dir():
+            continue
+        require(path.is_file(), "candidate tree contains a non-regular file")
+        files[path.relative_to(root).as_posix()] = raw(path.read_bytes())
+    return raw(json.dumps(files, sort_keys=True, separators=(",", ":")).encode())
+
+
+def check_measure_domain(value, module_source, function):
+    """Facts about the pinned measure that no single return expression states.
+
+    ``missing_acknowledged_records`` (source pinned by EVALUATOR) loops ``range(N)`` once,
+    stores at most one acknowledged ID per iteration as a dict key, admits only IDs with
+    ``type(id) is int and id > 0``, and collects ``missing`` from those keys. So
+    ``sample_size <= N``, ``value <= sample_size``, and ``missing_ids`` are distinct
+    positive integers.
+    """
+    if function != "missing_acknowledged_records":
+        return
+    require(raw(module_source.encode()) == EVALUATOR, "measure source differs from the pin")
+    (definition,) = [
+        node
+        for node in ast.walk(ast.parse(module_source))
+        if isinstance(node, ast.FunctionDef) and node.name == function
+    ]
+    loops = [
+        node.iter.args[0].value
+        for node in ast.walk(definition)
+        if isinstance(node, ast.For)
+        and isinstance(node.iter, ast.Call)
+        and isinstance(node.iter.func, ast.Name)
+        and node.iter.func.id == "range"
+        and len(node.iter.args) == 1
+        and isinstance(node.iter.args[0], ast.Constant)
+    ]
+    require(len(loops) == 1 and type(loops[0]) is int, "measure loop bound is ambiguous")
+    ids = value["missing_ids"]
+    require(
+        type(value["sample_size"]) is int
+        and 0 <= value["value"] <= value["sample_size"] <= loops[0]
+        and all(type(item) is int and item > 0 for item in ids)
+        and len(set(ids)) == len(ids),
+        "measure result is outside the frozen evaluator's domain",
+    )
+
+
 def iterated(node, bound):
     """The value a frozen comprehension iterates over: a parameter, or ``parameter or []``."""
     if isinstance(node, ast.Name):
@@ -634,6 +695,16 @@ def check(directory, packet, source, case):
             command[1:] == execution["argv"],
             "recorded invocation differs from the operator's replay launch record",
         )
+        # The observations belong to the candidate this pinned launch names; bind its bytes.
+        require(
+            command.count("--candidate") == 1 and command.index("--candidate") + 1 < len(command),
+            "replay launch record names no single candidate",
+        )
+        candidate = safe_file(source, command[command.index("--candidate") + 1])
+        require(
+            tree_digest(candidate) == CANDIDATES.get(case),
+            "replayed candidate differs from the pinned historical candidate",
+        )
         for index, (criterion, process) in enumerate(zip(plan.criteria, processes, strict=True)):
             require(
                 type(process["check_index"]) is int and process["check_index"] == index,
@@ -730,6 +801,7 @@ def check(directory, packet, source, case):
             module_source = template.files[module.replace(".", "/") + ".py"]
             # Literal, comparison, len() and sorted() return values are fixed by the source.
             check_returned_values(value, module_source, function)
+            check_measure_domain(value, module_source, function)
             lists, counts, defaults = returned_call_lists(module_source, function)
             bound = {**defaults, **arguments}
             for key, (callee, iterable) in lists.items():
