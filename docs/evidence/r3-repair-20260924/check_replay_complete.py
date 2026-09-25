@@ -222,6 +222,55 @@ SUCCESS_RECORD_KEYS = frozenset(
 )
 
 
+def returned_fields(module_source, function):
+    """The one key set that ``function`` returns as a literal dict in the frozen module."""
+    shapes = {
+        frozenset(key.value for key in node.value.keys)
+        for definition in ast.walk(ast.parse(module_source))
+        if isinstance(definition, ast.FunctionDef) and definition.name == function
+        for node in ast.walk(definition)
+        if isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Dict)
+        and all(isinstance(key, ast.Constant) for key in node.value.keys)
+    }
+    require(len(shapes) == 1, f"frozen evaluator {function} has no single return shape")
+    return next(iter(shapes))
+
+
+def returned_call_lists(module_source, function):
+    """Returned keys whose value is a list built as ``[callee(...) for ...]`` in ``function``.
+
+    Maps each such key to the module-level ``callee``; its records must have that shape.
+    """
+    tree = ast.parse(module_source)
+    defined = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+    fields = {}
+    for definition in ast.walk(tree):
+        if not (isinstance(definition, ast.FunctionDef) and definition.name == function):
+            continue
+        built = {
+            target.id: node.value.elt.func.id
+            for node in ast.walk(definition)
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.ListComp)
+            and isinstance(node.value.elt, ast.Call)
+            and isinstance(node.value.elt.func, ast.Name)
+            and node.value.elt.func.id in defined
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for node in ast.walk(definition):
+            if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+                for key, value in zip(node.value.keys, node.value.values, strict=True):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and isinstance(value, ast.Name)
+                        and value.id in built
+                    ):
+                        fields[key.value] = built[value.id]
+    return fields
+
+
 def frozen_mode(source, entry_relative):
     """The one ``"mode"`` literal the digest-bound adapter records for each process."""
     modes = {
@@ -536,6 +585,25 @@ def check(directory, packet, source, case):
                 passed = all(
                     _assertion_passes(x, template.context) for x in criterion.given
                 ) and all(_assertion_passes(x, {"result": value}) for x in criterion.then)
+            # The frozen evaluator (digest-bound in the template) returns exactly these
+            # fields, so any other top-level field cannot come from it.
+            module, function = target.split(":")
+            require(
+                isinstance(value, dict)
+                and set(value)
+                == returned_fields(template.files[module.replace(".", "/") + ".py"], function),
+                "observer output has fields the frozen evaluator does not return",
+            )
+            # Lists the evaluator fills with one helper's records (observe() builds
+            # observations and setup_observations from _call) carry only that helper's fields.
+            module_source = template.files[module.replace(".", "/") + ".py"]
+            for key, callee in returned_call_lists(module_source, function).items():
+                shape = returned_fields(module_source, callee)
+                require(
+                    isinstance(value[key], list)
+                    and all(isinstance(item, dict) and set(item) == shape for item in value[key]),
+                    f"observer {key} records have fields {callee} does not return",
+                )
             require(
                 argv[-3:-1] == target.split(":")
                 # _run_action passes json.dumps(arguments) verbatim as the last argument.

@@ -1,0 +1,5 @@
+# base 0e6b680 + tests only (Codex review round 14 on #221); the nested-observation case is already refused by the criterion assertions
+FAIL: test_fields_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_fields_the_frozen_evaluator_cannot_return_rejected) (change='action-top-level')
+FAIL: test_fields_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_fields_the_frozen_evaluator_cannot_return_rejected) (change='measure-top-level')
+Ran 32 tests in 38.163s
+FAILED (failures=2)
