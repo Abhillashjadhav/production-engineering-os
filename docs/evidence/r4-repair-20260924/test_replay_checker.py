@@ -1,5 +1,6 @@
 """Mutate retained evidence, never execute or edit the frozen candidate/runner."""
 
+import hashlib
 import json
 import os
 import shutil
@@ -421,6 +422,55 @@ class ReplayCheckerRegression(unittest.TestCase):
             raise AssertionError("no record with non-empty arguments")
 
         self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
+
+    def test_substituted_adapter_rejected(self):
+        """A different adapter in the supplied source cannot be paired with matching records."""
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            shutil.copytree(SOURCE, source, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+            adapter = source / "examples/barebones/contract-file.py"
+            adapter.write_bytes(adapter.read_bytes() + b"\n# substituted adapter\n")
+            digest = "sha256:" + hashlib.sha256(adapter.read_bytes()).hexdigest()
+            root = Path(temporary) / "cases" / "retained"
+            shutil.copytree(EVIDENCE / "retained", root)
+            shutil.copyfile(EVIDENCE / "replay-commands.json", root.parent / "replay-commands.json")
+            self.change_json(
+                root, "execution-source.json", lambda value: value.update(entry_digest=digest)
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(CHECKER),
+                    str(root),
+                    "--packet",
+                    str(PACKET),
+                    "--peos-source",
+                    str(source),
+                    "--case",
+                    "retained",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("adapter", result.stdout)
+
+    def test_execution_source_fields_rejected(self):
+        """contract-file.py writes exactly four execution-source fields and a literal kind."""
+        changes = {
+            "kind": lambda value: value.update(kind="authenticated historical runtime"),
+            "extra": lambda value: value.update(runtime_authenticated=True),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_json(
+                        root, "execution-source.json", change
+                    ),
+                )
 
 
 if __name__ == "__main__":
