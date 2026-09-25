@@ -350,6 +350,24 @@ def check(directory, packet, source, case):
             "boundary sequence incomplete",
         )
         require([p["criterion_id"] for p in processes] == ids, "process coverage incomplete")
+        # DigestGuard.check writes exactly these fields, with a list of mismatches.
+        require(
+            all(
+                isinstance(o, dict)
+                and set(o)
+                == {
+                    "stage",
+                    "subject",
+                    "checked",
+                    "expected_inventory_digest",
+                    "observed_inventory_digest",
+                    "mismatches",
+                }
+                and isinstance(o["mismatches"], list)
+                for o in observations
+            ),
+            "digest observation is not one DigestGuard.check writes",
+        )
         mismatch_count = sum(len(o["mismatches"]) for o in observations)
         require(mismatch_count == 0, "recorded digest mismatches")
         inventory_mismatches = 0
@@ -476,6 +494,13 @@ def check(directory, packet, source, case):
             )
             value = decode(process["stdout"])
             canonical(value)
+            # The frozen runner prints json.dumps(v, sort_keys=True, separators=(",", ":"))
+            # once, so a successful record's stdout is exactly that line.
+            require(
+                process["stdout"]
+                == json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n",
+                "observer stdout is not the frozen runner's serialization",
+            )
             require(not crash_marker(value), "observer crash/timeout marker")
             if criterion.form == "measure":
                 target = template.measures[criterion.measure]
