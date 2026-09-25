@@ -1,0 +1,6 @@
+# base 9ed52cfa19c90bc051ef6d37431aa61cf3490817 + test only (Codex review #220, P2)
+E       AssertionError: [['MUTANT_SET_MISMATCH'], ['MUTANT_SET_MISMATCH']]
+>                           raise ValueError("process gate mutant snapshot digest mismatch")
+E                           ValueError: process gate mutant snapshot digest mismatch
+                            raise ValueError("process gate mutant snapshot digest mismatch")
+E           pmpe.barebones.ContractInvalidError: process gate input invalid: process gate mutant snapshot digest mismatch
