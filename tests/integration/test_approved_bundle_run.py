@@ -454,8 +454,13 @@ def test_criterion_only_bundle_plan_must_be_this_contract_plan(
 
 
 def test_complete_criterion_only_bundle_reaches_the_provider(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Admission is under test, not isolation: the plain tests job has no bwrap, and the
+    # real sandbox is proven by the candidate-isolation job.
+    from pmpe import barebones
+
+    monkeypatch.setattr(barebones, "BubblewrapCandidateSandbox", LocalSandbox)
     bundle, digest, *_ = write_bundle(tmp_path, process_bindings=False)
     code, marker = run_cli(tmp_path, bundle, digest)
     output = json.loads(capsys.readouterr().out)
