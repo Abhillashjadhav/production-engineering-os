@@ -1,0 +1,36 @@
+{
+  "approval_receipt_created": false,
+  "excluded_from_source_manifest": [
+    "this draft",
+    "updated publisher input (contains the source-manifest binding)",
+    "approved contract",
+    "approval receipt",
+    "outer freeze"
+  ],
+  "fresh_model_calls": 0,
+  "historical_artifacts_bound": 218,
+  "historical_freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "legacy_verify_limit": "Historical adapter verify/_verify_snapshot alone is behavioral replay, not release-gate proof.",
+  "original_contract_canonical_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "original_contract_raw_digest": "sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2",
+  "outer_freeze_after_approval": [
+    "reviewed draft",
+    "updated publisher input",
+    "approved contract",
+    "source manifest",
+    "approval receipt",
+    "compiled plan",
+    "current adapter",
+    "mutant/persistence exact snapshot manifest",
+    "mutant/filtering exact snapshot manifest",
+    "profile and evaluator/bindings"
+  ],
+  "proposed_contract_digest": "sha256:fc20d1536d6a1029a9df03d19c29ca82c159ce2a91627d8526301b5129b4de38",
+  "runtime_imports": {
+    "pmpe": "/home/user/peos-tmp/src/pmpe/__init__.py",
+    "pmpe.barebones": "/home/user/peos-tmp/src/pmpe/barebones.py"
+  },
+  "source_approval": "Pending owner review of exact new source/adapter/manifest and proposed bindings",
+  "source_manifest_digest": "sha256:9095c105d1b756af16c13e89326fb956df99e2487b469dff92d41cd2a4f89808",
+  "status": "DRAFT_NOT_APPROVED"
+}
