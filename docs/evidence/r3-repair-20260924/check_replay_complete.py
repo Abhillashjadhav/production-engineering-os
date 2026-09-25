@@ -34,6 +34,8 @@ CANDIDATES = {
 EVALUATOR = "sha256:7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66"
 PRODUCT_EXIT_CODES = frozenset({0, 1, 2})
 INTERPRETER = re.compile(r"python3?(\.[0-9]+)?")
+# The exact sys.version the adapter recorded in the published compatibility reports.
+RUNTIME = "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]"
 EXPECTED_FAILURES = {
     "retained": [],
     "persistence": [
@@ -562,7 +564,7 @@ def check(directory, packet, source, case):
         compatibility = read(root / "compatibility.json")
         require(compatibility["plan_digest"] == plan.plan_digest, "recorded plan differs")
         # Every field is fixed by the adapter's compatibility(): the frozen profile, the
-        # CPython 3.12 constraint it enforces, and its literal scope statement.
+        # exact recorded CPython 3.12 runtime, and its literal scope statement.
         profile = read(packet / "execution-profile.json")
         require(
             set(compatibility)
@@ -584,8 +586,7 @@ def check(directory, packet, source, case):
             and compatibility["missing_isolations"]
             == profile["authorized_fallback"]["unavailable_additional_protections"]
             and compatibility["scope"] == "can attempt and evaluate; not a delivery guarantee"
-            and isinstance(compatibility["runtime"], str)
-            and compatibility["runtime"].startswith("3.12."),
+            and compatibility["runtime"] == RUNTIME,
             "compatibility report is not the frozen profile's compatible report",
         )
         result = read(root / "result.json")
