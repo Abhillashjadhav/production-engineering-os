@@ -41,3 +41,24 @@ def test_relaunch_preserves_environment_isolation(tmp_path: Path, option: str) -
     )
     assert "DECOY PMPE IMPORTED" not in result.stdout, result.stdout + result.stderr
     assert result.returncode != 7, result.stdout + result.stderr
+
+
+def test_relaunch_keeps_the_option_terminator_last(tmp_path: Path) -> None:
+    """`python -- script` is valid; source-only flags must go before `--` (Codex #227)."""
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"}
+    }
+    environment["PYTHONPATH"] = str(ROOT / "src")
+    result = subprocess.run(
+        [sys.executable, "--", str(SCRIPT), "--help"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "usage:" in result.stdout

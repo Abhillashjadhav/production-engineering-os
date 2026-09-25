@@ -243,3 +243,52 @@ def test_environment_prefix_fixed_at_startup_is_admitted(tmp_path: Path) -> None
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "ADMITTED" in result.stdout
+
+
+def test_class_exec_into_a_fake_module_namespace_is_refused() -> None:
+    """A dict that only claims the canonical module's name is not that module (Codex #227)."""
+    fake: dict[str, object] = {"__name__": CanonicalImplementation.__module__}
+    exec(
+        "class CanonicalImplementation:\n    def run(self):\n        return 'forged'\n",
+        fake,
+    )
+    forged = fake["CanonicalImplementation"]
+    assert isinstance(forged, type)
+    with pytest.raises(ValueError, match="canonical"):
+        implementation_identity(forged())
+
+
+@pytest.mark.skipif(not Path("/proc/self/cmdline").exists(), reason="needs /proc startup records")
+def test_script_arguments_are_not_startup_options(tmp_path: Path) -> None:
+    """`-X pycache_prefix=...` after the script or -c code is an argument, not an option."""
+    prefix = empty_prefix(tmp_path)
+    adapter = tmp_path / "adapter" / "runner.py"
+    adapter.parent.mkdir(exist_ok=True)
+    adapter.write_text("# exact adapter source; never imported\n")
+    forge = (
+        f"sys._xoptions['pycache_prefix'] = {str(prefix)!r}\nsys.pycache_prefix = {str(prefix)!r}"
+    )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX", "PYTHONPATH"}
+    }
+    environment["PYTHONPATH"] = str(ROOT / "src")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-c",
+            PROBE.format(pre=forge, adapter=str(adapter)),
+            "-X",
+            f"pycache_prefix={prefix}",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "source-only" in result.stdout
