@@ -211,10 +211,8 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         while time.monotonic() < documented_deadline:
             try:
                 if documented_url is None:
-                    # The app creates the file before writing the port; retry until complete.
                     with open(documented_port_file, encoding="utf-8") as handle:
-                        documented_port = int(handle.read())
-                    documented_url = "http://127.0.0.1:" + str(documented_port) + "/health"
+                        documented_url = "http://127.0.0.1:%d/health" % int(handle.read())
                 with urllib.request.urlopen(documented_url, timeout=0.1) as response:
                     documented_health = json.loads(response.read())
                 assert documented.poll() is None
