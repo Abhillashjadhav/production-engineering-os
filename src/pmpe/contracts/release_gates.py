@@ -63,6 +63,7 @@ def compile_release_gates(
         return ()
 
     seen: set[str] = set()
+    mutant_ids: set[str] = set()
     compiled: list[CompiledReleaseGate] = []
     allowed = {"id", "description", "evidence_expectation", "acceptance_criterion_refs", "binding"}
     for index, (gate_id, item) in enumerate(entries):
@@ -101,6 +102,16 @@ def compile_release_gates(
             except ValueError as exc:
                 diagnostic("RELEASE_GATE_BINDING_INVALID", gate_id, str(exc))
                 continue
+            if binding["kind"] == "negative_controls":
+                own = {mutant["id"] for mutant in binding["mutants"]}
+                if own & mutant_ids:
+                    diagnostic(
+                        "RELEASE_GATE_BINDING_INVALID",
+                        gate_id,
+                        "mutant IDs must be unique across negative_controls gates",
+                    )
+                    continue
+                mutant_ids |= own
             compiled.append(CompiledReleaseGate(gate_id, binding=binding))
             continue
         refs = item.get("acceptance_criterion_refs")
