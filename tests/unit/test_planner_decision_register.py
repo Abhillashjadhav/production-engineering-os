@@ -58,14 +58,30 @@ SOURCE_LOCATOR = re.compile(
     r"|owner task instructions, this session's opening request)"
 )
 
+# The rule so far: a locator, then any text without an ASCII double quote.
+SOURCE_FORMAT = re.compile(SOURCE_LOCATOR.pattern + r'[^"]*')
+
+
+def source_errors(value: dict[str, Any]) -> list[str]:
+    """Sources locate private material and never carry it (answers are paraphrased)."""
+    return [
+        decision_id
+        for decision_id, decision in value["decisions"].items()
+        if decision["status"] != "OPEN" and not SOURCE_FORMAT.fullmatch(decision["source"])
+    ]
+
 
 def test_every_answer_source_names_a_time_or_an_exact_message() -> None:
     """A source must let an auditor find the answer: a clock time or the exact message."""
-    for decision_id, decision in register()["decisions"].items():
-        if decision["status"] != "OPEN":
-            assert SOURCE_LOCATOR.match(decision["source"]), decision_id
-            # Sources locate private material; they never quote it (answers are paraphrased).
-            assert '"' not in decision["source"], decision_id
+    assert source_errors(register()) == []
+
+
+def test_free_text_in_a_source_is_refused() -> None:
+    """Only a locator plus one approved annotation; no room for copied wording (Codex #219)."""
+    for suffix in (" (verbatim private answer)", " (private handoff; 'quoted')", ""):
+        value = register()
+        value["decisions"]["D1"]["source"] = "owner interview 2026-09-25 16:23 IST" + suffix
+        assert source_errors(value) == ["D1"], suffix
 
 
 def test_requirements_reference_known_decisions_and_block_on_open_parts() -> None:
