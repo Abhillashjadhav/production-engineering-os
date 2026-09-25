@@ -1,0 +1,73 @@
+{
+  "approval": "DRAFT_NOT_APPROVED",
+  "archive_regular_files": 312,
+  "archive_sha256": "c5335994840a1416d7d08463b6cc48dfdff823f24471ca0936c8e76b1db88071",
+  "bound_artifacts_checked": 446,
+  "criteria": {
+    "PASS": 14
+  },
+  "errors": [],
+  "final_adversarial_rechecks": "UNVERIFIED; not executed",
+  "fresh_model_calls": 0,
+  "gates": {
+    "GATE-001": "PASS",
+    "GATE-002": "PASS",
+    "GATE-003": "NOT_EVALUATED",
+    "GATE-004": "NOT_EVALUATED",
+    "GATE-005": "PASS"
+  },
+  "handoff_outcomes": {
+    "broken-candidate": "HALTED",
+    "positive": "RELEASE_READY",
+    "unbound-gate": "CONTRACT_BLOCKED"
+  },
+  "historical_artifacts_bound": 218,
+  "historical_digest_rows": 114,
+  "identical_artifact_copies": [
+    "resume-compiled-plan.proposed.json",
+    "resume-contract.draft.json",
+    "resume-migration.json",
+    "resume-replay-summary.json",
+    "resume-source-manifest.json"
+  ],
+  "original_ledger_files": 295,
+  "process_gate_observations": 117,
+  "process_records": 56,
+  "process_records_by_phase": {
+    "baseline": 14,
+    "candidate": 14,
+    "mutant:filtering": 14,
+    "mutant:persistence": 14
+  },
+  "scope": "Data-only retained-claim consistency; no reviewed code or candidate executed",
+  "source_archives": {
+    "historical": {
+      "commit": "4d4a9afdc8a5a75b28fce10499ec5ff405b1b60d",
+      "extra_files": [],
+      "mismatches": [],
+      "tracked_files": 1037,
+      "tree": "ab13172635a9cf4bb94bceb6e95d338523f9d922"
+    },
+    "packet": {
+      "commit": "89e23a973a5813d32e8e426a525d6c61e2a9a7fd",
+      "extra_files": [],
+      "mismatches": [],
+      "tracked_files": 157,
+      "tree": "cdd94b8aebe8c20c4f6e3db2cd3a045771d5cd67"
+    },
+    "process": {
+      "commit": "c67716638731ba3be4ceeab20be6e6fdee631fd3",
+      "extra_files": [
+        ".ruff_cache/.gitignore",
+        ".ruff_cache/0.16.4/1890007530832507094",
+        ".ruff_cache/0.16.4/8859207193244920852",
+        ".ruff_cache/CACHEDIR.TAG"
+      ],
+      "mismatches": [],
+      "tracked_files": 1316,
+      "tree": "872e53b7cb05bace2d825dca47ea7e27f78c7cf0"
+    }
+  },
+  "status": "PASS",
+  "terminal_state": "HALTED"
+}
