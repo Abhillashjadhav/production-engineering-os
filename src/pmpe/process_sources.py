@@ -1,4 +1,7 @@
-"""Exact source inventory independent of the contract/receipt that will bind it."""
+"""Named source-file inventory independent of the contract/receipt that binds it.
+
+This is local admission hygiene, not proof of every past or future Python import.
+"""
 
 from __future__ import annotations
 
@@ -27,11 +30,7 @@ def raw_digest(value: bytes) -> str:
 
 
 def _startup_record(name: str) -> list[bytes] | None:
-    """The kernel's copy of this process's startup argv or environment, where available.
-
-    Runtime edits to ``os.environ`` or ``sys._xoptions`` do not change these records.
-    Platforms without ``/proc`` (for example macOS) fall back to the runtime values.
-    """
+    """The kernel's copy of startup argv/environment, if readable on this host."""
     try:
         return (Path("/proc/self") / name).read_bytes().split(b"\0")
     except OSError:
@@ -72,44 +71,40 @@ def _interpreter_xoptions(cmdline: list[bytes]) -> list[bytes]:
 def _startup_pycache_prefix() -> str | None:
     """The cache prefix this interpreter was started with (``-X`` wins over the env).
 
-    Where ``/proc`` exists only the kernel's startup records count: runtime edits to
-    ``sys._xoptions`` or ``os.environ`` can neither add a prefix nor remove the startup
-    ``-X`` that overrode the environment.
+    Only kernel startup records count. Runtime edits to ``sys._xoptions`` and
+    ``os.environ`` cannot establish source-only startup. Unsupported hosts refuse.
     """
     cmdline = _startup_record("cmdline")
-    if cmdline is not None:
-        prefixes = [
-            value.removeprefix(b"pycache_prefix=")
-            for value in _interpreter_xoptions(cmdline)
-            if value.startswith(b"pycache_prefix=")
-        ]
-        if prefixes:
-            return os.fsdecode(prefixes[-1]) or None
-        if sys.flags.ignore_environment:
-            return None
-        # getenv() returns the first entry, so the first one is what CPython read.
-        entries = [
-            entry.removeprefix(b"PYTHONPYCACHEPREFIX=")
-            for entry in _startup_record("environ") or []
-            if entry.startswith(b"PYTHONPYCACHEPREFIX=")
-        ]
-        return os.fsdecode(entries[0]) or None if entries else None
-    # No /proc (for example macOS): only runtime values exist here (open question Q20).
-    option = sys._xoptions.get("pycache_prefix")
-    if isinstance(option, str) and option:
-        return option
+    if cmdline is None:
+        raise ValueError("process gate kernel startup records are unavailable")
+    prefixes = [
+        value.removeprefix(b"pycache_prefix=")
+        for value in _interpreter_xoptions(cmdline)
+        if value.startswith(b"pycache_prefix=")
+    ]
+    if prefixes:
+        return os.fsdecode(prefixes[-1]) or None
     if sys.flags.ignore_environment:
         return None
-    return os.environ.get("PYTHONPYCACHEPREFIX") or None
+    environ = _startup_record("environ")
+    if environ is None:
+        raise ValueError("process gate kernel startup records are unavailable")
+    # getenv() returns the first entry, so the first one is what CPython read.
+    entries = [
+        entry.removeprefix(b"PYTHONPYCACHEPREFIX=")
+        for entry in environ
+        if entry.startswith(b"PYTHONPYCACHEPREFIX=")
+    ]
+    return os.fsdecode(entries[0]) or None if entries else None
 
 
 def require_source_only_interpreter() -> Path:
-    """Refuse any interpreter that could have loaded code from a bytecode cache.
+    """Check the observed source-only startup prerequisites for named sources.
 
     Owner-approved boundary (2026-09-25): a gated run starts with bytecode writes off and
-    an empty private cache prefix, both fixed at interpreter start. Every source module
-    is then compiled from source, so no module-registry scan is needed. A prefix assigned
-    after start cannot vouch for modules imported before it.
+    an empty private cache prefix. Kernel records establish the prefix setting, while
+    current emptiness is only an observation: this check cannot prove the directory
+    stayed empty since startup or authenticate mutable globals and future imports.
     """
     if not (sys.flags.dont_write_bytecode and sys.dont_write_bytecode):
         raise ValueError(
@@ -182,6 +177,8 @@ def reject_bytecode(roots: Sequence[Path]) -> None:
 
 def engine_sources() -> dict[str, Path]:
     root = Path(__file__).parent
+    if Path(__file__).suffix != ".py" or not Path(__file__).is_file() or not root.is_dir():
+        raise ValueError("process gate named engine origin is not a regular Python source")
     reject_bytecode([root])
     return {
         "engine/" + str(path.relative_to(root)): path.resolve()
