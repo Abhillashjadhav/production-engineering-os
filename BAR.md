@@ -305,3 +305,12 @@ script was committed or executed before the original documentation change.
 6. **New setting, dependency or extension? No.** Preserve the existing source-only mode, manifest and architecture scanner; add no provider, trust setting or public API.
 
 Historical prefix emptiness, arbitrary helper/future imports and mutable-global authenticity remain unverified by this in-process hygiene check. The separate outside-process verifier owns candidate-response judgments.
+
+## Unit — import only the pinned PEOS package in replay checker (2026-09-30)
+
+1. **Yes, restructured.** Replace the existing broad `sys.path` insertion with an explicit import of the already digest-checked `pmpe` package.
+2. **Yes.** PR #221 review shows an extra `src/yaml.py` in supplied source can shadow the checker dependency before evidence checks.
+3. **Yes.** The checker will ignore unrelated top-level source files while retaining the exact pinned `pmpe` package path; separate #221-pinned unit.
+4. **Yes.** Add a harmless untracked shadow-module regression, run red before the import change, then green plus existing verifier tests.
+5. **Yes.** One bootstrap import path and regression are independently revertible.
+6. **No.** No dependency, source-policy bypass, candidate execution, setting or product threshold.
