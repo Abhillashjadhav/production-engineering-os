@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -172,9 +173,12 @@ def test_hostile_product_name_still_compiles(
 
     spec = _variant(golden_spec_dict, mutate)
     workspace = _build_workspace(spec, tmp_path)
+    # compileall writes bytecode even under -B; keep it out of the shared startup prefix.
+    environment = {k: v for k, v in os.environ.items() if k != "PYTHONPYCACHEPREFIX"}
     result = subprocess.run(
         [sys.executable, "-m", "compileall", "-q", "app", "tests"],
         cwd=workspace,
+        env=environment,
         capture_output=True,
         text=True,
         timeout=60,

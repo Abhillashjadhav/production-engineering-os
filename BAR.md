@@ -9,6 +9,31 @@
 
 No frozen source, trusted policy, scanner, allowlist, model, deployment, merge, or publication changes. A self-consistent unsigned rewrite remains unauthenticated without an independently retained head.
 
+## W2 — source-only admission replaces registry scans (#217) — 2026-09-25
+
+Owner decision, 2026-09-25 18:29 IST, answering `reviews/r4-architecture-20260925/DECISION_REQUIRED.md`: **"Approve source-only start"**. Gated runs must start in a fresh source-only interpreter. The guard checks process state instead of scanning `sys.modules`. Gated direct calls in an unprepared interpreter are refused.
+
+1. **Already exists? Yes.** Extend `reject_bytecode` / `implementation_identity` in place; no parallel checker.
+2. **Approved criterion or reproduced blocker? Yes.** `tests/unit/test_process_source_architecture.py` fails on the unchanged scanner; the owner decision above authorizes the boundary.
+3. **Changes behaviour with callers/tests? Yes.** Every gated path (manifest build, source validation, typed process admission) now refuses interpreters without `-B`/`PYTHONDONTWRITEBYTECODE` plus an unchanged, empty startup cache prefix. CI's `tests` job already sets both. `scripts/r3_task_store_migration.py` relaunches itself source-only with unchanged arguments. Local `pytest` must use the same environment (CONTRIBUTING). Classes with no own functions can no longer establish canonical identity.
+4. **Failing check first? Yes.** `reviews/w2-source-only-20260925/red.txt`: the architecture test, four subprocess admission probes and the cache-path parity test fail before the fix commit.
+5. **Revert as one unit? Yes.** One source file, the migration bootstrap, and docs; the tests stay as the RED evidence.
+6. **New setting/dependency/extension? No.** No scanner, policy or allowlist change. The startup requirement is the owner-approved boundary; no new flag or loader API.
+
+## R4 architecture compatibility repair — 2026-09-25
+
+1. **Does this already exist in either repository? Yes.** The existing `reject_bytecode` path owns this check; a parallel checker is stopped. This unit extends that path only if equivalent coverage is demonstrated.
+2. **Approved criterion or reproduced blocker? Yes.** The unchanged architecture scanner reports `core -> unresolved_dynamic` for `src/pmpe/process_sources.py`; the current handoff explicitly makes this a release blocker.
+3. **Existing behavior affected? Yes.** Source-manifest construction, typed process admission, per-command source validation, manifested adapters/helpers, and the retained migration call this path; branch `repair/r4-architecture-20260925` owns the unit.
+4. **Automated RED-before/GREEN-after check? Yes.** `tests/unit/test_process_source_architecture.py` checks the actual guard source with the unchanged architecture observer. Its failing baseline must be recorded and committed before implementation.
+5. **Revert as a single unit? Yes.** The isolated architecture repair branch contains only its task, gate, directly relevant regression, implementation (if sound), and verification evidence.
+6. **Unrequested setting, dependency, or extension surface? No.** No addition is authorized. If preserving active-cache guarantees requires a new inventory contract or bootstrap requirement, stop implementation and record the exact decision instead.
+
+Allowed verification is source/static analysis, the existing text-only architecture observer,
+clean inventory/provider fixtures, lint/types, and benign data-only/mocked checks. The
+screening-stopped bytecode injection and evidence-forgery final checks remain UNVERIFIED;
+they must not be rerun, rephrased, relocated, or replaced with equivalent execution.
+
 ## Distinct support-package caller unit
 
 1. **Existing path? Yes.** Extend the package reader's current contract/receipt/candidate checks; do not synthesize a barebones plan or add another engine.
@@ -251,3 +276,41 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Check existing boundary/process coverage before regeneration, rerun to terminal exit and require full ordered coverage before copying.
 5. **Yes.** One evidence repair commit can be reverted separately.
 6. **No.** No dependency, signing, sandbox change or new approval.
+
+## Unit — relaunch migration when Python ignores prefix environment (2026-09-30)
+
+1. **Yes, restructured.** Correct the existing migration source-only startup shortcut; no second launcher.
+2. **Yes.** PR #227 review shows -B -E/-I ignores a set PYTHONPYCACHEPREFIX while the shortcut mistakes it for an effective prefix.
+3. **Yes.** Callers with ignored prefix environment now relaunch instead of entering a later refusal. This is separate on the #227 head.
+4. **Yes.** Add no-exec -E/-I ignored-environment regressions, run red before implementation, then green.
+5. **Yes.** One startup condition and test are independently revertible.
+6. **No.** No sandbox weakening, OS change, new setting, dependency or product policy.
+
+# BAR: PR227 real isolated migration startup
+
+1. **Already exists? Yes, extend it.** Repair the existing migration script and its existing relaunch tests; no second runner or import path is introduced.
+2. **Approved criterion or reproduced blocker? Yes.** `python -I scripts/r3_task_store_migration.py --help` after a trusted local package installation reaches a bare self-import that isolated mode cannot resolve; the existing test accepts nonzero traceback exits.
+3. **Changes existing behavior? Yes.** The script's CLI entrypoint changes from an unnecessary module self-import to its already-defined `main()`. Test the trusted installed-package and decoy cases separately; no candidate source is added to Python's import path.
+4. **Failing automated check first? Yes.** The pre-repair real `-I` control must exit zero and print usage; the current assertion only checks that a decoy does not execute and return code is not 7, so it falsely passes an import traceback.
+5. **Independently revertible? Yes.** This script-entrypoint/test repair builds on the separately pinned prefix patch and can be reverted as one unit without changing migration policy.
+6. **Unrequested setting/dependency/extension? No.** Reuse the existing package installation, script and Python isolation flags. No host security setting, provider, or new runtime dependency is added.
+
+# PR227 source-admission evidence correction — 2026-10-01
+
+1. **Already exists? Yes.** Extend `require_source_only_interpreter` and the existing named source inventory; do not create another gate or inspect the broad module registry.
+2. **Approved criterion or reproduced blocker? Yes.** The existing W2 source-only-start decision and the PR227 review identify mutable no-/proc fallback and unverified ZIP/sourceless named-root origins.
+3. **Existing behavior affected? Yes.** Source-manifest construction and bound process admission may refuse a startup without kernel records or a named engine source without a regular `.py` origin. This isolated branch owns those effects.
+4. **Automated RED before change? Yes.** The three new focused cases in `test_process_source_only_admission.py` failed against the unchanged PR227 source: missing kernel records and named ZIP/sourceless engine origins were admitted. Existing regular-source startup remains the positive control. The recorded local red output is `/tmp/peos-pr227-source-red.log`.
+5. **Revert as one unit? Yes.** The two narrowly related source-admission checks, regressions and accuracy wording form one revertible PR227 patch.
+6. **New setting, dependency or extension? No.** Preserve the existing source-only mode, manifest and architecture scanner; add no provider, trust setting or public API.
+
+Historical prefix emptiness, arbitrary helper/future imports and mutable-global authenticity remain unverified by this in-process hygiene check. The separate outside-process verifier owns candidate-response judgments.
+
+## Unit — import only the pinned PEOS package in replay checker (2026-09-30)
+
+1. **Yes, restructured.** Replace the existing broad `sys.path` insertion with an explicit import of the already digest-checked `pmpe` package.
+2. **Yes.** PR #221 review shows an extra `src/yaml.py` in supplied source can shadow the checker dependency before evidence checks.
+3. **Yes.** The checker will ignore unrelated top-level source files while retaining the exact pinned `pmpe` package path; separate #221-pinned unit.
+4. **Yes.** Add a harmless untracked shadow-module regression, run red before the import change, then green plus existing verifier tests.
+5. **Yes.** One bootstrap import path and regression are independently revertible.
+6. **No.** No dependency, source-policy bypass, candidate execution, setting or product threshold.

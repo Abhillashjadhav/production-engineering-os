@@ -10,12 +10,27 @@ one concern per PR.
 ```bash
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
+# Gated process runs require a source-only interpreter (bytecode writes off and an
+# empty private cache prefix fixed at start), exactly as CI's tests job runs:
+export PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$(mktemp -d)"
 pytest                      # full suite (unit + integration + e2e, ~2 min)
 ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py
 ruff check src tests/unit tests/integration tests/e2e tests/conftest.py
 mypy                        # --strict, configured in pyproject.toml
 bandit -r src -q
 ```
+
+The source-only process gate requires readable kernel startup records from Linux
+`/proc`; it refuses hosts where those records are unavailable. It checks that the
+startup prefix still matches and is empty **now**, and that the named engine source
+has a regular `.py` origin. The manifest binds listed source-file bytes, not every
+module that has run. These observations do not prove that the prefix was empty at
+startup, authenticate mutable Python globals, or cover arbitrary helper and future
+imports. A digest-boundary PASS means the named inventory and recorded boundary
+checks matched; it is not historical or hostile-process source authenticity. Those
+stronger claims require a trusted startup/protection boundary and separate proof.
+See [`reviews/pr227-source-admission/README.md`](reviews/pr227-source-admission/README.md)
+for the exact supported observation and residual limits.
 
 ### Non-negotiables
 

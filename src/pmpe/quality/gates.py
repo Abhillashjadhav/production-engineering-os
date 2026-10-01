@@ -8,6 +8,7 @@ verified on any machine.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -56,9 +57,13 @@ class QualityGateRunner:
     # --- individual gates -------------------------------------------------------
 
     def _run_cmd(self, args: list[str]) -> tuple[bool, str]:
+        # compileall writes bytecode even under -B; never into the caller's private
+        # cache prefix, which gated runs require to stay empty (source-only admission).
+        environment = {k: v for k, v in os.environ.items() if k != "PYTHONPYCACHEPREFIX"}
         proc = subprocess.run(
             args,
             cwd=self.workspace,
+            env=environment,
             capture_output=True,
             text=True,
             timeout=SUBPROCESS_TIMEOUT_S,

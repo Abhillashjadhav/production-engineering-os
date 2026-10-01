@@ -59,3 +59,18 @@ def test_broken_code_fails_unit_gate(built_workspace: Path) -> None:
     results = QualityGateRunner(built_workspace).run()
     unit = next(r for r in results if r.gate == "unit")
     assert not unit.passed
+
+
+def test_candidate_compile_never_writes_into_the_callers_cache_prefix(
+    built_workspace: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`compileall` writes bytecode even under -B. Inheriting a private startup cache
+    prefix would fill the engine's source-only prefix with candidate bytecode, and
+    process-gate admission then refuses every later gated run in that interpreter.
+    """
+    prefix = tmp_path / "private-cache"
+    prefix.mkdir()
+    monkeypatch.setenv("PYTHONPYCACHEPREFIX", str(prefix))
+    ok, _detail, _skipped = QualityGateRunner(built_workspace)._gate_compile()
+    assert ok
+    assert not any(prefix.iterdir())

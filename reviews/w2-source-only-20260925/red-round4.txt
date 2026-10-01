@@ -1,0 +1,5 @@
+# base 933fdc7 + tests only (Codex review of 933fdc7 on #227)
+FAILED tests/unit/test_process_source_only_admission.py::test_class_exec_into_a_fake_module_namespace_is_refused
+FAILED tests/unit/test_process_source_only_admission.py::test_script_arguments_are_not_startup_options
+FAILED tests/unit/test_migration_relaunch_flags.py::test_relaunch_keeps_the_option_terminator_last
+3 failed, 21 passed in 8.04s

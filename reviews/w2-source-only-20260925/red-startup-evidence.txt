@@ -1,0 +1,6 @@
+# base f896597 + tests only (Codex #227 P1s: forged startup prefix; relaunch drops interpreter options)
+FAILED tests/unit/test_process_source_only_admission.py::test_prefix_forged_after_startup_is_refused[environment]
+FAILED tests/unit/test_process_source_only_admission.py::test_prefix_forged_after_startup_is_refused[xoption]
+FAILED tests/unit/test_migration_relaunch_flags.py::test_relaunch_preserves_environment_isolation[-E]
+FAILED tests/unit/test_migration_relaunch_flags.py::test_relaunch_preserves_environment_isolation[-I]
+4 failed, 17 passed in 7.20s
