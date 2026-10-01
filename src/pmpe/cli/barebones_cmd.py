@@ -81,12 +81,21 @@ def _compile(args: argparse.Namespace) -> int:
     except ContractInvalidError as exc:
         _json({"state": "HALTED", "cause": "CONTRACT_INVALID", "detail": str(exc)})
         return 3
-    structured = sum(item.form != "human_test" for item in plan.criteria)
+    structured = sum(item.form == "given_when_then" for item in plan.criteria)
     human = sum(item.form == "human_test" for item in plan.criteria)
+    unsupported = [
+        {"criterion_id": item.criterion_id, "form": item.form}
+        for item in plan.criteria
+        if item.form != "given_when_then"
+    ]
     _json(
         {
             "status": "COMPILES",
             "contract_status": contract.get("contract_status"),
+            "execution_eligibility": (
+                "UNSUPPORTED_VERIFICATION_MODE" if unsupported else "SUPPORTED"
+            ),
+            "unsupported_criteria": unsupported,
             "coverage": {
                 "structured": structured,
                 "human_test": human,
@@ -258,16 +267,20 @@ def _run(args: argparse.Namespace) -> int:
             raise ContractInvalidError("cannot read approval receipt") from exc
         receipt = strict_loads(receipt_source, "application/json")
         _require_approved_contract(contract, receipt, args.expected_approver)
-        result = run_to_release_ready(
-            contract=contract,
-            repository_root=Path(args.repository_root).resolve(),
-            workspace=Path(args.workspace).resolve(),
-            run_id=args.run_id,
-            provider=CommandModelProvider(args.provider_command, args.provider_timeout),
-            approval_receipt=receipt,
-            approval_authority=args.expected_approver,
-            approval_receipt_bytes=receipt_source,
-        )
+        try:
+            result = run_to_release_ready(
+                contract=contract,
+                repository_root=Path(args.repository_root).resolve(),
+                workspace=Path(args.workspace).resolve(),
+                run_id=args.run_id,
+                provider=CommandModelProvider(args.provider_command, args.provider_timeout),
+                approval_receipt=receipt,
+                approval_authority=args.expected_approver,
+                approval_receipt_bytes=receipt_source,
+            )
+        except (RuntimeError, OSError) as exc:
+            _json({"state": "HALTED", "cause": "EXECUTION_FAILED", "detail": str(exc)})
+            return 3
     except CanonicalInputError as exc:
         _json(
             {
@@ -304,6 +317,13 @@ def _run(args: argparse.Namespace) -> int:
             "evidence": str(result.evidence_path),
             "annotation": result.annotation,
             "telemetry": result.telemetry,
+            "assurance_scope": result.telemetry.get("assurance_scope", "NOT_RECORDED"),
+            "release_eligible": False,
+            "release_blocker": (
+                "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+                if result.state == "RELEASE_READY"
+                else result.cause
+            ),
         }
     )
     return 0 if result.state == "RELEASE_READY" else 3
@@ -360,10 +380,121 @@ def _approval_summary(events: tuple[Mapping[str, Any], ...]) -> dict[str, str]:
     return {"status": "NOT_RECORDED"}
 
 
+def _verification_assurance(
+    events: tuple[Mapping[str, Any], ...], terminal: Mapping[str, Any]
+) -> str:
+    """Separate candidate-only evidence, new release evidence and legacy records."""
+    event_type = terminal.get("event_type")
+    terminal_payload = terminal.get("payload")
+    if not isinstance(terminal_payload, Mapping):
+        raise EvidenceIntegrityError("terminal verification payload is malformed")
+    if event_type == "release_ready":
+        source = terminal
+        if terminal_payload.get("verification_protocol") != "external-json-response-v1":
+            return "LEGACY_UNVERIFIED"
+        assurance = "EXTERNAL_RESPONSE_VERIFIED"
+    elif (
+        event_type == "halted"
+        and terminal_payload.get("cause") == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    ):
+        candidate_events = [
+            event for event in events if event.get("event_type") == "candidate_response_verified"
+        ]
+        if len(candidate_events) != 1 or any(
+            event.get("event_type") == "release_ready" for event in events
+        ):
+            raise EvidenceIntegrityError("candidate-only observation evidence is missing")
+        source = candidate_events[0]
+        source_payload = source.get("payload")
+        if (
+            source.get("state") != "VERIFYING"
+            or not isinstance(source_payload, Mapping)
+            or source_payload.get("candidate_digest") != terminal_payload.get("candidate_digest")
+            or source_payload.get("verification_observations_digest")
+            != terminal_payload.get("verification_observations_digest")
+            or source_payload.get("assurance_scope") != "CANDIDATE_RESPONSE_ONLY"
+            or source_payload.get("verification_protocol") != "external-json-response-v1"
+            or source_payload.get("provider_write_isolation") != "UNVERIFIED_GENERIC_COMMAND"
+            or source.get("subject_digest") != terminal.get("subject_digest")
+        ):
+            raise EvidenceIntegrityError("candidate-only evidence is inconsistent")
+        assurance = "CANDIDATE_RESPONSE_VERIFIED"
+    else:
+        return "NOT_RELEASE_READY"
+    payload = source.get("payload")
+    if not isinstance(payload, Mapping):
+        raise EvidenceIntegrityError("verification payload is malformed")
+    evidence_digest = payload.get("verification_observations_digest")
+    candidate_digest = payload.get("candidate_digest")
+    if (
+        not isinstance(evidence_digest, str)
+        or _SHA256.fullmatch(evidence_digest) is None
+        or evidence_digest not in source.get("blob_digests", [])
+        or evidence_digest not in terminal.get("blob_digests", [])
+        or candidate_digest not in source.get("blob_digests", [])
+    ):
+        raise EvidenceIntegrityError("terminal does not bind supervisor observations")
+    validation = next(
+        (event for event in events if event.get("event_type") == "contract_validated"), None
+    )
+    expected_plan = (
+        validation.get("payload", {}).get("plan_digest")
+        if isinstance(validation, Mapping)
+        else None
+    )
+    matches = [
+        event
+        for event in events
+        if event.get("event_type") == "supervisor_observations"
+        and isinstance(event.get("payload"), Mapping)
+        and event["payload"].get("evidence_digest") == evidence_digest
+    ]
+    if len(matches) != 1:
+        raise EvidenceIntegrityError("supervisor observations are missing or ambiguous")
+    observed = matches[0]
+    observed_payload = observed["payload"]
+    entries = observed_payload.get("observations")
+    required_ids = observed_payload.get("required_criterion_ids")
+    observed_ids = (
+        [item.get("criterion_id") for item in entries if isinstance(item, Mapping)]
+        if isinstance(entries, list)
+        else []
+    )
+    observed_body = {
+        key: value for key, value in observed_payload.items() if key != "evidence_digest"
+    }
+    if (
+        observed.get("state") != "VERIFYING"
+        or evidence_digest not in observed.get("blob_digests", [])
+        or observed_payload.get("candidate_digest") != candidate_digest
+        or observed_payload.get("plan_digest") != expected_plan
+        or observed_payload.get("contract_digest") != terminal.get("subject_digest")
+        or observed_payload.get("protocol") != "external-json-response-v1"
+        or canonical_digest(observed_body) != evidence_digest
+        or not isinstance(entries, list)
+        or not entries
+        or any(
+            not isinstance(item, Mapping) or item.get("assertions_passed") is not True
+            for item in entries
+        )
+        or not isinstance(required_ids, list)
+        or not all(isinstance(item, str) for item in required_ids)
+        or not all(isinstance(item, str) for item in observed_ids)
+        or sorted(cast(list[str], observed_ids)) != required_ids
+        or len(set(observed_ids)) != len(observed_ids)
+        or any(
+            item.get("response_digest") not in observed.get("blob_digests", []) for item in entries
+        )
+    ):
+        raise EvidenceIntegrityError("supervisor observations are inconsistent")
+    return assurance
+
+
 def _status(args: argparse.Namespace) -> int:
     try:
         _, events = _verified_events(args)
         approval = _approval_summary(events)
+        assurance = _verification_assurance(events, events[-1])
     except EvidenceIntegrityError as exc:
         return _evidence_invalid(exc)
     terminal = events[-1]
@@ -383,6 +514,17 @@ def _status(args: argparse.Namespace) -> int:
             "head_event_digest": terminal.get("event_digest"),
             "telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
             "approval": approval,
+            "verification_assurance": assurance,
+            "diagnostics": payload.get("diagnostics", []),
+            "release_eligible": False,
+            "release_blocker": (
+                "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+                if terminal.get("state") == "RELEASE_READY"
+                else cause
+            ),
+            "candidate_response_verified": payload.get("candidate_response_verified", False)
+            or cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED",
+            "candidate_digest": payload.get("candidate_digest"),
         }
     )
     return 0
@@ -809,6 +951,35 @@ def _inspect(args: argparse.Namespace) -> int:
     try:
         ledger, events = _verified_events(args)
         approval = _approval_summary(events)
+        terminal = events[-1]
+        assurance = _verification_assurance(events, terminal)
+        if terminal.get("state") != "RELEASE_READY":
+            payload = terminal.get("payload")
+            payload = payload if isinstance(payload, Mapping) else {}
+            _json(
+                {
+                    "run_id": args.run_id,
+                    "state": terminal.get("state"),
+                    "cause": payload.get("cause", "IN_PROGRESS"),
+                    "release_eligible": False,
+                    "approval": approval,
+                    "verification_assurance": assurance,
+                    "diagnostics": payload.get("diagnostics", []),
+                    "candidate_response_verified": (
+                        payload.get("cause") == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+                    ),
+                    "candidate_digest": payload.get("candidate_digest"),
+                    "verification_observations_digest": payload.get(
+                        "verification_observations_digest"
+                    ),
+                    "assurance_scope": payload.get("assurance_scope", "NOT_RECORDED"),
+                    "provider_write_isolation": payload.get(
+                        "provider_write_isolation", "NOT_RECORDED"
+                    ),
+                    "release_blocker": payload.get("cause", "IN_PROGRESS"),
+                }
+            )
+            return 3
         candidate_digest, manifest = _candidate_manifest(ledger, events[-1])
         output: dict[str, Any] = {
             "run_id": args.run_id,
@@ -816,7 +987,14 @@ def _inspect(args: argparse.Namespace) -> int:
             "candidate_digest": candidate_digest,
             "files": manifest,
             "approval": approval,
+            "verification_assurance": assurance,
         }
+        release_payload = terminal.get("payload")
+        release_payload = release_payload if isinstance(release_payload, Mapping) else {}
+        provider_isolation = release_payload.get("provider_write_isolation", "NOT_RECORDED")
+        output["assurance_scope"] = release_payload.get("assurance_scope", "LEGACY_UNVERIFIED")
+        output["provider_write_isolation"] = provider_isolation
+        output["candidate_response_verified"] = assurance == "EXTERNAL_RESPONSE_VERIFIED"
         if args.file is not None:
             digest = manifest.get(args.file)
             if digest is None:
@@ -831,10 +1009,19 @@ def _inspect(args: argparse.Namespace) -> int:
                 "content": content,
             }
         exit_code = 0
-        if approval["status"] == "UNVERIFIED_DIRECT_CALL":
+        if (
+            approval["status"] != "VERIFIED"
+            or assurance != "EXTERNAL_RESPONSE_VERIFIED"
+            or provider_isolation != "ISOLATED_VERIFIED"
+        ):
             output["release_eligible"] = False
+            output["release_blocker"] = (
+                "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+                if provider_isolation != "ISOLATED_VERIFIED"
+                else "VERIFICATION_OR_APPROVAL_UNVERIFIED"
+            )
             exit_code = 3
-        elif approval["status"] == "VERIFIED":
+        else:
             output["release_eligible"] = True
         if args.workspace is not None:
             comparison = _workspace_comparison(Path(args.workspace), manifest)
@@ -852,7 +1039,7 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
 
     parser = sub.add_parser(
         "barebones",
-        help="compile, run, and inspect the six-state contract-to-RELEASE_READY journey",
+        help="compile, run, and inspect the contract-to-verification journey",
     )
     commands = parser.add_subparsers(dest="barebones_command", required=True)
 

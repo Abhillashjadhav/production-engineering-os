@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, NoReturn
 
 import rfc8785
@@ -38,10 +38,13 @@ def _reject_constant(_value: str) -> NoReturn:
 
 
 def _parse_float(token: str) -> float:
-    value = float(token)
+    try:
+        value = float(token)
+        exact = Decimal(token)
+    except (ValueError, OverflowError, InvalidOperation) as exc:
+        raise CanonicalInputError("NON_JSON_NUMBER", "invalid numeric value") from exc
     if not math.isfinite(value):
         raise CanonicalInputError("NON_JSON_NUMBER", "non-finite numeric value")
-    exact = Decimal(token)
     if exact == exact.to_integral_value() and abs(exact) > MAX_INTEROPERABLE_INTEGER:
         raise CanonicalInputError(
             "NON_JSON_NUMBER",
@@ -51,7 +54,10 @@ def _parse_float(token: str) -> float:
 
 
 def _parse_int(token: str) -> int:
-    value = int(token)
+    try:
+        value = int(token)
+    except ValueError as exc:
+        raise CanonicalInputError("NON_JSON_NUMBER", "invalid or oversized integer") from exc
     if abs(value) > MAX_INTEROPERABLE_INTEGER:
         raise CanonicalInputError(
             "NON_JSON_NUMBER",
@@ -181,6 +187,38 @@ def strict_loads(payload: bytes, content_type: str = "application/json") -> dict
     except rfc8785.CanonicalizationError as exc:
         raise CanonicalInputError(
             "NON_JSON_NUMBER", "source is outside the RFC 8785 interoperable domain"
+        ) from exc
+    return value
+
+
+def strict_json_value_loads(payload: bytes) -> Any:
+    """Admit one bounded JSON value from an untrusted action response.
+
+    Contracts must be objects, but registered actions may return any JSON
+    value. Apply the same duplicate-key, number, Unicode and complexity
+    rules before the supervisor compares the observation with its plan.
+    """
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise CanonicalInputError("INVALID_UNICODE", "action response must be UTF-8") from exc
+    try:
+        value = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_pairs,
+            parse_constant=_reject_constant,
+            parse_float=_parse_float,
+            parse_int=_parse_int,
+        )
+        value = _admit_unicode(value)
+        canonical_json_bytes(value)
+    except CanonicalInputError:
+        raise
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise CanonicalInputError("MALFORMED_SOURCE", "malformed action response") from exc
+    except rfc8785.CanonicalizationError as exc:
+        raise CanonicalInputError(
+            "NON_JSON_NUMBER", "action response is outside JSON domain"
         ) from exc
     return value
 

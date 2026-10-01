@@ -13,6 +13,7 @@ from pmpe import barebones as barebones_module
 from pmpe.barebones import (
     BudgetCaps,
     ContractInvalidError,
+    RunResult,
     RunState,
     Template,
     TemplateTest,
@@ -35,6 +36,12 @@ def _contract() -> dict[str, Any]:
             }
         },
     }
+
+
+def _assert_candidate_verified(result: RunResult) -> None:
+    assert result.state is RunState.HALTED
+    assert result.cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    assert result.annotation["candidate_response_verified"] is True
 
 
 class PassingProvider:
@@ -428,7 +435,7 @@ def test_coder_can_repair_a_candidate_syntax_failure(tmp_path: Path) -> None:
         provider=SyntaxRepairProvider(),
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
     assert result.attempts == 2
 
 
@@ -441,7 +448,7 @@ def test_action_can_import_another_generated_workspace_module(tmp_path: Path) ->
         provider=ImportedHelperProvider(),
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
 
 
 def test_dotted_action_target_preserves_package_relative_imports(tmp_path: Path) -> None:
@@ -463,7 +470,7 @@ def test_dotted_action_target_preserves_package_relative_imports(tmp_path: Path)
         template=template,
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
 
 
 def test_candidate_action_timeout_becomes_a_repairable_finding(
@@ -478,7 +485,7 @@ def test_candidate_action_timeout_becomes_a_repairable_finding(
         provider=TimeoutRepairProvider(),
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
     assert result.attempts == 2
 
 
@@ -492,7 +499,7 @@ def test_execution_failure_allows_a_python_dependency_repair(tmp_path: Path) -> 
         candidate_sandbox=StableDependencySandbox(),
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
     assert result.attempts == 2
 
 
@@ -543,7 +550,7 @@ def test_e5_repeated_runs_preserve_plan_determinism_not_candidate_bytes(
             run_id="e5-repeat",
             provider=VariablePassingProvider(variant),
         )
-        assert result.state is RunState.RELEASE_READY
+        _assert_candidate_verified(result)
         ledger = EvidenceLedger.open_existing(root, "e5-repeat")
         events = tuple(ledger.verify())
         plans.append(events[0]["payload"]["plan_digest"])
@@ -555,6 +562,7 @@ def test_e5_repeated_runs_preserve_plan_determinism_not_candidate_bytes(
     assert event_logs[0] != event_logs[1]
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_human_authored_escape_hatch_is_executable_and_protected(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -585,7 +593,7 @@ def test_human_authored_escape_hatch_is_executable_and_protected(tmp_path: Path)
         provider=PassingProvider(),
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
 
 
 @pytest.mark.parametrize(
@@ -595,6 +603,7 @@ def test_human_authored_escape_hatch_is_executable_and_protected(tmp_path: Path)
         "def test_health(:\n    assert False\n",
     ],
 )
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_human_test_must_execute_once_and_report_a_structured_assertion(
     tmp_path: Path, source: str
 ) -> None:
@@ -627,6 +636,7 @@ def test_human_test_must_execute_once_and_report_a_structured_assertion(
         )
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_class_scoped_human_test_node_is_matched_exactly(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -660,7 +670,7 @@ def test_class_scoped_human_test_node_is_matched_exactly(tmp_path: Path) -> None
         provider=PassingProvider(),
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
 
 
 class TamperingProvider:
@@ -671,6 +681,7 @@ class TamperingProvider:
         }
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_coder_cannot_rewrite_human_authored_evidence(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -711,6 +722,7 @@ class DotSegmentTamperingProvider:
         }
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_coder_cannot_bypass_test_protection_with_dot_segments(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -789,6 +801,7 @@ class TestPackageInitializerProvider:
         }
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_coder_controlled_conftest_cannot_change_bound_test_outcome(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -823,6 +836,7 @@ def test_coder_controlled_conftest_cannot_change_bound_test_outcome(tmp_path: Pa
     assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_coder_cannot_shadow_the_bound_pytest_runner(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -857,6 +871,7 @@ def test_coder_cannot_shadow_the_bound_pytest_runner(tmp_path: Path) -> None:
     assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_coder_cannot_add_initializers_above_a_protected_test(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -891,6 +906,7 @@ def test_coder_cannot_add_initializers_above_a_protected_test(tmp_path: Path) ->
     assert result.cause == "CODER_MODIFIED_EVIDENCE"
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_human_test_failure_allows_a_changed_product_repair(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -921,10 +937,11 @@ def test_human_test_failure_allows_a_changed_product_repair(tmp_path: Path) -> N
         provider=HumanTestRepairProvider(),
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
     assert result.attempts == 2
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_human_test_execution_failure_preserves_repair_identity(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_config.py"
     test_file.parent.mkdir(parents=True)
@@ -962,10 +979,11 @@ def test_human_test_execution_failure_preserves_repair_identity(tmp_path: Path) 
         template=template,
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
     assert result.attempts == 2
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_coder_cannot_rewrite_template_test_support_module(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -1013,6 +1031,7 @@ def test_coder_cannot_rewrite_template_test_support_module(tmp_path: Path) -> No
     assert result.cause == "CODER_MODIFIED_EVIDENCE"
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_coder_cannot_rewrite_template_test_fixture(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health_fixture.py"
     test_file.parent.mkdir(parents=True)
@@ -1062,6 +1081,7 @@ def test_coder_cannot_rewrite_template_test_fixture(tmp_path: Path) -> None:
     assert result.cause == "CODER_MODIFIED_EVIDENCE"
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_transient_protected_fixture_write_is_never_release_ready(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health_fixture.py"
     test_file.parent.mkdir(parents=True)
@@ -1112,6 +1132,7 @@ def test_transient_protected_fixture_write_is_never_release_ready(tmp_path: Path
     assert result.cause == "ATTEMPT_BUDGET_EXHAUSTED"
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_template_proof_is_digest_bound_and_executed(tmp_path: Path) -> None:
     template = Template(
         version="barebones-1",
@@ -1158,9 +1179,10 @@ def test_template_proof_is_digest_bound_and_executed(tmp_path: Path) -> None:
         template=template,
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_contract_fully_satisfied_by_template_proofs_is_valid(tmp_path: Path) -> None:
     template = Template(
         version="barebones-1",
@@ -1210,9 +1232,10 @@ def test_contract_fully_satisfied_by_template_proofs_is_valid(tmp_path: Path) ->
         template=template,
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_registered_measure_runs_deterministically(tmp_path: Path) -> None:
     template = Template(
         version="barebones-1",
@@ -1243,9 +1266,10 @@ def test_registered_measure_runs_deterministically(tmp_path: Path) -> None:
         template=template,
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
 
 
+@pytest.mark.skip(reason="Legacy mode refused; see outside-verifier tests")
 def test_measure_execution_failure_can_be_repaired(tmp_path: Path) -> None:
     template = Template(
         version="barebones-1",
@@ -1276,7 +1300,7 @@ def test_measure_execution_failure_can_be_repaired(tmp_path: Path) -> None:
         template=template,
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
     assert result.attempts == 2
 
 
@@ -1319,8 +1343,12 @@ def test_array_containment_uses_json_type_aware_equality(tmp_path: Path, operato
         template=template,
     )
 
-    expected = RunState.HALTED if operator == "contains" else RunState.RELEASE_READY
-    assert result.state is expected
+    assert result.state is RunState.HALTED
+    assert result.cause == (
+        "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+        if operator == "contains"
+        else "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    )
 
 
 @pytest.mark.parametrize("operator,value", [("not_contains", True), ("matches", "1")])
@@ -1496,7 +1524,11 @@ def test_release_manifest_digests_every_candidate_file(tmp_path: Path) -> None:
         provider=ManifestProvider(),
     )
 
-    event = json.loads(result.evidence_path.read_text().splitlines()[-1])
+    event = next(
+        item
+        for item in map(json.loads, result.evidence_path.read_text().splitlines())
+        if item["event_type"] == "candidate_response_verified"
+    )
     manifest_digest = event["payload"]["candidate_digest"]
     manifest_path = tmp_path / ".pmpe/blobs" / manifest_digest.removeprefix("sha256:")
     manifest = json.loads(manifest_path.read_text())
@@ -1515,9 +1547,13 @@ def test_release_manifest_is_the_exact_snapshot_that_was_verified(tmp_path: Path
         provider=MutatingActionProvider(),
     )
 
-    assert result.state is RunState.RELEASE_READY
+    _assert_candidate_verified(result)
     assert result.attempts == 2
-    event = json.loads(result.evidence_path.read_text().splitlines()[-1])
+    event = next(
+        item
+        for item in map(json.loads, result.evidence_path.read_text().splitlines())
+        if item["event_type"] == "candidate_response_verified"
+    )
     manifest_path = (
         tmp_path / ".pmpe/blobs" / event["payload"]["candidate_digest"].removeprefix("sha256:")
     )

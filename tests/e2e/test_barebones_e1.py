@@ -9,7 +9,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from pmpe.barebones import RunState, run_to_release_ready
+import pytest
+
+from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.evals import real_behavior_drift_eval as drift_eval
 
@@ -136,9 +138,10 @@ def _prove_private_source_wrapper_with_nested_candidate_sandbox(tmp_path: Path) 
             timeout=120,
         )
 
-        assert exit_code == 0, output
+        assert exit_code == 3, output
         result = json.loads(output)
-        assert result["state"] == "RELEASE_READY"
+        assert result["state"] == "HALTED"
+        assert result["cause"] == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
     finally:
         if source_checkout.exists():
             for path in sorted(source_checkout.rglob("*"), key=lambda item: len(item.parts)):
@@ -147,7 +150,7 @@ def _prove_private_source_wrapper_with_nested_candidate_sandbox(tmp_path: Path) 
             source_checkout.chmod(0o755)
 
 
-def test_e1_real_contract_reaches_release_ready(tmp_path: Path) -> None:
+def test_e1_real_contract_preserves_candidate_evidence_but_blocks_release(tmp_path: Path) -> None:
     contract = {
         "contract_id": "PMOS-E1",
         "functional_requirements": {"FR-001": {"statement": "health reports ok"}},
@@ -169,15 +172,18 @@ def test_e1_real_contract_reaches_release_ready(tmp_path: Path) -> None:
         provider=E1Provider(),
     )
 
-    assert result.state is RunState.RELEASE_READY
-    assert result.cause == "PASS"
+    assert result.state is RunState.HALTED
+    assert result.cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
     assert result.attempts == 1
-    assert result.model_calls == 2
+    assert result.model_calls == 1
     assert result.evidence_path.is_file()
-    assert "status" not in result.annotation
+    assert result.annotation["candidate_response_verified"] is True
     events = [json.loads(line) for line in result.evidence_path.read_text().splitlines()]
     coder = next(event for event in events if event["event_type"] == "coder_completed")
-    release = next(event for event in events if event["event_type"] == "release_ready")
+    candidate = next(
+        event for event in events if event["event_type"] == "candidate_response_verified"
+    )
+    assert not any(event["event_type"] == "release_ready" for event in events)
     assert events[0]["payload"]["approval"]["status"] == "UNVERIFIED_DIRECT_CALL"
     assert coder["payload"]["provider_behavior"]["purpose"] == "code"
     request_blob = coder["payload"]["request_blob_digest"]
@@ -186,14 +192,14 @@ def test_e1_real_contract_reaches_release_ready(tmp_path: Path) -> None:
     request = json.loads((tmp_path / ".pmpe/blobs" / request_blob[7:]).read_text())
     request_body = {key: value for key, value in request.items() if key != "request_digest"}
     assert request["request_digest"] == canonical_digest(request_body)
-    assert release["payload"]["provider_behavior"]["purpose"] == "advisory_review"
     assert coder["payload"]["provider_behavior"]["request_digest"].startswith("sha256:")
-    assert release["payload"]["provider_behavior"]["output_digest"].startswith("sha256:")
+    assert candidate["payload"]["verification_protocol"] == "external-json-response-v1"
+    assert candidate["payload"]["candidate_digest"] in candidate["blob_digests"]
     if os.environ.get("PMPE_TEST_REAL_SANDBOX") == "true":
         _prove_private_source_wrapper_with_nested_candidate_sandbox(tmp_path / "source-gate")
 
 
-def test_materially_different_readiness_contract_reaches_release_ready(
+def test_materially_different_readiness_contract_preserves_candidate_evidence(
     tmp_path: Path,
 ) -> None:
     root = Path(__file__).resolve().parents[2]
@@ -213,8 +219,88 @@ def test_materially_different_readiness_contract_reaches_release_ready(
         approval_receipt_bytes=receipt_source,
     )
 
-    assert result.state is RunState.RELEASE_READY
-    assert result.cause == "PASS"
+    assert result.state is RunState.HALTED
+    assert result.cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    assert result.annotation["candidate_response_verified"] is True
     assert result.telemetry["structured_criteria_count"] == 3
     events = [json.loads(line) for line in result.evidence_path.read_text().splitlines()]
     assert events[0]["payload"]["approval"]["status"] == "VERIFIED"
+
+
+@pytest.mark.skipif(
+    os.environ.get("PMPE_TEST_REAL_SANDBOX") != "true",
+    reason="requires the dedicated CI namespace runtime",
+)
+def test_outside_verifier_real_candidate_cannot_change_host_or_verdict(tmp_path: Path) -> None:
+    """The actual engine observes a broken response from a hostile product."""
+    marker = tmp_path / "trusted-verifier-marker"
+    marker.write_text("unchanged")
+
+    class HostileProductProvider:
+        def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+            assert purpose == "code"
+            code = (
+                "import builtins,json,os,sys\n"
+                "from pathlib import Path\n"
+                "def health():\n"
+                "    host = sys.modules.get('__main__')\n"
+                "    if host is not None:\n"
+                "        host.recorder = {'forged': 'PASS'}\n"
+                "    builtins.PMPE_FORGED_PASS = True\n"
+                "    sys.modules['pmpe'] = {'release_eligible': True}\n"
+                f"    marker = Path({str(marker)!r})\n"
+                "    outcomes = {}\n"
+                "    for name, action in [\n"
+                "        ('write', lambda: marker.write_text('changed')),\n"
+                "        ('chmod', lambda: marker.chmod(0o777)),\n"
+                "        ('rename', lambda: marker.rename(marker.with_name('moved'))),\n"
+                "    ]:\n"
+                "        try:\n"
+                "            action()\n"
+                "            outcomes[name] = True\n"
+                "        except OSError:\n"
+                "            outcomes[name] = False\n"
+                "    outcomes['host_visible'] = marker.exists()\n"
+                "    outcomes['fds'] = sorted(os.listdir('/proc/self/fd'))\n"
+                "    return {'status': 'broken', 'tamper': outcomes}\n"
+            )
+            shadow = "raise RuntimeError('candidate shadow module imported')\n"
+            return {
+                "request_digest": request["request_digest"],
+                "files": {
+                    "product.py": code,
+                    "json.py": shadow,
+                    "yaml.py": shadow,
+                    "pmpe.py": shadow,
+                    "conftest.py": shadow,
+                    "sitecustomize.py": shadow,
+                },
+            }
+
+    contract = json.loads(
+        (Path(__file__).parents[2] / "examples/barebones/e1-contract.json").read_text()
+    )
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="outside-hostile",
+        provider=HostileProductProvider(),
+        budget=BudgetCaps(max_attempts=1),
+    )
+    assert (result.state, result.cause) == (RunState.HALTED, "ATTEMPT_BUDGET_EXHAUSTED")
+    assert marker.read_text() == "unchanged"
+    events = [json.loads(line) for line in result.evidence_path.read_text().splitlines()]
+    assert not any(event["event_type"] == "release_ready" for event in events)
+    attempt = next(
+        event
+        for event in events
+        if event["event_type"] == "supervisor_observations" and event["payload"]["attempt"] == 1
+    )
+    assert attempt["payload"]["observations"][0]["assertions_passed"] is False
+    digest = attempt["payload"]["observations"][0]["response_digest"]
+    response = json.loads(
+        (tmp_path / ".pmpe" / "blobs" / digest.removeprefix("sha256:")).read_text()
+    )
+    assert response["status"] == "broken"
+    assert response["tamper"]["host_visible"] is False

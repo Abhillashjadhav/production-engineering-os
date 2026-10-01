@@ -128,20 +128,20 @@ def test_inspection_commands_surface_verified_approval_authority(tmp_path: Path,
     _sealed_run(tmp_path, "approved", approval=approval)
 
     for command in ("status", "evidence", "inspect"):
-        assert (
-            main(
-                [
-                    "barebones",
-                    command,
-                    "approved",
-                    "--repository-root",
-                    str(tmp_path),
-                ]
-            )
-            == 0
-        )
+        assert main(
+            [
+                "barebones",
+                command,
+                "approved",
+                "--repository-root",
+                str(tmp_path),
+            ]
+        ) == (3 if command == "inspect" else 0)
         output = json.loads(capsys.readouterr().out)
         assert output["approval"] == approval
+        if command == "inspect":
+            assert output["verification_assurance"] == "LEGACY_UNVERIFIED"
+            assert output["release_eligible"] is False
 
 
 def test_inspect_refuses_to_publish_an_unverified_direct_call(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -191,8 +191,10 @@ def test_inspect_reads_only_the_sealed_candidate_and_checks_workspace_drift(
         ]
     )
 
-    assert result == 0
+    assert result == 3  # old records remain readable, not outside-verified
     output = json.loads(capsys.readouterr().out)
+    assert output["verification_assurance"] == "LEGACY_UNVERIFIED"
+    assert output["release_eligible"] is False
     assert output["candidate_digest"] == manifest_digest
     assert output["files"] == {"product.py": file_digest}
     assert output["workspace"] == {
