@@ -13,7 +13,7 @@ such required criterion halts with `UNSUPPORTED_VERIFICATION_MODE` before a
 provider or candidate runs. The [published #235 baseline CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160)
 passed its selected real-sandbox matrix on Python 3.11 and 3.12; that is
 offline candidate/provider containment evidence, not live-provider release proof.
-Each changed tree needs fresh exact-head checks; see
+Each changed tree needs fresh commit-bound checks; see
 [the verification boundary](docs/outside-verifier.md).
 
 A passing candidate response is retained as `candidate_response_verified`,
@@ -37,7 +37,7 @@ candidate; that requires a fresh run on its exact published commit.
 | Capability | Evidence status |
 |---|---|
 | Deterministic contract compilation and compile-time rejection | Proven by the [compiler tests](tests/unit/test_acceptance_compiler.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
-| Current meaningful-RED baseline and candidate-only bounded engine | Covered by the [E1 fixture](tests/e2e/test_barebones_e1.py) and selected [#235 exact-head CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160). Seventeen legacy test functions (18 parameterized cases) in the [planted eval suite](tests/e2e/test_barebones_evals.py) are unconditionally skipped under the outside-verifier path; they are not passing current coverage |
+| Current meaningful-RED baseline and candidate-only bounded engine | Covered by the [E1 fixture](tests/e2e/test_barebones_e1.py) and selected [#235 pinned CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160). Seventeen legacy test functions (18 parameterized cases) in the [planted eval suite](tests/e2e/test_barebones_evals.py) are unconditionally skipped under the outside-verifier path; they are not passing current coverage |
 | Hash-chained events and content-addressed evidence blobs | Proven by the [ledger tests](tests/unit/test_evidence_ledger.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
 | Candidate execution with real Bubblewrap, no network, a read-only host view, bounded resources, symlink containment, and fail-closed composition | Proven by the [isolation tests](tests/unit/test_candidate_sandbox.py) in the dedicated Linux `candidate-isolation` matrix of [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
 | Historical scripted-provider `RELEASE_READY` path | Older main-tree evidence only. The [current E1 fixture](tests/e2e/test_barebones_e1.py) expects candidate evidence followed by `HALTED`, and the current provider modes have no `RELEASE_READY` result |
