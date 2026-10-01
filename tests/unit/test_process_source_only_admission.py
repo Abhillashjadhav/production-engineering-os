@@ -1,9 +1,7 @@
-"""Owner-approved source-only admission (2026-09-25): gated runs start without bytecode.
+"""Source-only admission probes for named roots and observed startup prerequisites.
 
-The guard no longer scans the module registry. Instead it refuses any interpreter that
-was not started with bytecode writes disabled and an empty private cache prefix, so no
-module in it can have been loaded from a cache. Subprocess probes exercise real startup
-flags; nothing here executes planted bytecode.
+The guard does not broadly scan the module registry. These tests do not establish
+historical prefix emptiness or every past/future import. No planted bytecode runs.
 """
 
 from __future__ import annotations
@@ -12,6 +10,7 @@ import os
 import subprocess
 import sys
 import types
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -36,7 +35,7 @@ print("ADMITTED")
 
 
 def run_probe(
-    tmp_path: Path, flags: list[str], *, pre: str = ""
+    tmp_path: Path, flags: list[str], *, pre: str = "", pythonpath: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     adapter = tmp_path / "adapter" / "runner.py"
     adapter.parent.mkdir(exist_ok=True)
@@ -46,7 +45,7 @@ def run_probe(
         for key, value in os.environ.items()
         if key not in {"PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX", "PYTHONPATH"}
     }
-    environment["PYTHONPATH"] = str(ROOT / "src")
+    environment["PYTHONPATH"] = str(pythonpath or ROOT / "src")
     return subprocess.run(
         [sys.executable, *flags, "-c", PROBE.format(pre=pre, adapter=str(adapter))],
         cwd=tmp_path,
@@ -70,6 +69,53 @@ def test_source_only_interpreter_is_admitted(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert "ADMITTED" in result.stdout
     assert not any(path.is_file() for path in prefix.rglob("*"))
+
+
+def test_missing_kernel_startup_records_cannot_be_replaced_by_runtime_values(
+    tmp_path: Path,
+) -> None:
+    prefix = empty_prefix(tmp_path)
+    result = run_probe(
+        tmp_path,
+        ["-B", "-X", f"pycache_prefix={prefix}"],
+        pre=(
+            "import pmpe.process_sources as sources\nsources._startup_record = lambda _name: None"
+        ),
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "startup records" in result.stdout
+
+
+@pytest.mark.parametrize("origin", ["zip", "sourceless"])
+def test_named_engine_origin_must_be_a_regular_python_source(tmp_path: Path, origin: str) -> None:
+    prefix = empty_prefix(tmp_path)
+    suffix = "process_sources.py" if origin == "zip" else "process_sources.pyc"
+    fake_source = tmp_path / "unsupported.zip" / "pmpe" / suffix
+    result = run_probe(
+        tmp_path,
+        ["-B", "-X", f"pycache_prefix={prefix}"],
+        pre=(f"import pmpe.process_sources as sources\nsources.__file__ = {str(fake_source)!r}"),
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "regular Python source" in result.stdout
+
+
+def test_zipimported_engine_source_is_refused(tmp_path: Path) -> None:
+    """Benign source ZIP import cannot be mistaken for a listed filesystem source."""
+
+    archive = tmp_path / "engine.zip"
+    source_root = ROOT / "src"
+    with zipfile.ZipFile(archive, "w") as packed:
+        for path in (source_root / "pmpe").rglob("*.py"):
+            packed.write(path, path.relative_to(source_root))
+    prefix = empty_prefix(tmp_path)
+    result = run_probe(
+        tmp_path,
+        ["-B", "-X", f"pycache_prefix={prefix}"],
+        pythonpath=archive,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "regular Python source" in result.stdout
 
 
 def test_interpreter_without_startup_cache_prefix_is_refused(tmp_path: Path) -> None:

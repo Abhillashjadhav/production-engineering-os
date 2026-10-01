@@ -15,6 +15,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from pmpe import barebones
 from pmpe.approved_bundle import BundleError, load_approved_bundle
 from pmpe.barebones import (
     BudgetCaps,
@@ -27,7 +28,7 @@ from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 from pmpe.process_approval import validate_approval_packet
-from pmpe.process_sources import require_source_only_interpreter
+from pmpe.process_sources import require_source_only_interpreter, validate_sources
 
 _RELAUNCHED = "PMPE_SOURCE_ONLY_RELAUNCHED"
 _LAUNCH = "import sys; from pmpe.cli import main; raise SystemExit(main(sys.argv[1:]))"
@@ -63,10 +64,34 @@ def _relaunch_source_only(args: argparse.Namespace) -> None:
             return  # admission below reports the refusal instead of looping
     prefix = tempfile.mkdtemp(prefix="pmpe-source-only-")
     os.environ[_RELAUNCHED] = "1"
+    # Retain the caller's startup isolation. Reconstructing only -B/-X would let
+    # the replacement interpreter consult environment, site or unsafe paths
+    # that the original interpreter had excluded. -I implies E/P/s,
+    # but keep their effective flags explicit in the replacement argv as well.
+    isolation = [
+        option
+        for enabled, option in (
+            (sys.flags.isolated, "-I"),
+            (sys.flags.ignore_environment, "-E"),
+            (sys.flags.safe_path, "-P"),
+            (sys.flags.no_user_site, "-s"),
+            (sys.flags.no_site, "-S"),
+        )
+        if enabled
+    ]
     sys.stdout.flush()
     os.execv(
         sys.executable,
-        [sys.executable, "-B", "-X", "pycache_prefix=" + prefix, "-c", _LAUNCH, *_argv(args)],
+        [
+            sys.executable,
+            *isolation,
+            "-B",
+            "-X",
+            "pycache_prefix=" + prefix,
+            "-c",
+            _LAUNCH,
+            *_argv(args),
+        ],
     )
 
 
@@ -101,9 +126,12 @@ def _run_bundle(args: argparse.Namespace) -> int:
             if not separator or not name or not directory:
                 raise BundleError("--root must be NAME=DIRECTORY")
             roots[name] = Path(directory)
-        bundle = load_approved_bundle(
-            Path(args.bundle), freeze_digest=args.freeze_digest, roots=roots
-        )
+        try:
+            bundle = load_approved_bundle(
+                Path(args.bundle), freeze_digest=args.freeze_digest, roots=roots
+            )
+        except OSError as exc:
+            raise BundleError("bundle file could not be read: " + str(exc)) from exc
         _require_approved_contract(bundle.contract, bundle.receipt, args.expected_approver)
         # The engine checks the approval packet only for digest-bound process gates; a
         # bundle is admitted only with its whole packet, whatever gates the contract has.
@@ -116,12 +144,29 @@ def _run_bundle(args: argparse.Namespace) -> int:
             bundle.inputs, plan, receipt_bytes=bundle.receipt_bytes, approval_verified=True
         )
         budget = _budget(strict_loads(bundle.inputs.execution_profile, "application/json"))
+        provider = CommandModelProvider(args.provider_command, args.provider_timeout)
+        sandbox = barebones.BubblewrapCandidateSandbox()
+        # Validate the actual CLI implementations before entering the engine even
+        # when the contract declares no typed digest-boundary process gate.
+        try:
+            validate_sources(
+                bundle.inputs.source_manifest,
+                bundle.inputs.source_paths,
+                bundle.template,
+                bundle.inputs.execution_profile,
+                (provider, sandbox),
+            )
+        except (ValueError, TypeError, AttributeError, OSError) as exc:
+            raise BundleError(
+                "bundle source manifest runtime identity is invalid: " + str(exc)
+            ) from exc
         result = run_to_release_ready(
             contract=bundle.contract,
             repository_root=Path(args.repository_root).resolve(),
             workspace=Path(args.workspace).resolve(),
             run_id=args.run_id,
-            provider=CommandModelProvider(args.provider_command, args.provider_timeout),
+            provider=provider,
+            candidate_sandbox=sandbox,
             template=bundle.template,
             budget=budget,
             approval_receipt=bundle.receipt,

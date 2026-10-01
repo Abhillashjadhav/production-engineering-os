@@ -1,4 +1,7 @@
-"""Exact source inventory independent of the contract/receipt that will bind it."""
+"""Named source-file inventory independent of the contract/receipt that binds it.
+
+This is local admission hygiene, not proof of every past or future Python import.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +9,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
@@ -14,6 +18,19 @@ from types import CodeType
 from typing import TYPE_CHECKING, Any
 
 from pmpe.contracts.canonical import canonical_digest, strict_loads
+
+_SOURCE_MANIFEST_FIELDS = {
+    "schema_version",
+    "sandbox_identity",
+    "artifacts",
+    "template_digest",
+    "execution_profile_sha256",
+    "scope",
+}
+_SOURCE_MANIFEST_SCOPE = (
+    "Immutable engine, adapter, evaluator/template and profile; approval freeze is separate."
+)
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 if TYPE_CHECKING:
     from pmpe.barebones import Template
@@ -27,11 +44,7 @@ def raw_digest(value: bytes) -> str:
 
 
 def _startup_record(name: str) -> list[bytes] | None:
-    """The kernel's copy of this process's startup argv or environment, where available.
-
-    Runtime edits to ``os.environ`` or ``sys._xoptions`` do not change these records.
-    Platforms without ``/proc`` (for example macOS) fall back to the runtime values.
-    """
+    """The kernel's copy of startup argv/environment, if readable on this host."""
     try:
         return (Path("/proc/self") / name).read_bytes().split(b"\0")
     except OSError:
@@ -72,44 +85,40 @@ def _interpreter_xoptions(cmdline: list[bytes]) -> list[bytes]:
 def _startup_pycache_prefix() -> str | None:
     """The cache prefix this interpreter was started with (``-X`` wins over the env).
 
-    Where ``/proc`` exists only the kernel's startup records count: runtime edits to
-    ``sys._xoptions`` or ``os.environ`` can neither add a prefix nor remove the startup
-    ``-X`` that overrode the environment.
+    Only kernel startup records count. Runtime edits to ``sys._xoptions`` and
+    ``os.environ`` cannot establish source-only startup. Unsupported hosts refuse.
     """
     cmdline = _startup_record("cmdline")
-    if cmdline is not None:
-        prefixes = [
-            value.removeprefix(b"pycache_prefix=")
-            for value in _interpreter_xoptions(cmdline)
-            if value.startswith(b"pycache_prefix=")
-        ]
-        if prefixes:
-            return os.fsdecode(prefixes[-1]) or None
-        if sys.flags.ignore_environment:
-            return None
-        # getenv() returns the first entry, so the first one is what CPython read.
-        entries = [
-            entry.removeprefix(b"PYTHONPYCACHEPREFIX=")
-            for entry in _startup_record("environ") or []
-            if entry.startswith(b"PYTHONPYCACHEPREFIX=")
-        ]
-        return os.fsdecode(entries[0]) or None if entries else None
-    # No /proc (for example macOS): only runtime values exist here (open question Q20).
-    option = sys._xoptions.get("pycache_prefix")
-    if isinstance(option, str) and option:
-        return option
+    if cmdline is None:
+        raise ValueError("process gate kernel startup records are unavailable")
+    prefixes = [
+        value.removeprefix(b"pycache_prefix=")
+        for value in _interpreter_xoptions(cmdline)
+        if value.startswith(b"pycache_prefix=")
+    ]
+    if prefixes:
+        return os.fsdecode(prefixes[-1]) or None
     if sys.flags.ignore_environment:
         return None
-    return os.environ.get("PYTHONPYCACHEPREFIX") or None
+    environ = _startup_record("environ")
+    if environ is None:
+        raise ValueError("process gate kernel startup records are unavailable")
+    # getenv() returns the first entry, so the first one is what CPython read.
+    entries = [
+        entry.removeprefix(b"PYTHONPYCACHEPREFIX=")
+        for entry in environ
+        if entry.startswith(b"PYTHONPYCACHEPREFIX=")
+    ]
+    return os.fsdecode(entries[0]) or None if entries else None
 
 
 def require_source_only_interpreter() -> Path:
-    """Refuse any interpreter that could have loaded code from a bytecode cache.
+    """Check the observed source-only startup prerequisites for named sources.
 
     Owner-approved boundary (2026-09-25): a gated run starts with bytecode writes off and
-    an empty private cache prefix, both fixed at interpreter start. Every source module
-    is then compiled from source, so no module-registry scan is needed. A prefix assigned
-    after start cannot vouch for modules imported before it.
+    an empty private cache prefix. Kernel records establish the prefix setting, while
+    current emptiness is only an observation: this check cannot prove the directory
+    stayed empty since startup or authenticate mutable globals and future imports.
     """
     if not (sys.flags.dont_write_bytecode and sys.dont_write_bytecode):
         raise ValueError(
@@ -182,6 +191,8 @@ def reject_bytecode(roots: Sequence[Path]) -> None:
 
 def engine_sources() -> dict[str, Path]:
     root = Path(__file__).parent
+    if Path(__file__).suffix != ".py" or not Path(__file__).is_file() or not root.is_dir():
+        raise ValueError("process gate named engine origin is not a regular Python source")
     reject_bytecode([root])
     return {
         "engine/" + str(path.relative_to(root)): path.resolve()
@@ -307,12 +318,46 @@ def build_source_manifest(
         "artifacts": {name: raw_digest(path.read_bytes()) for name, path in sorted(paths.items())},
         "template_digest": canonical_digest(asdict(template)),
         "execution_profile_sha256": raw_digest(profile),
-        "scope": (
-            "Immutable engine, adapter, evaluator/template and "
-            "profile; approval freeze is separate."
-        ),
+        "scope": (_SOURCE_MANIFEST_SCOPE),
     }
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def parse_source_manifest(manifest_bytes: bytes) -> dict[str, Any]:
+    """Validate the approved manifest schema even without typed process gates."""
+    manifest = strict_loads(manifest_bytes, "application/json")
+    identity = manifest.get("sandbox_identity") if isinstance(manifest, dict) else None
+    if (
+        not isinstance(manifest, dict)
+        or set(manifest) != _SOURCE_MANIFEST_FIELDS
+        or manifest["schema_version"] != "1"
+        or not isinstance(manifest["artifacts"], dict)
+        or not manifest["artifacts"]
+        or any(
+            not isinstance(name, str)
+            or not name
+            or not isinstance(digest, str)
+            or _SHA256.fullmatch(digest) is None
+            for name, digest in manifest["artifacts"].items()
+        )
+        or not isinstance(manifest["template_digest"], str)
+        or _SHA256.fullmatch(manifest["template_digest"]) is None
+        or not isinstance(manifest["execution_profile_sha256"], str)
+        or _SHA256.fullmatch(manifest["execution_profile_sha256"]) is None
+        or (
+            identity is not None
+            and (
+                not isinstance(identity, dict)
+                or not {"class", "source_digest"} <= set(identity)
+                or not isinstance(identity["class"], str)
+                or not identity["class"]
+                or not isinstance(identity["source_digest"], str)
+                or _SHA256.fullmatch(identity["source_digest"]) is None
+            )
+        )
+    ):
+        raise ValueError("process gate source manifest shape is invalid")
+    return manifest
 
 
 def validate_sources(
@@ -322,21 +367,7 @@ def validate_sources(
     profile: bytes,
     implementations: tuple[object, ...],
 ) -> tuple[dict[str, Path], dict[str, str]]:
-    manifest = strict_loads(manifest_bytes, "application/json")
-    if (
-        not isinstance(manifest, dict)
-        or set(manifest)
-        != {
-            "schema_version",
-            "sandbox_identity",
-            "artifacts",
-            "template_digest",
-            "execution_profile_sha256",
-            "scope",
-        }
-        or manifest["schema_version"] != "1"
-    ):
-        raise ValueError("process gate source manifest shape is invalid")
+    manifest = parse_source_manifest(manifest_bytes)
     if "adapter" not in source_paths or any(
         key.startswith(("engine/", "approval/", "protected/")) for key in source_paths
     ):

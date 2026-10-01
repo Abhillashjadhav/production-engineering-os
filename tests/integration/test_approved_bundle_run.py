@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from pmpe.barebones import BudgetCaps, default_template, run_to_release_ready
+from pmpe.barebones import BudgetCaps, ContractInvalidError, default_template, run_to_release_ready
 from pmpe.cli import main
 from pmpe.process_sources import raw_digest
 from tests.integration.test_process_gate_approval import approved_fixture
@@ -131,6 +131,79 @@ def test_bundle_reconstructs_the_exact_process_inputs(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.parametrize("process_bindings", [False, True])
+def test_source_manifest_schema_is_checked_without_a_digest_gate(
+    tmp_path: Path, process_bindings: bool
+) -> None:
+    """A re-frozen TEST-ONLY packet cannot substitute an unsupported manifest schema."""
+    from pmpe.approved_bundle import BundleError
+
+    seed, *_ = approved_fixture(tmp_path / "seed", process_bindings=process_bindings)
+    manifest = json.loads(seed.source_manifest)
+    manifest["schema_version"] = "999"
+    bundle, digest, *_ = write_bundle(
+        tmp_path / "case",
+        process_bindings=process_bindings,
+        replace_artifact={"source_manifest": json.dumps(manifest).encode()},
+    )
+    with pytest.raises(BundleError, match="source manifest"):
+        load(bundle, digest)
+
+
+def test_custom_source_manifest_scope_keeps_prior_descriptive_compatibility(
+    tmp_path: Path,
+) -> None:
+    """The scope field describes the source; exact builder prose is not an identity key."""
+    from pmpe.process_sources import validate_sources
+
+    seed, *_ = approved_fixture(tmp_path / "seed", process_bindings=False)
+    manifest = json.loads(seed.source_manifest)
+    manifest["scope"] = "TEST-ONLY alternate descriptive scope"
+    bundle, digest, *_ = write_bundle(
+        tmp_path / "case",
+        process_bindings=False,
+        replace_artifact={"source_manifest": json.dumps(manifest).encode()},
+    )
+    loaded = load(bundle, digest)
+    validate_sources(
+        loaded.inputs.source_manifest,
+        loaded.inputs.source_paths,
+        loaded.template,
+        loaded.inputs.execution_profile,
+        (ReplayProvider(), LocalSandbox()),
+    )
+
+
+def test_criterion_only_bundle_checks_runtime_sandbox_identity_before_engine(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A complete but wrong sandbox identity must not reach workspace/provider/engine."""
+    from pmpe.cli import bundle_cmd
+
+    seed, *_ = approved_fixture(tmp_path / "seed", process_bindings=False)
+    manifest = json.loads(seed.source_manifest)
+    manifest["sandbox_identity"] = {
+        "class": "TEST_ONLY.wrong_sandbox",
+        "source_digest": "sha256:" + "0" * 64,
+    }
+    bundle, digest, *_ = write_bundle(
+        tmp_path / "case",
+        process_bindings=False,
+        replace_artifact={"source_manifest": json.dumps(manifest).encode()},
+    )
+    reached_engine = False
+
+    def engine_stub(**_kwargs: Any) -> None:
+        nonlocal reached_engine
+        reached_engine = True
+        raise AssertionError("invalid manifest reached engine")
+
+    monkeypatch.setattr(bundle_cmd, "run_to_release_ready", engine_stub)
+    code, marker = run_cli(tmp_path, bundle, digest)
+    refused_before_side_effects(tmp_path, code, marker, capsys)
+    assert not reached_engine
+
+
 def test_bundle_run_matches_direct_library_verdicts(tmp_path: Path) -> None:
     bundle, digest, inputs, approved, receipt_bytes = write_bundle(tmp_path)
     loaded = load(bundle, digest)
@@ -227,6 +300,24 @@ def test_wrong_external_freeze_digest_is_refused(
     code, marker = run_cli(tmp_path, bundle, "sha256:" + "0" * 64)
     output = refused_before_side_effects(tmp_path, code, marker, capsys)
     assert "freeze" in output["detail"]
+
+
+def test_bundle_read_error_is_halted_before_side_effects(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stat/read race gets structured refusal without changing filesystem permissions."""
+    bundle, digest, *_ = write_bundle(tmp_path)
+    read_bytes = Path.read_bytes
+
+    def refused_read(path: Path) -> bytes:
+        if path == bundle / "bundle.json":
+            raise PermissionError("TEST-ONLY bundle read refused")
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", refused_read)
+    code, marker = run_cli(tmp_path, bundle, digest)
+    output = refused_before_side_effects(tmp_path, code, marker, capsys)
+    assert "bundle" in output["detail"]
 
 
 def test_symlinked_or_escaping_bundle_paths_are_refused(
@@ -326,6 +417,56 @@ def test_unprepared_interpreter_relaunches_source_only(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        (["-E", "-P", "-s"], {"-E", "-P", "-s"}),
+        (["-I"], {"-I", "-E", "-P", "-s"}),
+        (["-S"], {"-S"}),
+    ],
+)
+def test_relaunch_preserves_interpreter_isolation_and_option_boundary(
+    options: list[str], expected: set[str]
+) -> None:
+    """Capture argv without exec; a provider argument is never an interpreter option."""
+    script = f"""
+import argparse, json, sys
+from unittest.mock import patch
+sys.path.insert(0, {str(ROOT / "src")!r})
+sys.path.extend({[path for path in sys.path if "site-packages" in path]!r})
+from pmpe.cli import bundle_cmd
+class Captured(Exception): pass
+record = {{}}
+def capture(path, argv):
+    record.update(path=path, argv=argv)
+    raise Captured()
+args = argparse.Namespace(bundle='TEST-ONLY', freeze_digest='sha256:test', root=[],
+    run_id='TEST-ONLY', workspace='unused', repository_root='unused',
+    expected_approver='TEST-ONLY', provider_command='-I -- sentinel', provider_timeout=1)
+with patch.object(bundle_cmd, 'require_source_only_interpreter', side_effect=ValueError('test')):
+    with patch.object(bundle_cmd.os, 'execv', side_effect=capture):
+        try: bundle_cmd._relaunch_source_only(args)
+        except Captured: pass
+print(json.dumps({{'argv': record['argv'], 'flags': {{
+    'isolated': sys.flags.isolated, 'ignore_environment': sys.flags.ignore_environment,
+    'safe_path': sys.flags.safe_path, 'no_user_site': sys.flags.no_user_site}}}}))
+"""
+    result = subprocess.run(
+        [sys.executable, "-B", *options, "-c", script],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    captured = json.loads(result.stdout)
+    argv = captured["argv"]
+    boundary = argv.index("-c")
+    assert expected <= set(argv[1:boundary])
+    assert "pmpe.cli" in argv[boundary + 1]
+    assert argv[boundary + 2 : boundary + 4] == ["barebones", "run-bundle"]
+    assert argv[argv.index("--provider-command") + 1] == "-I -- sentinel"
+    assert argv[-2:] == ["--provider-timeout", "1"]
+
+
+@pytest.mark.parametrize(
     ("measures", "files"),
     [
         ({"score": "product:health"}, {}),
@@ -344,6 +485,17 @@ def test_bindings_keep_evaluators_frozen_and_explicit(
     code, marker = run_cli(tmp_path, bundle, digest)
     output = refused_before_side_effects(tmp_path, code, marker, capsys)
     assert "bundle" in output["detail"]
+
+
+def test_bindings_reject_empty_dotted_module_segment() -> None:
+    """A malformed import target is refused before an engine or workspace exists."""
+    from pmpe.approved_bundle import BundleError, _template
+
+    bindings = {key: value for key, value in asdict(default_template()).items() if key != "proofs"}
+    bindings["files"].update({"foo/__init__.py": "", "foo/.py": "def bar(): pass\n"})
+    bindings["actions"] = {"health": "foo.:bar"}
+    with pytest.raises(BundleError, match="binding target"):
+        _template(json.dumps(bindings).encode())
 
 
 @pytest.mark.parametrize("field", ["files", "actions", "measures", "context"])
@@ -466,6 +618,40 @@ def test_complete_criterion_only_bundle_reaches_the_provider(
     output = json.loads(capsys.readouterr().out)
     assert marker.exists(), output
     assert output["state"] != "HALTED" or output["cause"] != "CONTRACT_INVALID", output
+
+
+def test_engine_rechecks_the_plan_it_actually_compiled_before_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A changed second plan cannot inherit the first plan's TEST-ONLY packet approval."""
+    from pmpe import barebones
+
+    class NoRunSandbox:
+        def run(self, *_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("TEST-ONLY sandbox must not execute")
+
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path / "fixture", process_bindings=False)
+    compile_plan = barebones.compile_barebones_plan
+
+    def changed_plan(**kwargs: Any) -> Any:
+        return replace(compile_plan(**kwargs), plan_digest="sha256:" + "0" * 64)
+
+    monkeypatch.setattr(barebones, "compile_barebones_plan", changed_plan)
+    with pytest.raises(ContractInvalidError, match="approval packet"):
+        run_to_release_ready(
+            contract=approved,
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="changed-second-plan",
+            provider=ReplayProvider(),
+            candidate_sandbox=NoRunSandbox(),
+            approval_receipt=json.loads(receipt_bytes),
+            approval_authority="TEST-ONLY-fixture",
+            approval_receipt_bytes=receipt_bytes,
+            process_gate_inputs=inputs,
+        )
+    assert not (tmp_path / "candidate").exists()
+    assert not (tmp_path / ".pmpe").exists()
 
 
 @pytest.mark.parametrize("value", ["1000", True, 0, -1, 1.5, None])

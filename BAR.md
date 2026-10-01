@@ -294,3 +294,94 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Check existing boundary/process coverage before regeneration, rerun to terminal exit and require full ordered coverage before copying.
 5. **Yes.** One evidence repair commit can be reverted separately.
 6. **No.** No dependency, signing, sandbox change or new approval.
+
+## Unit — relaunch migration when Python ignores prefix environment (2026-09-30)
+
+1. **Yes, restructured.** Correct the existing migration source-only startup shortcut; no second launcher.
+2. **Yes.** PR #227 review shows -B -E/-I ignores a set PYTHONPYCACHEPREFIX while the shortcut mistakes it for an effective prefix.
+3. **Yes.** Callers with ignored prefix environment now relaunch instead of entering a later refusal. This is separate on the #227 head.
+4. **Yes.** Add no-exec -E/-I ignored-environment regressions, run red before implementation, then green.
+5. **Yes.** One startup condition and test are independently revertible.
+6. **No.** No sandbox weakening, OS change, new setting, dependency or product policy.
+
+# BAR: PR227 real isolated migration startup
+
+1. **Already exists? Yes, extend it.** Repair the existing migration script and its existing relaunch tests; no second runner or import path is introduced.
+2. **Approved criterion or reproduced blocker? Yes.** `python -I scripts/r3_task_store_migration.py --help` after a trusted local package installation reaches a bare self-import that isolated mode cannot resolve; the existing test accepts nonzero traceback exits.
+3. **Changes existing behavior? Yes.** The script's CLI entrypoint changes from an unnecessary module self-import to its already-defined `main()`. Test the trusted installed-package and decoy cases separately; no candidate source is added to Python's import path.
+4. **Failing automated check first? Yes.** The pre-repair real `-I` control must exit zero and print usage; the current assertion only checks that a decoy does not execute and return code is not 7, so it falsely passes an import traceback.
+5. **Independently revertible? Yes.** This script-entrypoint/test repair builds on the separately pinned prefix patch and can be reverted as one unit without changing migration policy.
+6. **Unrequested setting/dependency/extension? No.** Reuse the existing package installation, script and Python isolation flags. No host security setting, provider, or new runtime dependency is added.
+
+# PR227 source-admission evidence correction — 2026-10-01
+
+1. **Already exists? Yes.** Extend `require_source_only_interpreter` and the existing named source inventory; do not create another gate or inspect the broad module registry.
+2. **Approved criterion or reproduced blocker? Yes.** The existing W2 source-only-start decision and the PR227 review identify mutable no-/proc fallback and unverified ZIP/sourceless named-root origins.
+3. **Existing behavior affected? Yes.** Source-manifest construction and bound process admission may refuse a startup without kernel records or a named engine source without a regular `.py` origin. This isolated branch owns those effects.
+4. **Automated RED before change? Yes.** The three new focused cases in `test_process_source_only_admission.py` failed against the unchanged PR227 source: missing kernel records and named ZIP/sourceless engine origins were admitted. Existing regular-source startup remains the positive control. The recorded local red output is `/tmp/peos-pr227-source-red.log`.
+5. **Revert as one unit? Yes.** The two narrowly related source-admission checks, regressions and accuracy wording form one revertible PR227 patch.
+6. **New setting, dependency or extension? No.** Preserve the existing source-only mode, manifest and architecture scanner; add no provider, trust setting or public API.
+
+Historical prefix emptiness, arbitrary helper/future imports and mutable-global authenticity remain unverified by this in-process hygiene check. The separate outside-process verifier owns candidate-response judgments.
+
+## Unit — import only the pinned PEOS package in replay checker (2026-09-30)
+
+1. **Yes, restructured.** Replace the existing broad `sys.path` insertion with an explicit import of the already digest-checked `pmpe` package.
+2. **Yes.** PR #221 review shows an extra `src/yaml.py` in supplied source can shadow the checker dependency before evidence checks.
+3. **Yes.** The checker will ignore unrelated top-level source files while retaining the exact pinned `pmpe` package path; separate #221-pinned unit.
+4. **Yes.** Add a harmless untracked shadow-module regression, run red before the import change, then green plus existing verifier tests.
+5. **Yes.** One bootstrap import path and regression are independently revertible.
+6. **No.** No dependency, source-policy bypass, candidate execution, setting or product threshold.
+## Unit — preserve interpreter isolation across run-bundle relaunch (2026-09-30)
+
+1. **Yes, restructured.** Extend the existing source-only relaunch; no parallel launcher.
+2. **Yes.** PR #228 review and a no-exec argv witness show caller -E/-P/-s are dropped; -S also drops site exclusion.
+3. **Yes.** Existing run-bundle callers may rely on interpreter isolation. This is a separate PR228-pinned local branch and test unit.
+4. **Yes.** A subprocess/no-exec argv regression is added and run red before implementation, then green afterward.
+5. **Yes.** One relaunch function and its regression can be reverted without other repairs.
+6. **No.** No setting, dependency, extension surface, host security change or product policy is added.
+
+## Unit — unconditional source-manifest admission for run-bundle (2026-09-30)
+
+1. **Yes, restructured.** Reuse the existing source-manifest validation path; no parallel manifest authority.
+2. **Yes.** PR #228 review and test-only loader witness show schema 999 and wrong sandbox identity admitted without typed process gates.
+3. **Yes.** Bundle loader/CLI may reject previously accepted malformed packets. This is a separate PR228-pinned local branch and test unit.
+4. **Yes.** Add invalid-schema and wrong-runtime-identity criterion-only regressions, demonstrate red before editing runtime, then green.
+5. **Yes.** This manifest admission repair and tests are independently revertible from the relaunch fix.
+6. **No.** No setting, dependency, host sandbox change, new provider, approval issuance or product threshold.
+
+## Unit — reject empty dotted module segments in bundle bindings (2026-09-30)
+
+1. **Yes, restructured.** Tighten the existing bundle binding target grammar; no second parser.
+2. **Yes.** PR #228 review shows `foo.:bar` can pass loading with `foo/.py` and fail only after workspace/evidence creation.
+3. **Yes.** Existing bindings with empty dotted segments become refused; this is a separately reversible PR228-pinned unit.
+4. **Yes.** Add a no-execution loader regression, run red before regex change, then green.
+5. **Yes.** One parser line and regression can revert independently from other repairs.
+6. **No.** No setting, dependency, new extension surface or product threshold.
+
+## Unit — HALTED JSON on bundle file read failure (2026-09-30)
+
+1. **Yes, restructured.** Wrap only the existing bundle loader's filesystem errors; no alternate I/O path.
+2. **Yes.** PR #228 review identifies a stat/read race or permission error that currently escapes as a traceback.
+3. **Yes.** Existing CLI refusal behavior changes for a failed bundle read; this is separately reversible on the PR228 candidate.
+4. **Yes.** Add a deterministic monkeypatched read failure, run red before implementation, then green.
+5. **Yes.** One CLI preflight wrapper and its regression can revert independently.
+6. **No.** No permissions, host security settings, dependencies or product thresholds change.
+
+## Unit — recheck the plan actually executed by run-bundle (2026-09-30)
+
+1. **Yes, restructured.** Reuse the existing approval-packet validator against the engine's compiled plan; no second planner or policy.
+2. **Yes.** PR #228 review shows a criterion-only bundle can change a human test between CLI preflight and engine recompilation without binding the executed plan.
+3. **Yes.** Such changed plans now refuse before workspace/provider. This is a separate PR228-pinned runtime unit.
+4. **Yes.** Add a deterministic two-plan mismatch with no-execution sandbox double, run red before fix, then green.
+5. **Yes.** One engine admission call and regression can revert independently.
+6. **No.** No new setting, dependency, approval issuer, product threshold or external surface.
+
+## Unit — preserve descriptive source-manifest scope compatibility (2026-09-30)
+
+1. **Yes, restructured.** Relax only an overstrict comparison in the new shared parser; retain manifest schema and runtime identity validation.
+2. **Yes.** Independent Astra review found the preexisting canonical validator required `scope` presence but not the builder's exact prose string.
+3. **Yes.** Previously valid custom descriptive scope values are admitted again. This is an isolated superseding PR228 candidate.
+4. **Yes.** Add a TEST-ONLY custom-scope bundle control, run red before edit, then green with the full focused suite.
+5. **Yes.** One conditional and regression revert independently from other repairs.
+6. **No.** No new setting, dependency, sandbox/approval weakening or product threshold.

@@ -19,7 +19,7 @@ from typing import Any
 from pmpe.barebones import Template, _safe_path
 from pmpe.contracts.canonical import canonical_digest, strict_loads
 from pmpe.process_gate_inputs import ProcessGateInputs
-from pmpe.process_sources import engine_sources, raw_digest
+from pmpe.process_sources import engine_sources, parse_source_manifest, raw_digest
 
 _FIELDS = {
     "schema_version",
@@ -32,7 +32,8 @@ _FIELDS = {
     "generation",
     "real_sandbox_leg",
 }
-_TARGET = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*):([A-Za-z_][A-Za-z0-9_]*)")
+_IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
+_TARGET = re.compile(rf"({_IDENTIFIER}(?:\.{_IDENTIFIER})*):({_IDENTIFIER})")
 
 
 class BundleError(ValueError):
@@ -97,9 +98,10 @@ def _bind_to_source_manifest(
     bundle.json names these outside the approval freeze, so the loader checks them
     itself instead of relying on the contract declaring a digest-boundary gate.
     """
-    manifest = _json(manifest_bytes, "source manifest")
-    if not isinstance(manifest, dict) or not isinstance(manifest.get("artifacts"), dict):
-        raise BundleError("bundle source manifest has no artifact inventory")
+    try:
+        manifest = parse_source_manifest(manifest_bytes)
+    except ValueError as exc:
+        raise BundleError("bundle source manifest shape is invalid: " + str(exc)) from exc
     if manifest.get("template_digest") != canonical_digest(asdict(template)):
         raise BundleError("bundle bindings differ from the approved source manifest")
     if manifest.get("execution_profile_sha256") != raw_digest(profile):
