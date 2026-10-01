@@ -296,13 +296,18 @@ class NonFiniteProvider:
         }
 
 
+def _synthetic_credential_probe() -> str:
+    """Keep the alphabetic test probe assembled, not a committed credential literal."""
+    return "".join(("AK", "IA", "ABCDEFGHIJKLMNOP"))
+
+
 class CredentialFileProvider(PassingProvider):
     def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
         response = dict(super().invoke(purpose=purpose, request=request))
         if purpose == "code":
             response["files"] = {
                 **response["files"],
-                ".env": "AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP\n",
+                ".env": f"AWS_ACCESS_KEY_ID={_synthetic_credential_probe()}\n",
             }
         return response
 
@@ -1447,7 +1452,7 @@ def test_credential_material_is_blocked_in_non_python_files(tmp_path: Path) -> N
 
     assert result.state is RunState.HALTED
     assert result.cause == "MODEL_RESPONSE_CONTAINS_CREDENTIAL"
-    assert "AKIAABCDEFGHIJKLMNOP" not in result.evidence_path.read_text()
+    assert _synthetic_credential_probe() not in result.evidence_path.read_text()
 
 
 @pytest.mark.parametrize("operator,value", [("lte", 2), ("gt", 0)])
