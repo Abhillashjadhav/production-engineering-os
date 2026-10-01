@@ -30,6 +30,8 @@ from pmpe.evals.barebones_drift import (
     observe_provider_behavior,
 )
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.model_provider import ModelProvider
+from pmpe.provider_isolation import OfflineConfinedProvider
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -267,13 +269,36 @@ def _run(args: argparse.Namespace) -> int:
             raise ContractInvalidError("cannot read approval receipt") from exc
         receipt = strict_loads(receipt_source, "application/json")
         _require_approved_contract(contract, receipt, args.expected_approver)
+        command = args.provider_command
+        bundle = args.provider_offline_bundle
+        entry = args.provider_offline_entry
+        if bool(command) == bool(bundle) or bool(bundle) != bool(entry):
+            raise ContractInvalidError(
+                "select one provider mode: --provider-command or offline bundle plus entry"
+            )
+        provider: ModelProvider
+        if bundle:
+            provider = OfflineConfinedProvider(
+                bundle=Path(bundle),
+                entry=entry,
+                protected_roots=(
+                    Path(__file__).resolve().parents[3],
+                    Path(args.repository_root).resolve(),
+                    Path(args.workspace).resolve(),
+                    contract_path,
+                    Path(args.approval_receipt),
+                ),
+                timeout_seconds=args.provider_timeout,
+            )
+        else:
+            provider = CommandModelProvider(command, args.provider_timeout)
         try:
             result = run_to_release_ready(
                 contract=contract,
                 repository_root=Path(args.repository_root).resolve(),
                 workspace=Path(args.workspace).resolve(),
                 run_id=args.run_id,
-                provider=CommandModelProvider(args.provider_command, args.provider_timeout),
+                provider=provider,
                 approval_receipt=receipt,
                 approval_authority=args.expected_approver,
                 approval_receipt_bytes=receipt_source,
@@ -1063,8 +1088,15 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     )
     run_parser.add_argument(
         "--provider-command",
-        required=True,
-        help="local ModelProvider command; receives and returns JSON over stdio",
+        help="trusted host-user ModelProvider command; receives and returns JSON over stdio",
+    )
+    run_parser.add_argument(
+        "--provider-offline-bundle",
+        help="read-only Python provider bundle for no-network, no-credential Bubblewrap mode",
+    )
+    run_parser.add_argument(
+        "--provider-offline-entry",
+        help="safe relative Python entry path inside --provider-offline-bundle",
     )
     run_parser.add_argument("--provider-timeout", type=int, default=960)
     run_parser.set_defaults(fn=_run)

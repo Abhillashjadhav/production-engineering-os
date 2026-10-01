@@ -173,6 +173,22 @@ class BubblewrapCandidateSandbox:
         return tuple(sorted((item for item in candidates if item.exists()), key=str))
 
     @staticmethod
+    def _host_read_only_paths() -> tuple[Path, ...]:
+        return tuple(
+            Path(path)
+            for path in (
+                "/etc/alternatives",
+                "/etc/group",
+                "/etc/ld.so.cache",
+                "/etc/ld.so.conf",
+                "/etc/ld.so.conf.d",
+                "/etc/localtime",
+                "/etc/nsswitch.conf",
+                "/etc/passwd",
+            )
+        )
+
+    @staticmethod
     def _parent_directories(path: Path) -> tuple[str, ...]:
         parents: list[str] = []
         current = path.parent
@@ -280,6 +296,40 @@ class BubblewrapCandidateSandbox:
         timeout_seconds: float,
         environment: Mapping[str, str],
     ) -> subprocess.CompletedProcess[str]:
+        return self._run(
+            workspace,
+            argv,
+            timeout_seconds=timeout_seconds,
+            environment=environment,
+            input_data=None,
+        )
+
+    def run_with_input(
+        self,
+        workspace: Path,
+        argv: Sequence[str],
+        *,
+        timeout_seconds: float,
+        environment: Mapping[str, str],
+        input_data: bytes,
+    ) -> subprocess.CompletedProcess[str]:
+        return self._run(
+            workspace,
+            argv,
+            timeout_seconds=timeout_seconds,
+            environment=environment,
+            input_data=input_data,
+        )
+
+    def _run(
+        self,
+        workspace: Path,
+        argv: Sequence[str],
+        *,
+        timeout_seconds: float,
+        environment: Mapping[str, str],
+        input_data: bytes | None,
+    ) -> subprocess.CompletedProcess[str]:
         sandbox = shutil.which(self.executable, path=_SANDBOX_PATH)
         limiter = shutil.which(self.limiter, path=_SANDBOX_PATH)
         if sandbox is None or limiter is None:
@@ -326,17 +376,8 @@ class BubblewrapCandidateSandbox:
                     sandbox_argv.extend(("--dir", parent))
                     created_directories.add(parent)
             sandbox_argv.extend(("--symlink", target, destination))
-        for host_path in (
-            "/etc/alternatives",
-            "/etc/group",
-            "/etc/ld.so.cache",
-            "/etc/ld.so.conf",
-            "/etc/ld.so.conf.d",
-            "/etc/localtime",
-            "/etc/nsswitch.conf",
-            "/etc/passwd",
-        ):
-            sandbox_argv.extend(("--ro-bind-try", host_path, host_path))
+        for host_path in self._host_read_only_paths():
+            sandbox_argv.extend(("--ro-bind-try", str(host_path), str(host_path)))
         sandbox_argv.extend(
             (
                 "--ro-bind",
@@ -371,15 +412,17 @@ class BubblewrapCandidateSandbox:
         ]
         with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
             try:
-                completed = subprocess.run(
-                    command,
-                    cwd=workspace,
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    timeout=timeout_seconds,
-                    check=False,
-                    env={"LC_ALL": "C", "PATH": _SANDBOX_PATH},
-                )
+                options: dict[str, Any] = {
+                    "cwd": workspace,
+                    "stdout": stdout_file,
+                    "stderr": stderr_file,
+                    "timeout": timeout_seconds,
+                    "check": False,
+                    "env": {"LC_ALL": "C", "PATH": _SANDBOX_PATH},
+                }
+                if input_data is not None:
+                    options["input"] = input_data
+                completed = subprocess.run(command, **options)
             except subprocess.TimeoutExpired as exc:
                 raise ContractInvalidError("candidate execution timed out") from exc
             stdout_file.seek(0)

@@ -57,3 +57,7 @@ supported-host proof additionally needs the exact final source on Linux with
 working Bubblewrap, user/PID/mount namespaces and `prlimit`, under Python 3.11
 and 3.12, with selected real candidate tamper controls. Until those run, report
 `SUPPORTED_HOST_PROOF_PENDING`. No unsandboxed fallback is permitted.
+
+The optional [offline whole-provider launcher](provider-isolation.md) is a
+separate next step toward the broader agent-noninterference goal. It cannot
+turn the current candidate-only result into a release verdict.

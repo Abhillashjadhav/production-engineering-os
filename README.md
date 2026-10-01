@@ -19,6 +19,13 @@ then the generic-provider journey halts with
 `PROVIDER_WRITE_ISOLATION_UNVERIFIED`. It cannot emit `RELEASE_READY` while
 the outer provider can write the verifier/ledger as the host user.
 
+An opt-in [offline confined provider launcher](docs/provider-isolation.md)
+runs a bundled stdlib Python adapter inside Bubblewrap with no network or
+ambient credentials. It is useful for no-credential containment proofs and
+local fixtures; it does not enable a live Codex CLI provider or release the
+candidate. The generic `--provider-command` remains explicitly host-user
+trusted and never gains isolation merely by selecting a flag.
+
 ## What is proven today
 
 The linked main-CI and archived-run receipts below describe their own pinned
