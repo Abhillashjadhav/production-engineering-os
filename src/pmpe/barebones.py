@@ -38,8 +38,12 @@ from pmpe.contracts.canonical import (
 )
 from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import observe_provider_behavior
-from pmpe.evidence.ledger import EvidenceLedger
-from pmpe.model_provider import ModelProvider
+from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.model_provider import (
+    GENERIC_PROVIDER_ISOLATION,
+    OFFLINE_PROVIDER_ISOLATION,
+    ModelProvider,
+)
 from pmpe.release_gates import release_gate_results
 
 
@@ -99,6 +103,10 @@ class RunResult:
 
 class ContractInvalidError(ValueError):
     """The baseline proves that an admitted contract or template is not runnable."""
+
+
+class TerminalPersistenceError(EvidenceIntegrityError):
+    """The durable state of a terminal event cannot be confirmed."""
 
 
 _SAFE_RELATIVE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
@@ -1155,6 +1163,15 @@ def run_to_release_ready(
     template_digest = canonical_digest(asdict(active_template))
     active_budget = budget or BudgetCaps()
     active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
+    # The label describes the selected adapter mode, not release eligibility.
+    # Import here because the offline adapter uses the candidate sandbox above.
+    from pmpe.provider_isolation import OfflineConfinedProvider
+
+    provider_write_isolation = (
+        OFFLINE_PROVIDER_ISOLATION
+        if type(provider) is OfflineConfinedProvider
+        else GENERIC_PROVIDER_ISOLATION
+    )
     counters: dict[str, Any] = {
         "calls": 0,
         "bytes": 0,
@@ -1166,7 +1183,7 @@ def run_to_release_ready(
         "human_test_count": 0,
         "verification_protocol": _VERIFICATION_PROTOCOL,
         "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
-        "provider_write_isolation": "UNVERIFIED_GENERIC_COMMAND",
+        "provider_write_isolation": provider_write_isolation,
     }
     subject_digest = canonical_digest(contract)
     approval_inputs = (approval_receipt, approval_authority, approval_receipt_bytes)
@@ -1220,6 +1237,27 @@ def run_to_release_ready(
         raise ContractInvalidError("candidate workspace must be empty")
     workspace.mkdir(parents=True, exist_ok=True)
     ledger = EvidenceLedger(repository_root, run_id)
+
+    def append_terminal_event(
+        *,
+        event_type: str,
+        state: RunState,
+        subject_digest: str,
+        payload: Mapping[str, Any],
+        blob_digests: Sequence[str] = (),
+    ) -> None:
+        try:
+            ledger.append(
+                event_type=event_type,
+                state=state,
+                subject_digest=subject_digest,
+                blob_digests=blob_digests,
+                payload=payload,
+            )
+        except (EvidenceIntegrityError, OSError) as exc:
+            raise TerminalPersistenceError(
+                "terminal evidence append could not be confirmed"
+            ) from exc
 
     def _terminal_telemetry() -> dict[str, Any]:
         counters["elapsed_ms"] = int((time.monotonic() - started) * 1000)
@@ -1350,7 +1388,7 @@ def run_to_release_ready(
         if item.form != "given_when_then"
     ]
     if unsupported:
-        ledger.append(
+        append_terminal_event(
             event_type="halted",
             state=RunState.HALTED,
             subject_digest=subject_digest,
@@ -1375,7 +1413,7 @@ def run_to_release_ready(
 
     def record_execution_failure(exc: ContractInvalidError | RuntimeError | OSError) -> None:
         cause = "CONTRACT_INVALID" if isinstance(exc, ContractInvalidError) else "EXECUTION_FAILED"
-        ledger.append(
+        append_terminal_event(
             event_type="halted",
             state=RunState.HALTED,
             subject_digest=subject_digest,
@@ -1387,7 +1425,7 @@ def run_to_release_ready(
         )
 
     if stop_requested():
-        ledger.append(
+        append_terminal_event(
             event_type="stopped",
             state=RunState.STOPPED,
             subject_digest=subject_digest,
@@ -1448,12 +1486,12 @@ def run_to_release_ready(
     except (ContractInvalidError, RuntimeError, OSError) as exc:
         record_execution_failure(exc)
         raise
-    baseline_blob = ledger.put_blob(
-        json.dumps(
-            [asdict(item) for item in baseline], sort_keys=True, separators=(",", ":")
-        ).encode()
-    )
     try:
+        baseline_blob = ledger.put_blob(
+            json.dumps(
+                [asdict(item) for item in baseline], sort_keys=True, separators=(",", ":")
+            ).encode()
+        )
         baseline_observation_blob = record_observations(
             baseline_snapshot, baseline_observations, attempt=0, state=RunState.BUILDING
         )
@@ -1481,20 +1519,20 @@ def run_to_release_ready(
             record_execution_failure(exc)
             raise
         if stop_requested():
-            ledger.append(
+            append_terminal_event(
                 event_type="stopped",
                 state=RunState.STOPPED,
                 subject_digest=subject_digest,
                 payload={"cause": "STOP_REQUESTED", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.STOPPED, "STOP_REQUESTED", attempt - 1)
-        request = _model_request(
-            contract=contract,
-            plan=plan,
-            workspace=workspace,
-            findings=findings,
-        )
         try:
+            request = _model_request(
+                contract=contract,
+                plan=plan,
+                workspace=workspace,
+                findings=findings,
+            )
             response = _invoke_bound(
                 provider,
                 purpose="code",
@@ -1502,9 +1540,12 @@ def run_to_release_ready(
                 budget=active_budget,
                 counters=counters,
             )
+        except (ContractInvalidError, OSError) as exc:
+            record_execution_failure(exc)
+            raise
         except RuntimeError as exc:
             cause = _classify_provider_error(exc)
-            ledger.append(
+            append_terminal_event(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
@@ -1518,7 +1559,7 @@ def run_to_release_ready(
             raise
         files = response.get("files")
         if not isinstance(files, Mapping):
-            ledger.append(
+            append_terminal_event(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
@@ -1531,8 +1572,11 @@ def run_to_release_ready(
             }
             if len(response_paths) != len(files):
                 raise ValueError("candidate paths must be strings")
+        except OSError as exc:
+            record_execution_failure(exc)
+            raise
         except ValueError:
-            ledger.append(
+            append_terminal_event(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
@@ -1540,7 +1584,7 @@ def run_to_release_ready(
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         if protected_tests.intersection(response_paths):
-            ledger.append(
+            append_terminal_event(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
@@ -1549,8 +1593,11 @@ def run_to_release_ready(
             return finish(RunState.HALTED, "CODER_MODIFIED_EVIDENCE", attempt)
         try:
             changed = _write_files(workspace, files)
+        except OSError as exc:
+            record_execution_failure(exc)
+            raise
         except ValueError:
-            ledger.append(
+            append_terminal_event(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
@@ -1596,7 +1643,7 @@ def run_to_release_ready(
         ):
             subjects = ",".join(sorted({item.subject_id for item in findings}))
             cause = f"REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:{subjects}"
-            ledger.append(
+            append_terminal_event(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
@@ -1608,8 +1655,12 @@ def run_to_release_ready(
             )
             return finish(RunState.HALTED, cause, attempt)
 
-        verification_snapshot = _workspace_snapshot(workspace)
-        security = _security_findings(workspace)
+        try:
+            verification_snapshot = _workspace_snapshot(workspace)
+            security = _security_findings(workspace)
+        except (ContractInvalidError, RuntimeError, OSError) as exc:
+            record_execution_failure(exc)
+            raise
         blocking_security = tuple(
             item for item in security if item.code.startswith(("CRITICAL_", "HIGH_"))
         )
@@ -1707,10 +1758,9 @@ def run_to_release_ready(
                 if gate["status"] != "PASS"
             )
             if not findings:
-                # The response-level contract passed, but the generic outer
-                # provider still runs with host-user write authority over the
-                # verifier and ledger. Record useful candidate evidence while
-                # withholding RELEASE_READY from every downstream consumer.
+                # The response-level contract passed, but neither current
+                # provider mode establishes a protected live-provider release
+                # boundary. Retain candidate evidence without RELEASE_READY.
                 evidence = {
                     "assertions": "passed",
                     "coverage": "complete",
@@ -1726,7 +1776,7 @@ def run_to_release_ready(
                     "verification_protocol": _VERIFICATION_PROTOCOL,
                     "verification_observations_digest": observation_evidence_digest,
                     "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
-                    "provider_write_isolation": "UNVERIFIED_GENERIC_COMMAND",
+                    "provider_write_isolation": provider_write_isolation,
                     "plan_digest": plan.plan_digest,
                     "evidence_digest": blob,
                     "attempt": attempt,
@@ -1748,7 +1798,7 @@ def run_to_release_ready(
                 )
                 cause = "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
                 counters["candidate_response_verified"] = True
-                ledger.append(
+                append_terminal_event(
                     event_type="halted",
                     state=RunState.HALTED,
                     subject_digest=subject_digest,
@@ -1758,7 +1808,7 @@ def run_to_release_ready(
                         "candidate_digest": candidate_blob,
                         "verification_observations_digest": observation_evidence_digest,
                         "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
-                        "provider_write_isolation": "UNVERIFIED_GENERIC_COMMAND",
+                        "provider_write_isolation": provider_write_isolation,
                         "telemetry": _terminal_telemetry(),
                     },
                 )
@@ -1788,7 +1838,7 @@ def run_to_release_ready(
             )
         previous_finding_digest = canonical_digest([asdict(item) for item in findings])
 
-    ledger.append(
+    append_terminal_event(
         event_type="halted",
         state=RunState.HALTED,
         subject_digest=subject_digest,

@@ -1,6 +1,6 @@
 # Production Engineering OS (`pmpe`)
 
-> **ALPHA — evidence status:** a seven-run, ChatGPT-authenticated Codex CLI matrix is [published and independently verified](docs/evidence/real-behavior-drift-20260827/README.md). It proves repeatable compilation, sealed evidence chains, visible model-output variation, attributed planted prompt drift, and bounded transfer across two repository-owned contracts. It does not prove arbitrary external product generation, a different product type, production readiness, deployment, or platform validation.
+> **ALPHA — evidence status:** a seven-run, ChatGPT-authenticated Codex CLI matrix is [published and independently verified](docs/evidence/real-behavior-drift-20260827/README.md) for its pinned historical tree. It proves repeatable compilation, sealed evidence chains, visible model-output variation, attributed planted prompt drift, and bounded transfer across two repository-owned contracts. It does not prove the current outside-verifier path can release a candidate, arbitrary external product generation, a different product type, production readiness, deployment, or platform validation.
 
 An open-source, local-first reference implementation that compiles a machine-checkable product contract into executable assertions, drives one bounded Coder through a command adapter, executes generated candidate code inside an OS sandbox, and records a tamper-evident evidence chain.
 
@@ -10,14 +10,16 @@ supervisor applies the approved predicates to one strict JSON response from a
 Bubblewrap-isolated candidate action. Human pytest tests, template proofs and
 candidate-reported measures still compile for compatibility, but a run with any
 such required criterion halts with `UNSUPPORTED_VERIFICATION_MODE` before a
-provider or candidate runs. The local implementation and mocked-sandbox tests
-do not establish a supported-host proof; see
+provider or candidate runs. The [published #235 baseline CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160)
+passed its selected real-sandbox matrix on Python 3.11 and 3.12; that is
+offline candidate/provider containment evidence, not live-provider release proof.
+Each changed tree needs fresh exact-head checks; see
 [the verification boundary](docs/outside-verifier.md).
 
 A passing candidate response is retained as `candidate_response_verified`,
-then the generic-provider journey halts with
+then either current provider mode halts with
 `PROVIDER_WRITE_ISOLATION_UNVERIFIED`. It cannot emit `RELEASE_READY` while
-the outer provider can write the verifier/ledger as the host user.
+the complete live-provider and protected-verifier boundary remains unproved.
 
 An opt-in [offline confined provider launcher](docs/provider-isolation.md)
 runs a bundled stdlib Python adapter inside Bubblewrap with no network or
@@ -35,10 +37,10 @@ candidate; that requires a fresh run on its exact published commit.
 | Capability | Evidence status |
 |---|---|
 | Deterministic contract compilation and compile-time rejection | Proven by the [compiler tests](tests/unit/test_acceptance_compiler.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
-| Meaningful-RED baseline, bounded repair, and six-state engine | Proven by the [E1 fixture](tests/e2e/test_barebones_e1.py) and [planted eval suite](tests/e2e/test_barebones_evals.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Current meaningful-RED baseline and candidate-only bounded engine | Covered by the [E1 fixture](tests/e2e/test_barebones_e1.py) and selected [#235 exact-head CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160). Seventeen legacy test functions (18 parameterized cases) in the [planted eval suite](tests/e2e/test_barebones_evals.py) are unconditionally skipped under the outside-verifier path; they are not passing current coverage |
 | Hash-chained events and content-addressed evidence blobs | Proven by the [ledger tests](tests/unit/test_evidence_ledger.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
 | Candidate execution with real Bubblewrap, no network, a read-only host view, bounded resources, symlink containment, and fail-closed composition | Proven by the [isolation tests](tests/unit/test_candidate_sandbox.py) in the dedicated Linux `candidate-isolation` matrix of [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
-| End-to-end scripted-provider `RELEASE_READY` engine path through real Bubblewrap | Proven by the [E1 fixture](tests/e2e/test_barebones_e1.py), with the local sandbox fixture disabled under `PMPE_TEST_REAL_SANDBOX=true`, in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Historical scripted-provider `RELEASE_READY` path | Older main-tree evidence only. The [current E1 fixture](tests/e2e/test_barebones_e1.py) expects candidate evidence followed by `HALTED`, and the current provider modes have no `RELEASE_READY` result |
 | Canonical PMOS contract and digest-bound approval receipt accepted by the boundary | Proven by the [PMOS executable compatibility gate](https://github.com/Abhillashjadhav/PM-agent-OS/blob/5fa7af8207143194eb242f2edd9f7edfca8bb969/tests/decision-to-contract/validate_contract.py), including a planted post-approval tampering rejection |
 | One tiny approved contract built with a real model provider | [Proven once by the published E1 run](docs/evidence/e1-real-provider-20260826/README.md) and repeated in the [seven-run matrix](docs/evidence/real-behavior-drift-20260827/README.md) |
 | Repeated real-provider behavioural drift evidence | [Proven for the bounded seven-run matrix](docs/evidence/real-behavior-drift-20260827/README.md) |
@@ -63,7 +65,7 @@ PMOS contract
   → meaningful baseline RED
   → one bounded Coder
   → deterministic verification + local security
-  → RELEASE_READY or HALTED
+  → candidate-response evidence, then HALTED (or an earlier HALT)
   → human release decision
 ```
 
@@ -196,7 +198,12 @@ one digest-bound UTF-8 candidate file as escaped JSON before the human release d
 
 The example provider returns scripted responses. It proves compiler-to-engine plumbing; it does not prove that an LLM can build the requested software.
 
-For a real-model run, use the documented [Codex CLI provider](docs/real-model-provider.md) with saved ChatGPT subscription authentication. It does not require an API key. The optional Responses API example is not the promotion path. One live E1 run and a separate seven-run matrix are published. The matrix proves bounded repeated behavior and transfer across two repository fixtures; external products, different product types, and arbitrary-app reliability remain unproven.
+The [Codex CLI provider](docs/real-model-provider.md) documents an earlier
+ChatGPT-subscription adapter and requires no API key. Its current generic
+host-user invocation is not a release path: even a passing response ends in
+`HALTED`. One live E1 run and a seven-run matrix are archived on earlier pinned
+trees. They do not prove current live-provider isolation, external-product
+transfer, different product types, or arbitrary-app reliability.
 
 A provider receives one JSON object on standard input:
 
@@ -218,7 +225,7 @@ claiming a zero-dollar API cost.
 
 PMOS publishes a compiler-shaped health contract plus an approval receipt bound to the exact contract digest; its pinned compatibility gate verifies the receipt, accepts the valid contract, rejects a post-approval edit, and rejects prose-only criteria. The published matrix repeatedly exercised two repository-owned contracts with a real provider. It does not prove live-model contract-authoring reliability, external product transfer, a different product type, or arbitrary application generation.
 
-The completed E1 promotion gate recorded one real PMOS-authored contract reaching `RELEASE_READY` through a real provider with:
+The historical E1 promotion gate recorded one real PMOS-authored contract reaching `RELEASE_READY` through a real provider on its earlier pinned tree with:
 
 - zero human implementation edits;
 - the ratio of structured criteria (Forms A+B) to human tests (Form C);

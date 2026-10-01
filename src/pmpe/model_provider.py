@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+GENERIC_PROVIDER_ISOLATION = "UNVERIFIED_GENERIC_COMMAND"
+OFFLINE_PROVIDER_ISOLATION = "UNVERIFIED_OFFLINE_MODE"
+
 
 class ModelProvider(Protocol):
     """Return structured output for one digest-bound model request."""

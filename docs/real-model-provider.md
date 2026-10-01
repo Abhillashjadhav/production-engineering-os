@@ -12,6 +12,16 @@ The frozen `ModelProvider` boundary supports two standard-library reference adap
 Neither adapter is a mandatory dependency of `pmpe`. Their presence and mocked tests
 prove adapter plumbing only; they do not prove a real-model run.
 
+**Current release boundary:** these are historical/reference adapter instructions,
+not an authenticated live-provider release recipe for the outside-verifier path.
+`--provider-command` runs as the host user and remains labeled
+`UNVERIFIED_GENERIC_COMMAND`; even a successful candidate response ends in
+`HALTED` with `PROVIDER_WRITE_ISOLATION_UNVERIFIED`. The separate no-credential
+offline mode is labeled `UNVERIFIED_OFFLINE_MODE`, which identifies its selected
+mode rather than attesting a protected live-provider setup. Neither mode can
+currently emit `RELEASE_READY`. The archived E1 and seven-run matrix below
+belong to their own earlier pinned trees.
+
 Official references:
 
 - [Codex authentication](https://learn.chatgpt.com/docs/auth)
@@ -41,7 +51,7 @@ and unrelated host variables are not forwarded. It checks `codex login status` a
 passes the explicit override `forced_login_method="chatgpt"`. It fails closed unless
 both controls select ChatGPT.
 
-### Run
+### Reference invocation (candidate-only; no current release)
 
 ```bash
 pmpe barebones run examples/barebones/e1-contract.json \
@@ -187,8 +197,9 @@ external-product and different-product-type transfer remain unproven.
 
 ## Evidence rule
 
-Promotion requires a recorded run whose contract, plan, provider metadata, attempts,
-token usage, elapsed time, terminal state, candidate manifest, and evidence chain are
-published together. The current example contract is a deliberately tiny health-action
-fixture. A successful run is E1 evidence, not product breadth, reuse, or platform
-evidence.
+The earlier promotion evidence included a recorded run whose contract, plan,
+provider metadata, attempts, token usage, elapsed time, terminal state,
+candidate manifest, and evidence chain were published together. The current
+example contract is a deliberately tiny health-action fixture. A successful
+current response is candidate-only evidence followed by `HALTED`, not a new
+promotion or product-breadth claim.

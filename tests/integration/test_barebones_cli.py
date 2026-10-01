@@ -17,6 +17,7 @@ from pmpe.cli.barebones_cmd import CommandModelProvider
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.domain.errors import ContractViolation
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.provider_isolation import OfflineConfinedProvider
 
 _REPOSITORY = Path(__file__).parents[2]
 
@@ -108,7 +109,9 @@ def test_terminal_persistence_failure_is_explicit(
 
     monkeypatch.setattr(EvidenceLedger, "append", refuse_halt)
     contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
-    with pytest.raises(EvidenceIntegrityError, match="terminal persistence refused"):
+    with pytest.raises(
+        EvidenceIntegrityError, match="terminal evidence append could not be confirmed"
+    ):
         run_to_release_ready(
             contract=contract,
             repository_root=tmp_path,
@@ -531,6 +534,289 @@ def test_provider_timeout_is_a_classified_halt(
     assert event["event_type"] == "halted"
     assert event["payload"]["cause"] == "MODEL_PROVIDER_TIMEOUT"
     assert event["payload"]["telemetry"] == result.telemetry
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "missing-provider",
+        "request-io",
+        "path-validation-io",
+        "candidate-path-collision",
+        "snapshot-io",
+    ],
+)
+def test_post_admission_io_failure_has_persisted_terminal_status(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    workspace = tmp_path / "candidate"
+    provider_command = str(tmp_path / "missing-provider")
+    if failure not in {"missing-provider", "request-io"}:
+        provider = tmp_path / "provider.py"
+        relative = (
+            "product.py/child.py"
+            if failure == "candidate-path-collision"
+            else "normal_added.py"
+            if failure == "path-validation-io"
+            else "product.py"
+        )
+        files = {relative: 'def health():\n    return {"status": "ok"}\n'}
+        provider.write_text(
+            "import json, sys\n"
+            "request = json.load(sys.stdin)['request']\n"
+            f"files = {files!r}\n"
+            "print(json.dumps({'request_digest': request['request_digest'], 'files': files}))\n"
+        )
+        provider_command = f"{sys.executable} {provider}"
+    if failure == "request-io":
+
+        def interrupted_request(**_kwargs: Any) -> dict[str, Any]:
+            raise OSError("TEST-ONLY request I/O interruption")
+
+        monkeypatch.setattr(barebones_runtime, "_model_request", interrupted_request)
+    if failure == "path-validation-io":
+        original_safe_path = barebones_runtime._safe_path
+
+        def interrupted_path(root: Path, relative: str) -> Path:
+            if relative == "normal_added.py":
+                raise OSError("TEST-ONLY path inspection I/O interruption")
+            return original_safe_path(root, relative)
+
+        monkeypatch.setattr(barebones_runtime, "_safe_path", interrupted_path)
+    if failure == "snapshot-io":
+        original_snapshot = barebones_runtime._workspace_snapshot
+        workspace_snapshots = 0
+
+        def interrupted_snapshot(path: Path) -> dict[str, bytes]:
+            nonlocal workspace_snapshots
+            if path == workspace:
+                workspace_snapshots += 1
+                if workspace_snapshots == 2:
+                    raise OSError("TEST-ONLY snapshot I/O interruption")
+            return original_snapshot(path)
+
+        monkeypatch.setattr(barebones_runtime, "_workspace_snapshot", interrupted_snapshot)
+
+    run_id = f"normal-io-{failure}"
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(workspace),
+                "--run-id",
+                run_id,
+                "--repository-root",
+                str(tmp_path),
+                "--approval-receipt",
+                str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                provider_command,
+            ]
+        )
+        == 3
+    )
+    immediate = json.loads(capsys.readouterr().out)
+    assert (immediate["state"], immediate["cause"]) == ("HALTED", "EXECUTION_FAILED")
+    events = tuple(EvidenceLedger.open_existing(tmp_path, run_id).verify())
+    assert (events[-1]["event_type"], events[-1]["state"]) == ("halted", "HALTED")
+    assert events[-1]["payload"]["cause"] == immediate["cause"]
+    assert main(["barebones", "status", run_id, "--repository-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert (status["state"], status["cause"]) == ("HALTED", immediate["cause"])
+    assert main(["barebones", "inspect", run_id, "--repository-root", str(tmp_path)]) == 3
+    inspection = json.loads(capsys.readouterr().out)
+    assert inspection["state"] == "HALTED"
+    assert inspection["release_eligible"] is False
+
+
+def test_unbalanced_provider_command_is_structured_contract_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run_id = "malformed-provider-command"
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(tmp_path / "candidate"),
+                "--run-id",
+                run_id,
+                "--repository-root",
+                str(tmp_path),
+                "--approval-receipt",
+                str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                "'unbalanced",
+            ]
+        )
+        == 3
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert (output["state"], output["cause"]) == ("HALTED", "CONTRACT_INVALID")
+    assert output["detail"] == "provider command is malformed"
+    assert not (tmp_path / "candidate").exists()
+    assert not (tmp_path / ".pmpe" / "runs" / run_id).exists()
+
+
+def test_transient_baseline_blob_io_failure_persists_halt(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    put_blob = EvidenceLedger.put_blob
+    calls = 0
+
+    def fail_once_at_baseline(self: EvidenceLedger, payload: bytes) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 4:
+            raise OSError("TEST-ONLY baseline blob write failed")
+        return put_blob(self, payload)
+
+    monkeypatch.setattr(EvidenceLedger, "put_blob", fail_once_at_baseline)
+    run_id = "transient-baseline-blob-io"
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(tmp_path / "candidate"),
+                "--run-id",
+                run_id,
+                "--repository-root",
+                str(tmp_path),
+                "--approval-receipt",
+                str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                str(tmp_path / "never-started-provider"),
+            ]
+        )
+        == 3
+    )
+    immediate = json.loads(capsys.readouterr().out)
+    assert (immediate["state"], immediate["cause"]) == ("HALTED", "EXECUTION_FAILED")
+    assert calls == 4
+    events = tuple(EvidenceLedger.open_existing(tmp_path, run_id).verify())
+    assert (events[-1]["event_type"], events[-1]["state"]) == ("halted", "HALTED")
+    assert events[-1]["payload"]["cause"] == "EXECUTION_FAILED"
+    assert main(["barebones", "status", run_id, "--repository-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert (status["state"], status["cause"]) == ("HALTED", "EXECUTION_FAILED")
+
+
+def test_terminal_append_io_failure_does_not_claim_a_finalized_run(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    append = EvidenceLedger.append
+
+    def refuse_terminal(self: EvidenceLedger, **kwargs: Any) -> Any:
+        if kwargs.get("event_type") == "halted":
+            raise OSError("TEST-ONLY terminal append failed")
+        return append(self, **kwargs)
+
+    monkeypatch.setattr(EvidenceLedger, "append", refuse_terminal)
+    run_id = "terminal-append-io"
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(tmp_path / "candidate"),
+                "--run-id",
+                run_id,
+                "--repository-root",
+                str(tmp_path),
+                "--approval-receipt",
+                str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                str(tmp_path / "missing-provider"),
+            ]
+        )
+        == 3
+    )
+    immediate = json.loads(capsys.readouterr().out)
+    assert (immediate["state"], immediate["cause"]) == (
+        "UNKNOWN",
+        "EVIDENCE_PERSISTENCE_UNCONFIRMED",
+    )
+    assert immediate["release_eligible"] is False
+    events = tuple(EvidenceLedger.open_existing(tmp_path, run_id).verify())
+    assert events[-1]["state"] == "BUILDING"
+    assert main(["barebones", "status", run_id, "--repository-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert (status["state"], status["cause"]) == ("BUILDING", "IN_PROGRESS")
+
+
+def test_offline_provider_mode_is_labeled_without_release_authority(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class FixtureOfflineResponse:
+        def run_with_input(self, *_args: Any, input_data: bytes, **_kwargs: Any) -> Any:
+            request = json.loads(input_data)["request"]
+            response = {
+                "request_digest": request["request_digest"],
+                "files": {"product.py": 'def health():\n    return {"status": "ok"}\n'},
+            }
+            return subprocess.CompletedProcess([], 0, json.dumps(response), "")
+
+    bundle = tmp_path / "offline-bundle"
+    bundle.mkdir()
+    (bundle / "adapter.py").write_text("# TEST-ONLY fixture entry\n")
+    monkeypatch.setattr(
+        "pmpe.provider_isolation._protected_system_python", lambda: "/usr/bin/python3"
+    )
+    provider = OfflineConfinedProvider(
+        bundle=bundle,
+        entry="adapter.py",
+        protected_roots=(),
+        timeout_seconds=5,
+        sandbox=FixtureOfflineResponse(),  # type: ignore[arg-type] - test-only adapter response
+    )
+    contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
+    run_id = "offline-mode-label"
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id=run_id,
+        provider=provider,
+    )
+    assert result.state is RunState.HALTED
+    assert result.cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    assert result.telemetry["provider_write_isolation"] == "UNVERIFIED_OFFLINE_MODE"
+    events = tuple(EvidenceLedger.open_existing(tmp_path, run_id).verify())
+    candidate = next(
+        event for event in events if event["event_type"] == "candidate_response_verified"
+    )
+    assert candidate["payload"]["provider_write_isolation"] == "UNVERIFIED_OFFLINE_MODE"
+    assert events[-1]["payload"]["provider_write_isolation"] == "UNVERIFIED_OFFLINE_MODE"
+    assert not any(event["event_type"] == "release_ready" for event in events)
+    assert main(["barebones", "status", run_id, "--repository-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["telemetry"]["provider_write_isolation"] == "UNVERIFIED_OFFLINE_MODE"
+    assert status["release_eligible"] is False
+    assert main(["barebones", "inspect", run_id, "--repository-root", str(tmp_path)]) == 3
+    inspection = json.loads(capsys.readouterr().out)
+    assert inspection["provider_write_isolation"] == "UNVERIFIED_OFFLINE_MODE"
+    assert inspection["release_eligible"] is False
 
 
 def test_malformed_contract_is_reported_without_a_traceback(

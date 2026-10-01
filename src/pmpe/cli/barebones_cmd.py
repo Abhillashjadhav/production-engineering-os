@@ -19,7 +19,12 @@ from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
-from pmpe.barebones import ContractInvalidError, compile_barebones_plan, run_to_release_ready
+from pmpe.barebones import (
+    ContractInvalidError,
+    TerminalPersistenceError,
+    compile_barebones_plan,
+    run_to_release_ready,
+)
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
@@ -30,7 +35,11 @@ from pmpe.evals.barebones_drift import (
     observe_provider_behavior,
 )
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
-from pmpe.model_provider import ModelProvider
+from pmpe.model_provider import (
+    GENERIC_PROVIDER_ISOLATION,
+    OFFLINE_PROVIDER_ISOLATION,
+    ModelProvider,
+)
 from pmpe.provider_isolation import OfflineConfinedProvider
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
@@ -291,7 +300,10 @@ def _run(args: argparse.Namespace) -> int:
                 timeout_seconds=args.provider_timeout,
             )
         else:
-            provider = CommandModelProvider(command, args.provider_timeout)
+            try:
+                provider = CommandModelProvider(command, args.provider_timeout)
+            except ValueError as exc:
+                raise ContractInvalidError("provider command is malformed") from exc
         try:
             result = run_to_release_ready(
                 contract=contract,
@@ -326,6 +338,17 @@ def _run(args: argparse.Namespace) -> int:
         return 3
     except ContractInvalidError as exc:
         _json({"state": "HALTED", "cause": "CONTRACT_INVALID", "detail": str(exc)})
+        return 3
+    except TerminalPersistenceError as exc:
+        _json(
+            {
+                "run_id": args.run_id,
+                "state": "UNKNOWN",
+                "cause": "EVIDENCE_PERSISTENCE_UNCONFIRMED",
+                "detail": str(exc),
+                "release_eligible": False,
+            }
+        )
         return 3
     except EvidenceIntegrityError as exc:
         _json({"state": "HALTED", "cause": "EVIDENCE_INVALID", "detail": str(exc)})
@@ -439,7 +462,10 @@ def _verification_assurance(
             != terminal_payload.get("verification_observations_digest")
             or source_payload.get("assurance_scope") != "CANDIDATE_RESPONSE_ONLY"
             or source_payload.get("verification_protocol") != "external-json-response-v1"
-            or source_payload.get("provider_write_isolation") != "UNVERIFIED_GENERIC_COMMAND"
+            or source_payload.get("provider_write_isolation")
+            not in {GENERIC_PROVIDER_ISOLATION, OFFLINE_PROVIDER_ISOLATION}
+            or terminal_payload.get("provider_write_isolation")
+            != source_payload.get("provider_write_isolation")
             or source.get("subject_digest") != terminal.get("subject_digest")
         ):
             raise EvidenceIntegrityError("candidate-only evidence is inconsistent")

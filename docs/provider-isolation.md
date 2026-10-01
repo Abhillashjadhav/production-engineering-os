@@ -47,8 +47,12 @@ approval, ledger and marker write/chmod/rename; a descendant write; host PID
 signal; inherited-FD inspection; environment-secret read; and network access.
 It also supplies a valid bounded JSON response to check the useful path.
 Mocked unit checks cannot replace that supported-host proof. This checkout's
-local host cannot establish Bubblewrap isolation; no AppArmor or namespace
-setting is changed here.
+local host must separately meet the protected-system-Python and namespace
+requirements. The [published #235 baseline CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160)
+passed the selected real-sandbox tests on Python 3.11 and 3.12; changed trees
+require their own exact-head run. No AppArmor or namespace setting is changed
+by this launcher. Its `UNVERIFIED_OFFLINE_MODE` evidence label identifies the
+selected no-credential mode, not live authenticated provider isolation.
 
 **Remaining live-provider requirements:** the adapter currently has no network
 or credentials, so authenticated Codex CLI is not a supported invocation.

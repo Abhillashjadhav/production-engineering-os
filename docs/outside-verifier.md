@@ -36,15 +36,17 @@ measurement collector would require a future separate contract.
 
 **Current limit:** Bubblewrap contains generated candidate code, but the outer
 generic provider command runs as the invoking host user. It can write any
-verifier, contract or ledger path writable by that user. This implementation
-does not satisfy full coding-agent write isolation. The run records
-`UNVERIFIED_GENERIC_COMMAND` rather than claiming that assurance. Enforcing it
+verifier, contract or ledger path writable by that user. The opt-in offline
+provider mode has no live network or credentials. Neither mode establishes
+full authenticated coding-agent write isolation. Evidence records
+`UNVERIFIED_GENERIC_COMMAND` or `UNVERIFIED_OFFLINE_MODE` according to the
+selected adapter; both labels are explicitly non-authorizing. Enforcing live isolation
 requires an operator-controlled verifier/approval image or identity, supervisor-
 only ledger write authority, and confinement of the *entire* provider process
 tree before adapter startup. No host permission, credential or namespace setup
 is performed by this code change. A correct candidate response is retained as
 `candidate_response_verified` with its manifest and supervisor observations,
-then the generic-provider run terminates `HALTED` with
+then either provider mode terminates `HALTED` with
 `PROVIDER_WRITE_ISOLATION_UNVERIFIED`. It emits no `release_ready` event and
 returns no `RELEASE_READY` RunResult. All release consumers therefore refuse
 this candidate-only result rather than relying on an optional presentation
@@ -52,11 +54,14 @@ field. The separate static support-package sealer and offline recorded-tool
 fixture use their own evidence contracts and do not attest generic Coder
 noninterference.
 
-Mocked sandbox tests check parser, orchestration and verdict logic only. A
-supported-host proof additionally needs the exact final source on Linux with
-working Bubblewrap, user/PID/mount namespaces and `prlimit`, under Python 3.11
-and 3.12, with selected real candidate tamper controls. Until those run, report
-`SUPPORTED_HOST_PROOF_PENDING`. No unsandboxed fallback is permitted.
+Mocked sandbox tests check parser, orchestration and verdict logic only. The
+[published #235 baseline CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160)
+passed selected real candidate and offline-provider controls on Linux under
+Python 3.11 and 3.12. That proof is bound to its exact head, not this or a
+future changed tree or any authenticated live provider. Seventeen legacy test
+functions (18 parameterized cases) in `tests/e2e/test_barebones_evals.py` are
+unconditionally skipped and must not be counted as current outside-verifier
+coverage. No unsandboxed fallback is permitted.
 
 The optional [offline whole-provider launcher](provider-isolation.md) is a
 separate next step toward the broader agent-noninterference goal. It cannot
