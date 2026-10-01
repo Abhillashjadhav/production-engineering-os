@@ -16,8 +16,133 @@ from pmpe.cli import barebones_cmd, build_parser, main
 from pmpe.cli.barebones_cmd import CommandModelProvider
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.domain.errors import ContractViolation
+from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 _REPOSITORY = Path(__file__).parents[2]
+
+
+@pytest.mark.parametrize(
+    ("exception", "expected_cause"),
+    [
+        (barebones_runtime.ContractInvalidError, "CONTRACT_INVALID"),
+        (RuntimeError, "EXECUTION_FAILED"),
+    ],
+)
+def test_sandbox_exception_records_terminal_failure_consistently(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    exception: type[Exception],
+    expected_cause: str,
+) -> None:
+    """A TEST-ONLY sandbox refuses before any provider call or candidate execution."""
+
+    class RefusingSandbox:
+        def run(self, *_args: Any, **_kwargs: Any) -> None:
+            raise exception("TEST-ONLY sandbox unavailable")
+
+    monkeypatch.setattr(barebones_runtime, "BubblewrapCandidateSandbox", RefusingSandbox)
+    marker = tmp_path / "provider-called"
+    provider_script = tmp_path / "provider.py"
+    provider_script.write_text(
+        f"from pathlib import Path; Path({str(marker)!r}).write_text('called')"
+    )
+    run_id = "sandbox-refusal"
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(tmp_path / "candidate"),
+                "--run-id",
+                run_id,
+                "--repository-root",
+                str(tmp_path),
+                "--approval-receipt",
+                str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                f"{sys.executable} {provider_script}",
+            ]
+        )
+        == 3
+    )
+    immediate = json.loads(capsys.readouterr().out)
+    assert immediate["state"] == "HALTED"
+    assert immediate["cause"] == expected_cause
+    assert not marker.exists()
+
+    events = tuple(EvidenceLedger.open_existing(tmp_path, run_id).verify())
+    assert events[-1]["event_type"] == "halted"
+    assert events[-1]["state"] == "HALTED"
+    assert events[-1]["payload"]["cause"] == immediate["cause"]
+    assert all(event["event_type"] != "release_ready" for event in events)
+
+    assert main(["barebones", "status", run_id, "--repository-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert (status["state"], status["cause"]) == ("HALTED", immediate["cause"])
+    assert main(["barebones", "inspect", run_id, "--repository-root", str(tmp_path)]) == 3
+    inspect = json.loads(capsys.readouterr().out)
+    assert inspect["state"] == "HALTED"
+    assert inspect["release_eligible"] is False
+
+
+def test_terminal_persistence_failure_is_explicit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed terminal append cannot be mistaken for a finalized run."""
+
+    class RefusingSandbox:
+        def run(self, *_args: Any, **_kwargs: Any) -> None:
+            raise barebones_runtime.ContractInvalidError("TEST-ONLY sandbox unavailable")
+
+    append = EvidenceLedger.append
+
+    def refuse_halt(self: EvidenceLedger, **kwargs: Any) -> Any:
+        if kwargs.get("event_type") == "halted":
+            raise EvidenceIntegrityError("TEST-ONLY terminal persistence refused")
+        return append(self, **kwargs)
+
+    monkeypatch.setattr(EvidenceLedger, "append", refuse_halt)
+    contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
+    with pytest.raises(EvidenceIntegrityError, match="terminal persistence refused"):
+        run_to_release_ready(
+            contract=contract,
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="failed-persistence",
+            provider=CommandModelProvider("TEST-ONLY-never-run", 1),
+            candidate_sandbox=RefusingSandbox(),
+        )
+
+
+def test_empty_meaningful_red_records_terminal_failure_without_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed baseline assertion after validation cannot remain IN_PROGRESS."""
+
+    class NoRunSandbox:
+        def run(self, *_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("TEST-ONLY sandbox must not execute")
+
+    monkeypatch.setattr(barebones_runtime, "_verify_snapshot", lambda *_args, **_kwargs: ())
+    contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
+    with pytest.raises(barebones_runtime.ContractInvalidError, match="baseline did not observe"):
+        run_to_release_ready(
+            contract=contract,
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="empty-meaningful-red",
+            provider=CommandModelProvider("TEST-ONLY-never-run", 1),
+            candidate_sandbox=NoRunSandbox(),
+        )
+    events = tuple(EvidenceLedger.open_existing(tmp_path, "empty-meaningful-red").verify())
+    assert events[-1]["event_type"] == "halted"
+    assert events[-1]["state"] == "HALTED"
+    assert events[-1]["payload"]["cause"] == "CONTRACT_INVALID"
 
 
 def test_barebones_cli_runs_a_contract_without_cloud_services(
@@ -43,10 +168,14 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
         ]
     )
 
-    assert args.fn(args) == 0
+    assert args.fn(args) == 3
     output = json.loads(capsys.readouterr().out)
-    assert output["state"] == "RELEASE_READY"
-    assert output["model_calls"] == 2
+    assert output["state"] == "HALTED"
+    assert output["cause"] == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    assert output["assurance_scope"] == "CANDIDATE_RESPONSE_ONLY"
+    assert output["release_eligible"] is False
+    assert output["release_blocker"] == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    assert output["model_calls"] == 1
     events = [json.loads(line) for line in Path(output["evidence"]).read_text().splitlines()]
     approval = events[0]["payload"]["approval"]
     assert approval["status"] == "VERIFIED"
@@ -58,24 +187,25 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
     assert approval["receipt_blob_digest"] == submitted_digest
 
     for command in ("status", "evidence", "inspect"):
-        assert (
-            main(
-                [
-                    "barebones",
-                    command,
-                    "cli-e1",
-                    "--repository-root",
-                    str(tmp_path),
-                ]
-            )
-            == 0
-        )
+        assert main(
+            [
+                "barebones",
+                command,
+                "cli-e1",
+                "--repository-root",
+                str(tmp_path),
+            ]
+        ) == (3 if command == "inspect" else 0)
         publication = json.loads(capsys.readouterr().out)
         assert publication["approval"] == {
             "status": "VERIFIED",
             "authority": "fixture-human",
             "receipt_digest": receipt["receipt_digest"],
         }
+        if command == "inspect":
+            assert publication["candidate_response_verified"] is True
+            assert publication["release_eligible"] is False
+            assert publication["release_blocker"] == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
 
 
 def test_unapproved_contract_is_rejected_before_provider(
@@ -665,6 +795,7 @@ def _approved_comparable_run(
     run_id: str,
     variant: str,
     prompt_version: str = "prompt-v1",
+    historical_release: bool = True,
 ) -> None:
     contract_path = _REPOSITORY / "examples/barebones/e1-contract.json"
     receipt_path = _REPOSITORY / "examples/barebones/e1-approval-receipt.json"
@@ -683,7 +814,25 @@ def _approved_comparable_run(
         approval_authority="fixture-human",
         approval_receipt_bytes=receipt_source,
     )
-    assert result.state is RunState.RELEASE_READY
+    assert result.state is RunState.HALTED
+    assert result.cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    if historical_release:
+        # Reconstruct a legacy release record only as a reader fixture. The
+        # current generic-provider runtime never emits this terminal state.
+        events_path = root / ".pmpe" / "runs" / run_id / "events.jsonl"
+        events = [json.loads(line) for line in events_path.read_text().splitlines()]
+        candidate = next(
+            event for event in events if event["event_type"] == "candidate_response_verified"
+        )
+        terminal = events[-1]
+        terminal["event_type"] = "release_ready"
+        terminal["state"] = "RELEASE_READY"
+        terminal["blob_digests"] = candidate["blob_digests"]
+        terminal["payload"] = {
+            "candidate_digest": candidate["payload"]["candidate_digest"],
+            "telemetry": {"model_calls": 1},
+        }
+        _write_events_with_valid_hash_chain(events_path, events)
 
 
 def _write_events_with_valid_hash_chain(events_path: Path, events: list[dict[str, Any]]) -> None:
@@ -778,6 +927,41 @@ def _rewrite_coder_evidence(
     payload["provider_behavior"]["output_digest"] = canonical_digest(response["files"])
     coder["blob_digests"] = sorted({request_blob_digest, response_blob_digest})
     _write_events_with_valid_hash_chain(events_path, events)
+
+
+def test_compare_refuses_candidate_only_runs_without_sealed_release(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root, run_id="baseline", variant="first candidate", historical_release=False
+    )
+    _approved_comparable_run(
+        current_root, run_id="current", variant="second candidate", historical_release=False
+    )
+    assert (
+        main(
+            [
+                "barebones",
+                "compare",
+                "baseline",
+                "current",
+                "--baseline-root",
+                str(baseline_root),
+                "--current-root",
+                str(current_root),
+                "--expected-approver",
+                "fixture-human",
+                "--compiler-root",
+                str(_REPOSITORY),
+            ]
+        )
+        == 3
+    )
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
 
 
 def test_compare_uses_verified_ledgers_and_keeps_candidate_variation_visible(
@@ -998,7 +1182,18 @@ def test_compare_fails_closed_for_different_provider_requests(
         approval_authority="fixture-human",
         approval_receipt_bytes=receipt_source,
     )
-    assert result.state is RunState.RELEASE_READY
+    assert result.state is RunState.HALTED
+    assert result.cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+    events_path = current_root / ".pmpe" / "runs" / "current" / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    candidate = next(
+        event for event in events if event["event_type"] == "candidate_response_verified"
+    )
+    events[-1]["event_type"] = "release_ready"
+    events[-1]["state"] = "RELEASE_READY"
+    events[-1]["blob_digests"] = candidate["blob_digests"]
+    events[-1]["payload"] = {"candidate_digest": candidate["payload"]["candidate_digest"]}
+    _write_events_with_valid_hash_chain(events_path, events)
 
     exit_code = main(
         [

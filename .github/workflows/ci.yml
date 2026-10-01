@@ -120,7 +120,9 @@ jobs:
             tests/unit/test_candidate_sandbox.py::test_real_candidate_sandbox_executes_the_exact_recorded_agent \
             tests/unit/test_candidate_sandbox.py::test_engine_fails_closed_when_candidate_sandbox_is_unavailable \
             tests/unit/test_candidate_sandbox.py::test_model_file_path_cannot_escape_through_symlink \
-            tests/e2e/test_barebones_e1.py::test_e1_real_contract_reaches_release_ready \
+            tests/e2e/test_barebones_e1.py::test_e1_real_contract_preserves_candidate_evidence_but_blocks_release \
+            tests/e2e/test_barebones_e1.py::test_outside_verifier_real_candidate_cannot_change_host_or_verdict \
+            tests/integration/test_provider_isolation.py::test_real_offline_provider_cannot_write_host_or_forge_release \
             -q
 
   security-static:

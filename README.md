@@ -4,7 +4,33 @@
 
 An open-source, local-first reference implementation that compiles a machine-checkable product contract into executable assertions, drives one bounded Coder through a command adapter, executes generated candidate code inside an OS sandbox, and records a tamper-evident evidence chain.
 
+**Outside-verifier implementation candidate (PE8):** the independently checked
+execution path is limited to structured Given/When/Then criteria. The trusted
+supervisor applies the approved predicates to one strict JSON response from a
+Bubblewrap-isolated candidate action. Human pytest tests, template proofs and
+candidate-reported measures still compile for compatibility, but a run with any
+such required criterion halts with `UNSUPPORTED_VERIFICATION_MODE` before a
+provider or candidate runs. The local implementation and mocked-sandbox tests
+do not establish a supported-host proof; see
+[the verification boundary](docs/outside-verifier.md).
+
+A passing candidate response is retained as `candidate_response_verified`,
+then the generic-provider journey halts with
+`PROVIDER_WRITE_ISOLATION_UNVERIFIED`. It cannot emit `RELEASE_READY` while
+the outer provider can write the verifier/ledger as the host user.
+
+An opt-in [offline confined provider launcher](docs/provider-isolation.md)
+runs a bundled stdlib Python adapter inside Bubblewrap with no network or
+ambient credentials. It is useful for no-credential containment proofs and
+local fixtures; it does not enable a live Codex CLI provider or release the
+candidate. The generic `--provider-command` remains explicitly host-user
+trusted and never gains isolation merely by selecting a flag.
+
 ## What is proven today
+
+The linked main-CI and archived-run receipts below describe their own pinned
+historical trees. They are not supported-host proof for this newer PE8 local
+candidate; that requires a fresh run on its exact published commit.
 
 | Capability | Evidence status |
 |---|---|
@@ -41,9 +67,15 @@ PMOS contract
   → human release decision
 ```
 
-The engine has six states: `VALIDATED`, `BUILDING`, `VERIFYING`, `RELEASE_READY`, `HALTED`, and `STOPPED`.
+The engine has six states: `VALIDATED`, `BUILDING`, `VERIFYING`, `RELEASE_READY`, `HALTED`, and `STOPPED`. The current generic-provider path stops at `HALTED` after candidate-response verification; `RELEASE_READY` remains unavailable until the provider-write boundary is implemented and proved.
 
 The Coder is the only mandatory LLM worker. A command implementing the `ModelProvider` JSON protocol is the only external adapter. That provider command currently runs as the invoking host user with the host process environment and filesystem permissions; it is **not** inside the Bubblewrap candidate sandbox. Treat the provider command as trusted. The core does not deploy, mutate GitHub, or make the release decision. When the Codex CLI adapter is selected, one bounded PEOS call contains an agentic `codex exec` loop whose internal turns are not individually visible to PEOS.
+
+Because the outer provider command is unrestricted, this path does **not**
+provide full coding-agent write isolation from the verifier, approval files or
+ledger. `provider_write_isolation=UNVERIFIED_GENERIC_COMMAND` in new run evidence
+is deliberate. A stronger claim requires separately provisioned host identities
+or enforced isolation for the entire provider command before it starts.
 
 Evidence is stored as plain files:
 

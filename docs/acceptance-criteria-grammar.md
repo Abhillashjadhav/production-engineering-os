@@ -5,6 +5,15 @@ Issue: #140
 The compiler accepts a criterion only when it can produce an executable assertion
 without guessing product truth, or when the contract binds a human-authored test.
 
+**Current execution boundary:** compiling a form does not make it independently
+verifiable. The outside-verifier path currently runs only structured
+Given/When/Then criteria. Required `measure`, `human_test`, and
+`satisfied_by_template` criteria cause a criterion-specific
+`UNSUPPORTED_VERIFICATION_MODE` halt before candidate/provider execution. The
+forms below remain compiler grammar for compatibility; their historical
+candidate-interpreter execution descriptions are not release evidence under
+the outside-verifier protocol. See [outside verifier](outside-verifier.md).
+
 ## Criterion forms
 
 Every acceptance criterion has a stable ID and at least one requirement reference.
@@ -40,9 +49,9 @@ The compiler rejects incompatible equality and ordered bounds (for example,
 }
 ```
 
-The template registers each measure name to a deterministic zero-argument action.
-That action must return `{"value": ..., "sample_size": ...}`; verification checks
-both the operator and the minimum sample without an LLM interpretation.
+The template may register a measure name to a zero-argument action, but its
+returned `value` and `sample_size` are candidate claims. Until a trusted
+measurement collector exists, this form is not independently verified.
 
 ### Human-authored executable test
 
@@ -60,10 +69,8 @@ both the operator and the minimum sample without an LLM interpretation.
 
 The path is repository-relative, must remain under `tests/`, and the command must
 target that exact path and node. The compiler records the file digest. Missing or
-changed files invalidate the plan. Verification consumes pytest's structured XML
-result and requires that exact node to execute once. A skip, collection error, syntax
-error, fixture error, or runner error is never accepted as a passing or meaningful
-failing assertion.
+changed files invalidate the plan. The current outside verifier refuses this
+form rather than importing candidate modules into a trusted pytest process.
 
 ### Explicitly satisfied by the template
 
@@ -78,9 +85,9 @@ failing assertion.
 }
 ```
 
-This is the only allowed baseline-PASS exception. The referenced test must exist in
-the pinned template, its digest is recorded before scaffolding, and that exact test
-must execute and pass during both baseline and final verification.
+The compiler records the referenced pinned-template test and its digest. The
+current outside verifier refuses this form because executing that test with
+candidate imports would not keep the assertion outside candidate influence.
 
 ## Operators
 
@@ -110,15 +117,18 @@ Any failure returns `CONTRACT_INVALID` with the exact requirement or criterion I
 
 ## Baseline gate
 
-The untouched template runs every compiled or human-authored test.
+For an eligible run, the untouched template is observed through every
+registered structured action. Human tests, template proofs and self-reported
+measures halt before this baseline stage.
 
 - An implementation-required criterion must fail as an assertion.
 - Import, collection, syntax, fixture, timeout, and environment errors are invalid RED.
-- A passing test is invalid unless it is explicitly and correctly
-  `satisfied_by_template`.
-- The compiler stores the baseline result and test digest in the evidence chain.
-- `RELEASE_READY` references a manifest that hashes every regular candidate file,
-  regardless of extension, plus each file's content-addressed blob.
+- The trusted supervisor computes assertion RED from the observed JSON, never
+  from candidate-provided pass/fail or pytest markers.
+- The evidence chain binds baseline responses, plan and candidate identities.
+- `candidate_response_verified` references a manifest that hashes every regular
+  candidate file, regardless of extension, plus each file's content-addressed
+  blob. The generic-provider run then halts pending provider-write isolation.
 
 ## Hand-validation result
 

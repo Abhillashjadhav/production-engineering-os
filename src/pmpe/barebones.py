@@ -1,7 +1,8 @@
-"""Minimal contract-to-RELEASE_READY runtime with no deployment dependency."""
+"""Minimal contract-to-candidate-verification runtime with no deployment dependency."""
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -9,6 +10,7 @@ import operator as comparison
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -27,11 +29,18 @@ from pmpe.contracts.acceptance import (
     compile_acceptance_plan,
 )
 from pmpe.contracts.authoring import verify_contract_approval
-from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
+from pmpe.contracts.canonical import (
+    CanonicalInputError,
+    canonical_digest,
+    canonical_json_bytes,
+    strict_json_value_loads,
+    strict_loads,
+)
 from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
+from pmpe.release_gates import release_gate_results
 
 
 class RunState(StrEnum):
@@ -109,6 +118,11 @@ _PYTEST_RESULT_PREFIX = "__PMPE_PYTEST_RESULT__:"
 
 _PROVIDER_ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
 _MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
+_VERIFICATION_PROTOCOL = "external-json-response-v1"
+_MAX_TOTAL_VERIFICATION_BYTES = 8_000_000
+_MAX_TOTAL_VERIFICATION_SECONDS = 120.0
+_TRUSTED_REGEX_TIMEOUT_SECONDS = _ACTION_TIMEOUT_SECONDS
+_TRUSTED_REGEX_INPUT_LIMIT_BYTES = 1_000_000
 
 
 def _classify_provider_error(error: RuntimeError) -> str:
@@ -157,6 +171,22 @@ class BubblewrapCandidateSandbox:
             Path(sys.prefix).resolve(),
         }
         return tuple(sorted((item for item in candidates if item.exists()), key=str))
+
+    @staticmethod
+    def _host_read_only_paths() -> tuple[Path, ...]:
+        return tuple(
+            Path(path)
+            for path in (
+                "/etc/alternatives",
+                "/etc/group",
+                "/etc/ld.so.cache",
+                "/etc/ld.so.conf",
+                "/etc/ld.so.conf.d",
+                "/etc/localtime",
+                "/etc/nsswitch.conf",
+                "/etc/passwd",
+            )
+        )
 
     @staticmethod
     def _parent_directories(path: Path) -> tuple[str, ...]:
@@ -266,6 +296,40 @@ class BubblewrapCandidateSandbox:
         timeout_seconds: float,
         environment: Mapping[str, str],
     ) -> subprocess.CompletedProcess[str]:
+        return self._run(
+            workspace,
+            argv,
+            timeout_seconds=timeout_seconds,
+            environment=environment,
+            input_data=None,
+        )
+
+    def run_with_input(
+        self,
+        workspace: Path,
+        argv: Sequence[str],
+        *,
+        timeout_seconds: float,
+        environment: Mapping[str, str],
+        input_data: bytes,
+    ) -> subprocess.CompletedProcess[str]:
+        return self._run(
+            workspace,
+            argv,
+            timeout_seconds=timeout_seconds,
+            environment=environment,
+            input_data=input_data,
+        )
+
+    def _run(
+        self,
+        workspace: Path,
+        argv: Sequence[str],
+        *,
+        timeout_seconds: float,
+        environment: Mapping[str, str],
+        input_data: bytes | None,
+    ) -> subprocess.CompletedProcess[str]:
         sandbox = shutil.which(self.executable, path=_SANDBOX_PATH)
         limiter = shutil.which(self.limiter, path=_SANDBOX_PATH)
         if sandbox is None or limiter is None:
@@ -312,17 +376,8 @@ class BubblewrapCandidateSandbox:
                     sandbox_argv.extend(("--dir", parent))
                     created_directories.add(parent)
             sandbox_argv.extend(("--symlink", target, destination))
-        for host_path in (
-            "/etc/alternatives",
-            "/etc/group",
-            "/etc/ld.so.cache",
-            "/etc/ld.so.conf",
-            "/etc/ld.so.conf.d",
-            "/etc/localtime",
-            "/etc/nsswitch.conf",
-            "/etc/passwd",
-        ):
-            sandbox_argv.extend(("--ro-bind-try", host_path, host_path))
+        for host_path in self._host_read_only_paths():
+            sandbox_argv.extend(("--ro-bind-try", str(host_path), str(host_path)))
         sandbox_argv.extend(
             (
                 "--ro-bind",
@@ -357,15 +412,17 @@ class BubblewrapCandidateSandbox:
         ]
         with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
             try:
-                completed = subprocess.run(
-                    command,
-                    cwd=workspace,
-                    stdout=stdout_file,
-                    stderr=stderr_file,
-                    timeout=timeout_seconds,
-                    check=False,
-                    env={"LC_ALL": "C", "PATH": _SANDBOX_PATH},
-                )
+                options: dict[str, Any] = {
+                    "cwd": workspace,
+                    "stdout": stdout_file,
+                    "stderr": stderr_file,
+                    "timeout": timeout_seconds,
+                    "check": False,
+                    "env": {"LC_ALL": "C", "PATH": _SANDBOX_PATH},
+                }
+                if input_data is not None:
+                    options["input"] = input_data
+                completed = subprocess.run(command, **options)
             except subprocess.TimeoutExpired as exc:
                 raise ContractInvalidError("candidate execution timed out") from exc
             stdout_file.seek(0)
@@ -377,12 +434,15 @@ class BubblewrapCandidateSandbox:
             or len(stderr) > _CANDIDATE_OUTPUT_LIMIT_BYTES
         ):
             raise ContractInvalidError("candidate output exceeded limit")
-        decoded = subprocess.CompletedProcess[str](
-            completed.args,
-            completed.returncode,
-            stdout.decode("utf-8", errors="replace"),
-            stderr.decode("utf-8", errors="replace"),
-        )
+        try:
+            decoded = subprocess.CompletedProcess[str](
+                completed.args,
+                completed.returncode,
+                stdout.decode("utf-8"),
+                stderr.decode("utf-8"),
+            )
+        except UnicodeDecodeError as exc:
+            raise ContractInvalidError("candidate output is not UTF-8") from exc
         if decoded.returncode != 0 and decoded.stderr.lstrip().startswith("bwrap:"):
             raise ContractInvalidError("candidate OS sandbox could not establish isolation")
         return decoded
@@ -481,7 +541,71 @@ def _path(value: Any, dotted_path: str) -> Any:
     return current
 
 
-def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
+def _remaining_verification_time(deadline: float | None) -> float | None:
+    if deadline is None:
+        return None
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError("TRUSTED_VERIFICATION_TIME_LIMIT")
+    return remaining
+
+
+def _bounded_regex_search(pattern: str, value: str, *, deadline: float | None = None) -> bool:
+    """Evaluate the approved predicate outside the supervisor interpreter.
+
+    Python's re engine has no built-in timeout; a short candidate response can
+    otherwise monopolize the trusted verdict process. The child receives data
+    on stdin, has no candidate import path, and cannot return a verdict.
+    """
+    payload = json.dumps({"pattern": pattern, "value": value}, ensure_ascii=False).encode()
+    if len(payload) > _TRUSTED_REGEX_INPUT_LIMIT_BYTES:
+        raise RuntimeError("TRUSTED_PREDICATE_INPUT_LIMIT")
+    remaining = _remaining_verification_time(deadline)
+    timeout = (
+        min(_TRUSTED_REGEX_TIMEOUT_SECONDS, remaining)
+        if remaining
+        else _TRUSTED_REGEX_TIMEOUT_SECONDS
+    )
+    runner = (
+        "import json,re,sys\n"
+        "data=json.loads(sys.stdin.buffer.read(1000001))\n"
+        "try:\n"
+        " matched=bool(re.search(data['pattern'],data['value']))\n"
+        "except re.error:\n"
+        " raise SystemExit(2)\n"
+        "sys.stdout.write('1' if matched else '0')\n"
+    )
+    try:
+        completed = subprocess.run(
+            (sys.executable, "-I", "-B", "-c", runner),
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+            check=False,
+            cwd="/",
+            env={"LC_ALL": "C", "PATH": _SANDBOX_PATH, "PYTHONNOUSERSITE": "1"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        cause = (
+            "TRUSTED_VERIFICATION_TIME_LIMIT"
+            if deadline is not None and time.monotonic() >= deadline
+            else "TRUSTED_PREDICATE_TIMEOUT"
+        )
+        raise RuntimeError(cause) from exc
+    except OSError as exc:
+        raise RuntimeError("TRUSTED_PREDICATE_UNAVAILABLE") from exc
+    if completed.returncode == 2:
+        return False
+    if completed.returncode != 0 or completed.stdout not in {b"0", b"1"}:
+        raise RuntimeError("TRUSTED_PREDICATE_FAILED")
+    return completed.stdout == b"1"
+
+
+def _assertion_passes(
+    assertion: PropertyAssertion, value: Any, *, deadline: float | None = None
+) -> bool:
+    _remaining_verification_time(deadline)
     try:
         actual = _path(value, assertion.path)
     except KeyError:
@@ -507,7 +631,11 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
         return not present if negate else present
 
     def matches(left: Any, right: Any) -> bool:
-        return isinstance(left, str) and isinstance(right, str) and bool(re.search(right, left))
+        return (
+            isinstance(left, str)
+            and isinstance(right, str)
+            and _bounded_regex_search(right, left, deadline=deadline)
+        )
 
     binary: dict[Operator, Callable[[Any, Any], bool]] = {
         Operator.EQ: lambda left, right: canonical_digest(left) == canonical_digest(right),
@@ -522,7 +650,9 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
     }
     if assertion.operator in binary:
         try:
-            return binary[assertion.operator](actual, assertion.value)
+            result = binary[assertion.operator](actual, assertion.value)
+            _remaining_verification_time(deadline)
+            return result
         except (TypeError, re.error):
             return False
     unary = {
@@ -531,6 +661,7 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
         Operator.IS_NULL: actual is None,
         Operator.NOT_NULL: actual is not None,
     }
+    _remaining_verification_time(deadline)
     return unary[assertion.operator]
 
 
@@ -539,6 +670,8 @@ def _run_action(
     target: str,
     arguments: Mapping[str, Any],
     sandbox: CandidateSandbox,
+    *,
+    deadline: float | None = None,
 ) -> Any:
     match = _MODULE_TARGET.fullmatch(target)
     if match is None:
@@ -554,6 +687,8 @@ def _run_action(
         "v=getattr(m,sys.argv[3])(**json.loads(sys.argv[4]));"
         "print(json.dumps(v,sort_keys=True,separators=(',',':')))"
     )
+    remaining = _remaining_verification_time(deadline)
+    timeout = min(_ACTION_TIMEOUT_SECONDS, remaining) if remaining else _ACTION_TIMEOUT_SECONDS
     completed = sandbox.run(
         workspace,
         [
@@ -567,7 +702,7 @@ def _run_action(
             function,
             json.dumps(arguments),
         ],
-        timeout_seconds=_ACTION_TIMEOUT_SECONDS,
+        timeout_seconds=timeout,
         environment={
             "HOME": "/tmp/home",
             "LC_ALL": "C",
@@ -578,15 +713,19 @@ def _run_action(
         },
     )
     if completed.returncode != 0:
-        raise ContractInvalidError("action failed before an assertion: " + completed.stderr.strip())
+        raise ContractInvalidError("action failed before an assertion")
     try:
-        value = json.loads(
-            completed.stdout,
-            parse_constant=_reject_non_json_constant,
-        )
-        canonical_digest(value)
-        return value
-    except (json.JSONDecodeError, ValueError) as exc:
+        output = completed.stdout
+        if isinstance(output, str):
+            payload = output.encode("utf-8")
+        elif isinstance(output, bytes):
+            payload = output
+        else:
+            raise ContractInvalidError("action response has invalid output type")
+        if len(payload) > _CANDIDATE_OUTPUT_LIMIT_BYTES:
+            raise ContractInvalidError("candidate output exceeded limit")
+        return strict_json_value_loads(payload)
+    except (CanonicalInputError, UnicodeError) as exc:
         raise ContractInvalidError("action did not return one JSON value") from exc
 
 
@@ -712,76 +851,31 @@ def _criterion_findings(
     workspace: Path,
     template: Template,
     sandbox: CandidateSandbox,
+    observations: dict[str, dict[str, Any]] | None = None,
+    deadline: float | None = None,
 ) -> tuple[Finding, ...]:
-    protected_paths = frozenset(
-        {
-            *(relative for relative in template.files if relative.startswith("tests/")),
-            *((criterion.human_test.path,) if criterion.human_test is not None else ()),
-        }
-    )
-    if criterion.form == "satisfied_by_template":
-        assert criterion.template_proof is not None
-        proof = template.proofs[criterion.template_proof.test_id]
-        proof_path = _safe_path(workspace, proof.path)
-        digest = "sha256:" + hashlib.sha256(proof_path.read_bytes()).hexdigest()
-        if digest != criterion.template_proof.file_digest:
-            raise ContractInvalidError("template proof file does not match its compiled digest")
-        if not _run_pytest_node(workspace, proof, protected_paths, sandbox):
-            return (
-                Finding(
-                    "ASSERTION_FAILED",
-                    criterion.criterion_id,
-                    "template acceptance proof failed",
-                    (proof.path,),
-                ),
-            )
-        return ()
-    if criterion.form == "human_test":
-        assert criterion.human_test is not None
-        human_test = TemplateTest(
-            criterion.human_test.path,
-            criterion.human_test.node_id,
-            criterion.human_test.command,
-        )
-        if _run_pytest_node(workspace, human_test, protected_paths, sandbox):
-            return ()
-        return (
-            Finding(
-                "ASSERTION_FAILED",
-                criterion.criterion_id,
-                "human-authored acceptance assertion failed",
-                (criterion.human_test.path,),
-            ),
-        )
-    if criterion.form == "measure":
-        assert criterion.operator is not None
-        assert criterion.minimum_sample is not None
-        target = template.measures[criterion.measure]
-        observation = _run_action(workspace, target, {}, sandbox)
-        if not isinstance(observation, Mapping):
-            raise ContractInvalidError("measure did not return a JSON object")
-        sample_size = observation.get("sample_size")
-        if isinstance(sample_size, bool) or not isinstance(sample_size, int):
-            raise ContractInvalidError("measure did not return an integer sample_size")
-        assertion = PropertyAssertion("value", criterion.operator, criterion.value)
-        if sample_size >= criterion.minimum_sample and _assertion_passes(assertion, observation):
-            return ()
-        module = target.split(":", maxsplit=1)[0].replace(".", "/") + ".py"
-        return (
-            Finding(
-                "ASSERTION_FAILED",
-                criterion.criterion_id,
-                "compiled measure assertion failed",
-                (module,),
-            ),
+    if criterion.form != "given_when_then":
+        raise ContractInvalidError(
+            f"{criterion.criterion_id}: {criterion.form} has no independent observation adapter"
         )
     assert criterion.when is not None
-    if any(not _assertion_passes(item, template.context) for item in criterion.given):
-        raise ContractInvalidError(f"{criterion.criterion_id}: Given precondition is false")
+    for item in criterion.given:
+        if not _assertion_passes(item, template.context, deadline=deadline):
+            raise ContractInvalidError(f"{criterion.criterion_id}: Given precondition is false")
     target = template.actions[criterion.when.action]
-    result = _run_action(workspace, target, criterion.when.arguments, sandbox)
+    result = _run_action(workspace, target, criterion.when.arguments, sandbox, deadline=deadline)
     wrapped = {"result": result}
-    if all(_assertion_passes(item, wrapped) for item in criterion.then):
+    passed = all(_assertion_passes(item, wrapped, deadline=deadline) for item in criterion.then)
+    if observations is not None:
+        observations[criterion.criterion_id] = {
+            "criterion_id": criterion.criterion_id,
+            "action": criterion.when.action,
+            "target": target,
+            "response": result,
+            "response_digest": canonical_digest(result),
+            "assertions_passed": passed,
+        }
+    if passed:
         return ()
     module = target.split(":", maxsplit=1)[0].replace(".", "/") + ".py"
     return (
@@ -806,14 +900,24 @@ def _verify_snapshot(
     snapshot: Mapping[str, bytes],
     template: Template,
     sandbox: CandidateSandbox,
+    *,
+    criterion_results: dict[str, tuple[Finding, ...]] | None = None,
+    observations: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[Finding, ...]:
     """Verify each criterion against a fresh disposable copy of the exact snapshot."""
 
     findings: list[Finding] = []
+    observed_bytes = 0
+    deadline = time.monotonic() + _MAX_TOTAL_VERIFICATION_SECONDS
     for criterion in plan.criteria:
+        if time.monotonic() > deadline:
+            raise RuntimeError("TRUSTED_VERIFICATION_TIME_LIMIT")
+        first_finding = len(findings)
         with tempfile.TemporaryDirectory(prefix="pmpe-verification-") as temporary:
             isolated = Path(temporary)
             _materialize_snapshot(isolated, snapshot)
+            if _workspace_snapshot(isolated) != snapshot:
+                raise ContractInvalidError("candidate snapshot changed before verification")
             try:
                 findings.extend(
                     _criterion_findings(
@@ -821,10 +925,16 @@ def _verify_snapshot(
                         workspace=isolated,
                         template=template,
                         sandbox=sandbox,
+                        observations=observations,
+                        deadline=deadline,
                     )
                 )
             except ContractInvalidError as exc:
                 if criterion.human_test is None:
+                    if criterion_results is not None:
+                        criterion_results[criterion.criterion_id] = (
+                            Finding("CANDIDATE_EXECUTION_FAILED", criterion.criterion_id, str(exc)),
+                        )
                     raise
                 findings.append(
                     Finding(
@@ -857,6 +967,14 @@ def _verify_snapshot(
                         changed,
                     )
                 )
+            if observations is not None and criterion.criterion_id in observations:
+                observed_bytes += len(canonical_json_bytes(observations[criterion.criterion_id]))
+                if observed_bytes > _MAX_TOTAL_VERIFICATION_BYTES:
+                    raise ContractInvalidError("candidate observations exceeded total limit")
+            if criterion_results is not None:
+                criterion_results[criterion.criterion_id] = tuple(findings[first_finding:])
+            if time.monotonic() > deadline:
+                raise RuntimeError("TRUSTED_VERIFICATION_TIME_LIMIT")
     return tuple(findings)
 
 
@@ -882,11 +1000,17 @@ def _security_findings(workspace: Path) -> tuple[Finding, ...]:
 
 
 def _workspace_snapshot(workspace: Path) -> dict[str, bytes]:
-    return {
-        str(path.relative_to(workspace)): path.read_bytes()
-        for path in sorted(workspace.rglob("*"))
-        if path.is_file()
-    }
+    snapshot: dict[str, bytes] = {}
+    for path in sorted(workspace.rglob("*")):
+        if path.is_symlink():
+            raise ContractInvalidError("candidate snapshot contains a symlink")
+        mode = path.stat(follow_symlinks=False).st_mode
+        if stat.S_ISDIR(mode):
+            continue
+        if not stat.S_ISREG(mode):
+            raise ContractInvalidError("candidate snapshot contains a non-regular file")
+        snapshot[str(path.relative_to(workspace))] = path.read_bytes()
+    return snapshot
 
 
 def _candidate_manifest(
@@ -902,6 +1026,28 @@ def _candidate_manifest(
         json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
     )
     return manifest_blob, tuple(sorted(set(blobs)))
+
+
+def _verify_frozen_inputs(
+    contract: Mapping[str, Any],
+    plan: AcceptanceBuildPlan,
+    template: Template,
+    template_digest: str,
+) -> None:
+    """Check the exact approved plan and action registry used by the supervisor."""
+    plan_body = plan.as_dict()
+    plan_body.pop("plan_digest")
+    if (
+        canonical_digest(contract) != plan.contract_digest
+        or canonical_digest(plan_body) != plan.plan_digest
+        or canonical_digest(asdict(template)) != template_digest
+    ):
+        raise ContractInvalidError("approved verifier inputs changed after admission")
+    for criterion in plan.criteria:
+        if criterion.form == "given_when_then" and (
+            criterion.when is None or criterion.when.action not in template.actions
+        ):
+            raise ContractInvalidError("compiled action binding changed after admission")
 
 
 def _model_request(
@@ -1001,10 +1147,12 @@ def run_to_release_ready(
     approval_authority: str | None = None,
     approval_receipt_bytes: bytes | None = None,
 ) -> RunResult:
-    """Run the frozen core. It never deploys and stops at RELEASE_READY."""
+    """Run the frozen core, retaining candidate evidence without unsafe release."""
 
     started = time.monotonic()
-    active_template = template or default_template()
+    contract = copy.deepcopy(dict(contract))
+    active_template = copy.deepcopy(template or default_template())
+    template_digest = canonical_digest(asdict(active_template))
     active_budget = budget or BudgetCaps()
     active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
     counters: dict[str, Any] = {
@@ -1016,6 +1164,9 @@ def run_to_release_ready(
         "provider_model_id": "",
         "structured_criteria_count": 0,
         "human_test_count": 0,
+        "verification_protocol": _VERIFICATION_PROTOCOL,
+        "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
+        "provider_write_isolation": "UNVERIFIED_GENERIC_COMMAND",
     }
     subject_digest = canonical_digest(contract)
     approval_inputs = (approval_receipt, approval_authority, approval_receipt_bytes)
@@ -1056,8 +1207,11 @@ def run_to_release_ready(
         repository_root=repository_root,
         template=active_template,
     )
-    counters["structured_criteria_count"] = sum(item.form != "human_test" for item in plan.criteria)
+    counters["structured_criteria_count"] = sum(
+        item.form == "given_when_then" for item in plan.criteria
+    )
     counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)
+    _verify_frozen_inputs(contract, plan, active_template, template_digest)
     workspace_root = workspace.resolve()
     evidence_root = (repository_root / ".pmpe").resolve()
     if workspace_root.is_relative_to(evidence_root) or evidence_root.is_relative_to(workspace_root):
@@ -1086,6 +1240,81 @@ def run_to_release_ready(
             telemetry=dict(counters),
         )
 
+    def record_release_gates(
+        snapshot: Mapping[str, bytes],
+        criterion_results: Mapping[str, tuple[Finding, ...]],
+        attempt: int,
+        state: RunState,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        if not plan.release_gates:
+            return "", []
+        gates = release_gate_results(plan.release_gates, criterion_results)
+        candidate_blob, candidate_file_blobs = _candidate_manifest(snapshot, ledger)
+        evidence = {
+            "attempt": attempt,
+            "contract_digest": subject_digest,
+            "plan_digest": plan.plan_digest,
+            "candidate_digest": candidate_blob,
+            "gates": gates,
+        }
+        blob = ledger.put_blob(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode())
+        ledger.append(
+            event_type="release_gates_evaluated",
+            state=state,
+            subject_digest=subject_digest,
+            blob_digests=(blob, candidate_blob, *candidate_file_blobs),
+            payload=evidence,
+        )
+        return blob, gates
+
+    def record_observations(
+        snapshot: Mapping[str, bytes],
+        observations: Mapping[str, dict[str, Any]],
+        *,
+        attempt: int,
+        state: RunState,
+    ) -> str:
+        expected_ids = {criterion.criterion_id for criterion in plan.criteria}
+        if set(observations) != expected_ids:
+            raise ContractInvalidError("not every required criterion has an observation")
+        candidate_blob, candidate_file_blobs = _candidate_manifest(snapshot, ledger)
+        entries: list[dict[str, Any]] = []
+        response_blobs: list[str] = []
+        for criterion_id in sorted(observations):
+            observation = observations[criterion_id]
+            response_digest = ledger.put_blob(canonical_json_bytes(observation["response"]))
+            if response_digest != observation["response_digest"]:
+                raise ContractInvalidError("observed response digest changed")
+            response_blobs.append(response_digest)
+            entries.append(
+                {
+                    "criterion_id": criterion_id,
+                    "action": observation["action"],
+                    "target": observation["target"],
+                    "response_digest": response_digest,
+                    "assertions_passed": observation["assertions_passed"],
+                }
+            )
+        evidence = {
+            "protocol": _VERIFICATION_PROTOCOL,
+            "attempt": attempt,
+            "contract_digest": subject_digest,
+            "plan_digest": plan.plan_digest,
+            "template_digest": template_digest,
+            "candidate_digest": candidate_blob,
+            "required_criterion_ids": sorted(expected_ids),
+            "observations": entries,
+        }
+        evidence_blob = ledger.put_blob(canonical_json_bytes(evidence))
+        ledger.append(
+            event_type="supervisor_observations",
+            state=state,
+            subject_digest=subject_digest,
+            blob_digests=(evidence_blob, candidate_blob, *candidate_file_blobs, *response_blobs),
+            payload={**evidence, "evidence_digest": evidence_blob},
+        )
+        return evidence_blob
+
     plan_blob = ledger.put_blob(
         json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")).encode()
     )
@@ -1106,8 +1335,57 @@ def run_to_release_ready(
             "approval": approval_payload,
             "contract_digest": contract_blob,
             "plan_digest": plan.plan_digest,
+            "template_digest": template_digest,
         },
     )
+
+    unsupported = [
+        {
+            "criterion_id": item.criterion_id,
+            "form": item.form,
+            "code": "UNSUPPORTED_VERIFICATION_MODE",
+            "message": f"{item.form} requires a trusted observation adapter",
+        }
+        for item in plan.criteria
+        if item.form != "given_when_then"
+    ]
+    if unsupported:
+        ledger.append(
+            event_type="halted",
+            state=RunState.HALTED,
+            subject_digest=subject_digest,
+            payload={
+                "cause": "UNSUPPORTED_VERIFICATION_MODE",
+                "diagnostics": unsupported,
+                "plan_digest": plan.plan_digest,
+                "telemetry": dict(counters),
+            },
+        )
+        return RunResult(
+            run_id=run_id,
+            state=RunState.HALTED,
+            cause="UNSUPPORTED_VERIFICATION_MODE",
+            attempts=0,
+            model_calls=0,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+            evidence_path=ledger.events_path,
+            annotation={"diagnostics": unsupported},
+            telemetry=dict(counters),
+        )
+
+    def record_execution_failure(exc: ContractInvalidError | RuntimeError | OSError) -> None:
+        cause = "CONTRACT_INVALID" if isinstance(exc, ContractInvalidError) else "EXECUTION_FAILED"
+        ledger.append(
+            event_type="halted",
+            state=RunState.HALTED,
+            subject_digest=subject_digest,
+            payload={
+                "cause": cause,
+                "detail": str(exc),
+                "telemetry": _terminal_telemetry(),
+            },
+        )
+
     if stop_requested():
         ledger.append(
             event_type="stopped",
@@ -1117,61 +1395,91 @@ def run_to_release_ready(
         )
         return finish(RunState.STOPPED, "STOP_REQUESTED", 0)
 
-    _write_files(workspace, active_template.files)
-    protected_tests = {
-        _safe_path(workspace, proof.path) for proof in active_template.proofs.values()
-    }
-    for relative, digest in plan.trusted_test_digests:
-        trusted_path = _safe_path(workspace, relative)
-        observed = "sha256:" + hashlib.sha256(trusted_path.read_bytes()).hexdigest()
-        if observed != digest:
-            raise ContractInvalidError("trusted test support does not match its compiled digest")
-        protected_tests.add(trusted_path)
-    for criterion in plan.criteria:
-        if criterion.human_test is None:
-            continue
-        relative = criterion.human_test.path
-        source = repository_root / relative
-        digest = "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest()
-        if digest != criterion.human_test.file_digest:
-            raise ContractInvalidError("human test changed after compilation")
-        _write_files(workspace, {relative: source.read_text()})
-        protected_tests.add(_safe_path(workspace, relative))
-    protected_package_initializers: set[Path] = set()
-    for protected_test in protected_tests:
-        parent = protected_test.parent
-        while parent != workspace:
-            protected_package_initializers.add(parent / "__init__.py")
-            parent = parent.parent
-    protected_tests.update(protected_package_initializers)
-    baseline = _verify_snapshot(
-        plan,
-        _workspace_snapshot(workspace),
-        active_template,
-        active_sandbox,
-    )
-    non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
-    failed_ids = {item.subject_id for item in baseline}
-    if any(item.code != "ASSERTION_FAILED" for item in baseline) or failed_ids != {
-        item.criterion_id for item in non_template
-    }:
-        raise ContractInvalidError("baseline must fail every non-template criterion by assertion")
+    try:
+        _verify_frozen_inputs(contract, plan, active_template, template_digest)
+        _write_files(workspace, active_template.files)
+        protected_tests = {
+            _safe_path(workspace, proof.path) for proof in active_template.proofs.values()
+        }
+        for relative, digest in plan.trusted_test_digests:
+            trusted_path = _safe_path(workspace, relative)
+            observed = "sha256:" + hashlib.sha256(trusted_path.read_bytes()).hexdigest()
+            if observed != digest:
+                raise ContractInvalidError(
+                    "trusted test support does not match its compiled digest"
+                )
+            protected_tests.add(trusted_path)
+        for criterion in plan.criteria:
+            if criterion.human_test is None:
+                continue
+            relative = criterion.human_test.path
+            source = repository_root / relative
+            digest = "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest()
+            if digest != criterion.human_test.file_digest:
+                raise ContractInvalidError("human test changed after compilation")
+            _write_files(workspace, {relative: source.read_text()})
+            protected_tests.add(_safe_path(workspace, relative))
+        protected_package_initializers: set[Path] = set()
+        for protected_test in protected_tests:
+            parent = protected_test.parent
+            while parent != workspace:
+                protected_package_initializers.add(parent / "__init__.py")
+                parent = parent.parent
+        protected_tests.update(protected_package_initializers)
+        baseline_observations: dict[str, dict[str, Any]] = {}
+        baseline_snapshot = _workspace_snapshot(workspace)
+        baseline = _verify_snapshot(
+            plan,
+            baseline_snapshot,
+            active_template,
+            active_sandbox,
+            observations=baseline_observations,
+        )
+        if set(baseline_observations) != {item.criterion_id for item in plan.criteria}:
+            raise ContractInvalidError("baseline did not observe every required criterion")
+        non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
+        failed_ids = {item.subject_id for item in baseline}
+        if any(item.code != "ASSERTION_FAILED" for item in baseline) or failed_ids != {
+            item.criterion_id for item in non_template
+        }:
+            raise ContractInvalidError(
+                "baseline must fail every non-template criterion by assertion"
+            )
+    except (ContractInvalidError, RuntimeError, OSError) as exc:
+        record_execution_failure(exc)
+        raise
     baseline_blob = ledger.put_blob(
         json.dumps(
             [asdict(item) for item in baseline], sort_keys=True, separators=(",", ":")
         ).encode()
     )
+    try:
+        baseline_observation_blob = record_observations(
+            baseline_snapshot, baseline_observations, attempt=0, state=RunState.BUILDING
+        )
+    except (ContractInvalidError, RuntimeError, OSError) as exc:
+        record_execution_failure(exc)
+        raise
     ledger.append(
         event_type="meaningful_red_confirmed",
         state=RunState.BUILDING,
         subject_digest=subject_digest,
-        blob_digests=(baseline_blob,),
-        payload={"findings": [asdict(item) for item in baseline]},
+        blob_digests=(baseline_blob, baseline_observation_blob),
+        payload={
+            "findings": [asdict(item) for item in baseline],
+            "observation_evidence_digest": baseline_observation_blob,
+            "protocol": _VERIFICATION_PROTOCOL,
+        },
     )
 
     findings: tuple[Finding, ...] = baseline
     previous_finding_digest = ""
     for attempt in range(1, active_budget.max_attempts + 1):
+        try:
+            _verify_frozen_inputs(contract, plan, active_template, template_digest)
+        except ContractInvalidError as exc:
+            record_execution_failure(exc)
+            raise
         if stop_requested():
             ledger.append(
                 event_type="stopped",
@@ -1203,6 +1511,11 @@ def run_to_release_ready(
                 payload={"cause": cause, "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, cause, attempt - 1)
+        try:
+            _verify_frozen_inputs(contract, plan, active_template, template_digest)
+        except ContractInvalidError as exc:
+            record_execution_failure(exc)
+            raise
         files = response.get("files")
         if not isinstance(files, Mapping):
             ledger.append(
@@ -1302,6 +1615,7 @@ def run_to_release_ready(
         )
         if blocking_security:
             findings = blocking_security
+            record_release_gates(verification_snapshot, {}, attempt, RunState.BUILDING)
             finding_blob = ledger.put_blob(
                 json.dumps(
                     [asdict(item) for item in findings],
@@ -1323,12 +1637,16 @@ def run_to_release_ready(
                 subject_digest=subject_digest,
                 payload={"attempt": attempt, "changed": list(changed)},
             )
+            criterion_results: dict[str, tuple[Finding, ...]] = {}
+            observations: dict[str, dict[str, Any]] = {}
             try:
                 findings = _verify_snapshot(
                     plan,
                     verification_snapshot,
                     active_template,
                     active_sandbox,
+                    criterion_results=criterion_results,
+                    observations=observations,
                 )
             except ContractInvalidError as exc:
                 implicated_files = tuple(
@@ -1350,7 +1668,49 @@ def run_to_release_ready(
                         implicated_files,
                     ),
                 )
+            except (RuntimeError, OSError) as exc:
+                record_execution_failure(exc)
+                raise
+            expected_ids = {criterion.criterion_id for criterion in plan.criteria}
+            if set(criterion_results) != expected_ids or set(observations) != expected_ids:
+                findings += (
+                    Finding(
+                        "VERIFICATION_INCOMPLETE",
+                        "candidate",
+                        "every required criterion must have one trusted observation and result",
+                    ),
+                )
+                observation_evidence_digest = ""
+            else:
+                try:
+                    observation_evidence_digest = record_observations(
+                        verification_snapshot,
+                        observations,
+                        attempt=attempt,
+                        state=RunState.VERIFYING,
+                    )
+                except (ContractInvalidError, RuntimeError, OSError) as exc:
+                    record_execution_failure(exc)
+                    raise
+            gate_evidence_digest, gates = record_release_gates(
+                verification_snapshot, criterion_results, attempt, RunState.VERIFYING
+            )
+            findings += tuple(
+                Finding(
+                    "RELEASE_GATE_FAILED"
+                    if gate["status"] == "FAIL"
+                    else "RELEASE_GATE_NOT_EVALUATED",
+                    gate["gate_id"],
+                    "every bound acceptance criterion must have explicit PASS evidence",
+                )
+                for gate in gates
+                if gate["status"] != "PASS"
+            )
             if not findings:
+                # The response-level contract passed, but the generic outer
+                # provider still runs with host-user write authority over the
+                # verifier and ledger. Record useful candidate evidence while
+                # withholding RELEASE_READY from every downstream consumer.
                 evidence = {
                     "assertions": "passed",
                     "coverage": "complete",
@@ -1361,42 +1721,57 @@ def run_to_release_ready(
                 candidate_blob, candidate_file_blobs = _candidate_manifest(
                     verification_snapshot, ledger
                 )
-                review_body = {
-                    "contract_digest": subject_digest,
+                candidate_payload: dict[str, Any] = {
+                    "candidate_digest": candidate_blob,
+                    "verification_protocol": _VERIFICATION_PROTOCOL,
+                    "verification_observations_digest": observation_evidence_digest,
+                    "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
+                    "provider_write_isolation": "UNVERIFIED_GENERIC_COMMAND",
                     "plan_digest": plan.plan_digest,
                     "evidence_digest": blob,
-                    "instruction": "Return one non-blocking advisory annotation.",
+                    "attempt": attempt,
                 }
-                review_request = {
-                    **review_body,
-                    "request_digest": canonical_digest(review_body),
-                }
-                try:
-                    annotation = _invoke_bound(
-                        provider,
-                        purpose="advisory_review",
-                        request=review_request,
-                        budget=active_budget,
-                        counters=counters,
-                    )
-                except RuntimeError as exc:
-                    annotation = {"status": "unavailable", "cause": _classify_provider_error(exc)}
-                release_payload: dict[str, Any] = {
-                    "annotation": dict(annotation),
-                    "candidate_digest": candidate_blob,
-                    "telemetry": _terminal_telemetry(),
-                }
-                advisory_behavior = _provider_behavior_payload("advisory_review", annotation)
-                if advisory_behavior is not None:
-                    release_payload["provider_behavior"] = advisory_behavior
+                if gate_evidence_digest:
+                    candidate_payload["release_gate_evidence_digest"] = gate_evidence_digest
                 ledger.append(
-                    event_type="release_ready",
-                    state=RunState.RELEASE_READY,
+                    event_type="candidate_response_verified",
+                    state=RunState.VERIFYING,
                     subject_digest=subject_digest,
-                    blob_digests=(blob, candidate_blob, *candidate_file_blobs),
-                    payload=release_payload,
+                    blob_digests=(
+                        blob,
+                        candidate_blob,
+                        observation_evidence_digest,
+                        *candidate_file_blobs,
+                        *((gate_evidence_digest,) if gate_evidence_digest else ()),
+                    ),
+                    payload=candidate_payload,
                 )
-                return finish(RunState.RELEASE_READY, "PASS", attempt, annotation)
+                cause = "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+                counters["candidate_response_verified"] = True
+                ledger.append(
+                    event_type="halted",
+                    state=RunState.HALTED,
+                    subject_digest=subject_digest,
+                    blob_digests=(candidate_blob, observation_evidence_digest),
+                    payload={
+                        "cause": cause,
+                        "candidate_digest": candidate_blob,
+                        "verification_observations_digest": observation_evidence_digest,
+                        "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
+                        "provider_write_isolation": "UNVERIFIED_GENERIC_COMMAND",
+                        "telemetry": _terminal_telemetry(),
+                    },
+                )
+                return finish(
+                    RunState.HALTED,
+                    cause,
+                    attempt,
+                    {
+                        "candidate_response_verified": True,
+                        "candidate_digest": candidate_blob,
+                        "verification_observations_digest": observation_evidence_digest,
+                    },
+                )
             finding_blob = ledger.put_blob(
                 json.dumps(
                     [asdict(item) for item in findings],
