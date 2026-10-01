@@ -1,0 +1,7 @@
+{
+  "archive": "resume-retained-replay.tar.gz",
+  "bytes": 938822,
+  "sha256": "c5335994840a1416d7d08463b6cc48dfdff823f24471ca0936c8e76b1db88071",
+  "ledger_file_count": 295,
+  "omission": "The duplicate retained-ledger directory is byte-for-byte equal to .pmpe and omitted. The original .pmpe ledger is included completely."
+}

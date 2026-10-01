@@ -1,0 +1,13 @@
+{
+  "source_commit": "c67716638731ba3be4ceeab20be6e6fdee631fd3",
+  "source_tree": "872e53b7cb05bace2d825dca47ea7e27f78c7cf0",
+  "scope": "Source SAST and architecture only; full composed CI not run",
+  "sast_findings": [],
+  "unapproved_architecture_edges": [
+    [
+      "core",
+      "unresolved_dynamic"
+    ]
+  ],
+  "status": "FAIL"
+}

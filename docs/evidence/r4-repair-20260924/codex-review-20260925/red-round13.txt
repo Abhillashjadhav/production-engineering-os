@@ -1,0 +1,9 @@
+# base 743b34a + tests only (Codex review round 13 on #221). The substituted-adapter case is refused today only incidentally (inventory digests not recomputed), not by an adapter pin; the test requires the adapter-specific refusal.
+FAIL: test_execution_source_fields_rejected (__main__.ReplayCheckerRegression.test_execution_source_fields_rejected) (change='kind')
+AssertionError: 0 != 1 : {"checker_engine_file": "/home/user/peos-hist/src/pmpe/__init__.py", "checker_engine_file_digest": "sha256:8d7b53dfcbc8261b03ba44e17d07ebbf5ed1e5cb0f63692e0e5c4e040f7de717", "digest_mismatches": 0, "digest_observations": 30, "fail_ids": [], "frozen_source_entries": 218, "historical_engine_authentication": "NOT_ESTABLISHED_BY_RETAINED_PACKET", "pass_count": 14, "process_records": 14}
+FAIL: test_execution_source_fields_rejected (__main__.ReplayCheckerRegression.test_execution_source_fields_rejected) (change='extra')
+AssertionError: 0 != 1 : {"checker_engine_file": "/home/user/peos-hist/src/pmpe/__init__.py", "checker_engine_file_digest": "sha256:8d7b53dfcbc8261b03ba44e17d07ebbf5ed1e5cb0f63692e0e5c4e040f7de717", "digest_mismatches": 0, "digest_observations": 30, "fail_ids": [], "frozen_source_entries": 218, "historical_engine_authentication": "NOT_ESTABLISHED_BY_RETAINED_PACKET", "pass_count": 14, "process_records": 14}
+FAIL: test_substituted_adapter_rejected (__main__.ReplayCheckerRegression.test_substituted_adapter_rejected)
+AssertionError: 'adapter' not found in '{"detail": "30 reconstructed inventories differ", "status": "FAIL"}\n'
+Ran 31 tests in 36.390s
+FAILED (failures=3)

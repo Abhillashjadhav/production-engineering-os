@@ -1,0 +1,9 @@
+# base 2cc8d69 + tests only (Codex review round 6 on #221)
+FAIL: test_incompatible_or_reprofiled_report_rejected (__main__.ReplayCheckerRegression.test_incompatible_or_reprofiled_report_rejected) (change='incompatible')
+FAIL: test_incompatible_or_reprofiled_report_rejected (__main__.ReplayCheckerRegression.test_incompatible_or_reprofiled_report_rejected) (change='reasons')
+FAIL: test_incompatible_or_reprofiled_report_rejected (__main__.ReplayCheckerRegression.test_incompatible_or_reprofiled_report_rejected) (change='profile')
+FAIL: test_recorded_invocation_differs_from_launch_rejected (__main__.ReplayCheckerRegression.test_recorded_invocation_differs_from_launch_rejected) (change='build')
+FAIL: test_recorded_invocation_differs_from_launch_rejected (__main__.ReplayCheckerRegression.test_recorded_invocation_differs_from_launch_rejected) (change='no-fallback')
+FAIL: test_recorded_invocation_differs_from_launch_rejected (__main__.ReplayCheckerRegression.test_recorded_invocation_differs_from_launch_rejected) (change='other-candidate')
+Ran 21 tests in 20.613s
+FAILED (failures=6)

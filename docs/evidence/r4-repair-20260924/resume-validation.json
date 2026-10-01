@@ -1,0 +1,91 @@
+{
+  "classification": "Root continuation; ordinary deterministic replay and static checks only; not final independent adversarial verification",
+  "sources": {
+    "process": {
+      "local": "c67716638731ba3be4ceeab20be6e6fdee631fd3",
+      "public": "ccabeecc7346dffa7354e88c1deec53b1674428a",
+      "tree": "872e53b7cb05bace2d825dca47ea7e27f78c7cf0"
+    },
+    "historical": {
+      "local": "4d4a9afdc8a5a75b28fce10499ec5ff405b1b60d",
+      "public": "c1ab2def189fb87c8d1979e5cb7407b80d97a7a5",
+      "tree": "ab13172635a9cf4bb94bceb6e95d338523f9d922"
+    },
+    "checker": {
+      "remote": "39a9cf8f0d01dc3debd43c79e6a393695e27a1e0",
+      "tree": "6afc84f462518b0d569a312905d02e613847c75c",
+      "parents": [
+        "0284c2b77cd36e6836eb0fc50d39ce7eb38c1a29"
+      ],
+      "files": 3
+    }
+  },
+  "checks": [
+    {
+      "name": "ordinary current task-store replay",
+      "command": "PYTHONPATH=<process>/src python -B <process>/scripts/r3_task_store_migration.py --packet <packet>/reviews/task-tracker-v1 --historical-engine <historical> --output <new empty path> --replay",
+      "exit_code": 0,
+      "result": "DRAFT_NOT_APPROVED; HALTED; G1/G2/G5 PASS; G3/G4 NOT_EVALUATED; 14/14 criteria; 56 process records; 117 digest observations"
+    },
+    {
+      "name": "historical retained checker",
+      "command": "R4_REPLAY_PACKET=<packet>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<historical> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py ReplayCheckerRegression.test_original_cases_pass -v",
+      "exit_code": 0,
+      "result": "One method with all three historical cases passed"
+    },
+    {
+      "name": "Ruff",
+      "command": "python -B -m ruff check src/pmpe tests/unit tests/integration tests/e2e",
+      "exit_code": 0,
+      "result": "All checks passed"
+    },
+    {
+      "name": "format",
+      "command": "python -B -m ruff format --check src/pmpe tests/unit tests/integration tests/e2e",
+      "exit_code": 0,
+      "result": "323 files already formatted"
+    },
+    {
+      "name": "typing",
+      "command": "python -B -m mypy --cache-dir <isolated path> src/pmpe",
+      "exit_code": 0,
+      "result": "Success: no issues found in 201 source files"
+    },
+    {
+      "name": "source static gates",
+      "command": "Existing _reviewed_policy_config, _observed_architecture_edges and _scan_sast with unchanged security/security-profile-policy.json",
+      "exit_code": 1,
+      "result": "SAST 0 findings; architecture rejects core -> unresolved_dynamic. Isolated scan of process_sources.py reproduces that edge."
+    },
+    {
+      "name": "secret gate",
+      "command": "PYTHONPATH=src python -B scripts/ci/verify_repository_secrets.py --candidate-sha c67716638731ba3be4ceeab20be6e6fdee631fd3 --root <process> --allowlist security/secret-allowlist.json --output <report>",
+      "exit_code": 0,
+      "result": "0 findings",
+      "report": "resume-secret-report.json"
+    },
+    {
+      "name": "ordinary PMOS handoff",
+      "exit_code": 0,
+      "evidence": "resume-pmos-handoff.json"
+    },
+    {
+      "name": "PMOS combined repository audit",
+      "command": "python -B tests/audit_repository.py",
+      "exit_code": 0,
+      "result": "40 lifecycle skills, 3 supporting skills, 7 reviewer personas"
+    }
+  ],
+  "exclusions": [
+    "No previously blocked adversarial probe was retried or relocated.",
+    "No model service, paid API, new sandbox attempt or owner approval.",
+    "No scanner, allowlist or security-policy change.",
+    "Full composed remote CI and final independent review remain unverified.",
+    "Existing GitHub PR heads were not advanced, and no PR was merged."
+  ],
+  "limitations": [
+    "The earlier independent reviewer checked intermediate revisions; its observations do not automatically certify the final source.",
+    "Publication tree matching establishes identity, not source correctness or approval."
+  ],
+  "replay_archive": "resume-retained-replay.tar.gz"
+}

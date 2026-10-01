@@ -1,0 +1,10 @@
+# base 11d03c1 + tests only (Codex review round 7 on #221)
+FAIL: test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected) (change='runtime')
+FAIL: test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected) (change='dependencies')
+FAIL: test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected) (change='isolations')
+FAIL: test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected) (change='scope')
+FAIL: test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected) (change='extra')
+FAIL: test_process_timeout_or_mode_rejected (__main__.ReplayCheckerRegression.test_process_timeout_or_mode_rejected) (key='timeout_seconds')
+FAIL: test_process_timeout_or_mode_rejected (__main__.ReplayCheckerRegression.test_process_timeout_or_mode_rejected) (key='mode')
+Ran 23 tests in 25.627s
+FAILED (failures=7)

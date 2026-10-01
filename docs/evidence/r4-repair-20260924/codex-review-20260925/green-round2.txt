@@ -1,0 +1,15 @@
+# after fix
+test_duplicate_or_altered_findings_rejected (__main__.ReplayCheckerRegression.test_duplicate_or_altered_findings_rejected) ... ok
+test_fake_matching_inventories_rejected (__main__.ReplayCheckerRegression.test_fake_matching_inventories_rejected) ... ok
+test_forged_summary_rejected (__main__.ReplayCheckerRegression.test_forged_summary_rejected) ... ok
+A killed observer subprocess (137) inside an already-failing criterion. ... ok
+127 (command not found) is outside the frozen task tracker's 0/1/2 exits. ... ok
+test_observer_markers_rejected (__main__.ReplayCheckerRegression.test_observer_markers_rejected) ... ok
+test_optimized_interpreter_rejects_missing_boundary (__main__.ReplayCheckerRegression.test_optimized_interpreter_rejects_missing_boundary) ... ok
+test_original_cases_pass (__main__.ReplayCheckerRegression.test_original_cases_pass) ... ok
+test_process_crash_rejected (__main__.ReplayCheckerRegression.test_process_crash_rejected) ... ok
+test_replaced_interpreter_or_limits_rejected (__main__.ReplayCheckerRegression.test_replaced_interpreter_or_limits_rejected) ... ok
+A fabricated -c program that only prints the recorded stdout. ... ok
+test_swapped_stdout_rejected (__main__.ReplayCheckerRegression.test_swapped_stdout_rejected) ... ok
+Ran 12 tests
+OK

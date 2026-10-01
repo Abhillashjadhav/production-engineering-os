@@ -1,0 +1,3 @@
+# 6155a89 checker + round-16 tests: the round-15 _call shape check already refuses a missing exit_code
+Ran 32 tests in 29.541s
+OK

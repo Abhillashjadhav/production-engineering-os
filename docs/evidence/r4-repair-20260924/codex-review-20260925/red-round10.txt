@@ -1,0 +1,4 @@
+# base e785795 + test only (Codex review round 10 on #221)
+FAIL: test_extra_result_field_rejected (__main__.ReplayCheckerRegression.test_extra_result_field_rejected)
+Ran 26 tests in 30.633s
+FAILED (failures=1)

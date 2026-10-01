@@ -1,0 +1,6 @@
+# 421122c checker + round-16 tests (Codex P1 on #226 71f14dc: missing exit_code). Also fails the two round-15 cases, as expected.
+FAIL: test_fields_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_fields_the_frozen_evaluator_cannot_return_rejected) (change='unasserted-observation')
+FAIL: test_fields_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_fields_the_frozen_evaluator_cannot_return_rejected) (change='setup-observation')
+FAIL: test_fields_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_fields_the_frozen_evaluator_cannot_return_rejected) (change='missing-exit-code')
+Ran 32 tests in 28.430s
+FAILED (failures=3)

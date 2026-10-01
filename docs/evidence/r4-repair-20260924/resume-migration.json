@@ -1,0 +1,36 @@
+{
+  "approval_receipt_created": false,
+  "excluded_from_source_manifest": [
+    "this draft",
+    "updated publisher input (contains the source-manifest binding)",
+    "approved contract",
+    "approval receipt",
+    "outer freeze"
+  ],
+  "fresh_model_calls": 0,
+  "historical_artifacts_bound": 218,
+  "historical_freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "legacy_verify_limit": "Historical adapter verify/_verify_snapshot alone is behavioral replay, not release-gate proof.",
+  "original_contract_canonical_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "original_contract_raw_digest": "sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2",
+  "outer_freeze_after_approval": [
+    "reviewed draft",
+    "updated publisher input",
+    "approved contract",
+    "source manifest",
+    "approval receipt",
+    "compiled plan",
+    "current adapter",
+    "mutant/persistence exact snapshot manifest",
+    "mutant/filtering exact snapshot manifest",
+    "profile and evaluator/bindings"
+  ],
+  "proposed_contract_digest": "sha256:52f1cb0955c50cb186c7b1044aa18d049d7e64f9bd63fe740feb614db234c06c",
+  "runtime_imports": {
+    "pmpe": "/workspace/scratch/b6efdedb2992/pmos-r4-resume/process/src/pmpe/__init__.py",
+    "pmpe.barebones": "/workspace/scratch/b6efdedb2992/pmos-r4-resume/process/src/pmpe/barebones.py"
+  },
+  "source_approval": "Pending owner review of exact new source/adapter/manifest and proposed bindings",
+  "source_manifest_digest": "sha256:c6eab72a853407f3a22fbc912b74e890654458805a189293cce6016a9eacf35e",
+  "status": "DRAFT_NOT_APPROVED"
+}

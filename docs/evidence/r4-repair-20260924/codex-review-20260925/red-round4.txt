@@ -1,0 +1,11 @@
+# base c7b1b7c + tests only (Codex review #221/#226 round 4)
+FAIL: test_failed_outer_launch_rejected (__main__.ReplayCheckerRegression.test_failed_outer_launch_rejected) (field='exit_code')
+FAIL: test_failed_outer_launch_rejected (__main__.ReplayCheckerRegression.test_failed_outer_launch_rejected) (field='passed')
+FAIL: test_invalid_measure_sample_type_rejected (__main__.ReplayCheckerRegression.test_invalid_measure_sample_type_rejected) (sample=True)
+FAIL: test_invalid_measure_sample_type_rejected (__main__.ReplayCheckerRegression.test_invalid_measure_sample_type_rejected) (sample='1')
+FAIL: test_non_json_constant_in_stdout_rejected (__main__.ReplayCheckerRegression.test_non_json_constant_in_stdout_rejected) (constant='NaN')
+FAIL: test_non_json_constant_in_stdout_rejected (__main__.ReplayCheckerRegression.test_non_json_constant_in_stdout_rejected) (constant='Infinity')
+FAIL: test_non_json_constant_in_stdout_rejected (__main__.ReplayCheckerRegression.test_non_json_constant_in_stdout_rejected) (constant='-Infinity')
+FAIL: test_paired_interpreter_and_launch_record_rejected (__main__.ReplayCheckerRegression.test_paired_interpreter_and_launch_record_rejected)
+Ran 17 tests in 14.934s
+FAILED (failures=8)

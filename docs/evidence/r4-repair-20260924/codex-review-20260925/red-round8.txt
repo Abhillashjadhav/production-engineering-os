@@ -1,0 +1,7 @@
+# base e85a176 + tests only (Codex review round 8 on #221); stderr-over-limit is already refused by the empty-stderr rule
+FAIL: test_record_the_adapter_cannot_emit_rejected (__main__.ReplayCheckerRegression.test_record_the_adapter_cannot_emit_rejected) (change='error-key')
+FAIL: test_record_the_adapter_cannot_emit_rejected (__main__.ReplayCheckerRegression.test_record_the_adapter_cannot_emit_rejected) (change='negative-elapsed')
+FAIL: test_record_the_adapter_cannot_emit_rejected (__main__.ReplayCheckerRegression.test_record_the_adapter_cannot_emit_rejected) (change='string-elapsed')
+FAIL: test_record_the_adapter_cannot_emit_rejected (__main__.ReplayCheckerRegression.test_record_the_adapter_cannot_emit_rejected) (change='stdout-over-limit')
+Ran 24 tests in 29.200s
+FAILED (failures=4)

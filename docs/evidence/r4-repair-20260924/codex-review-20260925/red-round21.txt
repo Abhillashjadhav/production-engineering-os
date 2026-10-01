@@ -1,0 +1,6 @@
+# base d28145f + tests only (Codex P2 on #221 5995927: reformatted JSONL accepted; helper now writes the adapter's serialization)
+FAIL: test_reformatted_jsonl_rejected (__main__.ReplayCheckerRegression.test_reformatted_jsonl_rejected) (change='no-final-newline')
+FAIL: test_reformatted_jsonl_rejected (__main__.ReplayCheckerRegression.test_reformatted_jsonl_rejected) (change='leading-space')
+FAIL: test_reformatted_jsonl_rejected (__main__.ReplayCheckerRegression.test_reformatted_jsonl_rejected) (change='unsorted-keys')
+Ran 37 tests in 51.420s
+FAILED (failures=3)

@@ -1,0 +1,71 @@
+FFFF.FF
+======================================================================
+FAIL: test_fake_matching_inventories_rejected (__main__.ReplayCheckerRegression.test_fake_matching_inventories_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 60, in test_fake_matching_inventories_rejected
+    self.mutate('retained', lambda root: self.change_rows(root, 'digest-checks.jsonl', fake))
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 39, in mutate
+    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+AssertionError: 0 != 1 : {"digest_mismatches": 0, "digest_observations": 30, "process_records": 14}
+
+
+======================================================================
+FAIL: test_forged_summary_rejected (__main__.ReplayCheckerRegression.test_forged_summary_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 73, in test_forged_summary_rejected
+    self.mutate('retained', change)
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 39, in mutate
+    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+AssertionError: 0 != 1 : {"digest_mismatches": 0, "digest_observations": 30, "process_records": 14}
+
+
+======================================================================
+FAIL: test_observer_markers_rejected (__main__.ReplayCheckerRegression.test_observer_markers_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 80, in test_observer_markers_rejected
+    self.mutate('retained', lambda root: self.change_rows(root, 'processes.jsonl', change))
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 39, in mutate
+    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+AssertionError: 0 != 1 : {"digest_mismatches": 0, "digest_observations": 30, "process_records": 14}
+
+
+======================================================================
+FAIL: test_optimized_interpreter_rejects_missing_boundary (__main__.ReplayCheckerRegression.test_optimized_interpreter_rejects_missing_boundary)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 48, in test_optimized_interpreter_rejects_missing_boundary
+    self.mutate('retained', lambda root: self.change_rows(
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 39, in mutate
+    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+AssertionError: 0 != 1 : {"digest_mismatches": 0, "digest_observations": 29, "process_records": 14}
+
+
+======================================================================
+FAIL: test_process_crash_rejected (__main__.ReplayCheckerRegression.test_process_crash_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 52, in test_process_crash_rejected
+    self.mutate('retained', lambda root: self.change_rows(
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 39, in mutate
+    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+AssertionError: 0 != 1 : {"digest_mismatches": 0, "digest_observations": 30, "process_records": 14}
+
+
+======================================================================
+FAIL: test_swapped_stdout_rejected (__main__.ReplayCheckerRegression.test_swapped_stdout_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 65, in test_swapped_stdout_rejected
+    self.mutate('retained', lambda root: self.change_rows(root, 'processes.jsonl', swap))
+  File "/workspace/scratch/f9ac546f3a50/r4-20260924/peos-proof/docs/evidence/r4-repair-20260924/test_replay_checker.py", line 39, in mutate
+    self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+AssertionError: 0 != 1 : {"digest_mismatches": 0, "digest_observations": 30, "process_records": 14}
+
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.288s
+
+FAILED (failures=6)

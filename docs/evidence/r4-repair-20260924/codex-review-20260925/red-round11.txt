@@ -1,0 +1,9 @@
+# base 2377527 + tests only (Codex review round 11 on #221)
+FAIL: test_malformed_digest_observation_rejected (__main__.ReplayCheckerRegression.test_malformed_digest_observation_rejected) (change='mismatches-object')
+FAIL: test_malformed_digest_observation_rejected (__main__.ReplayCheckerRegression.test_malformed_digest_observation_rejected) (change='mismatches-string')
+FAIL: test_malformed_digest_observation_rejected (__main__.ReplayCheckerRegression.test_malformed_digest_observation_rejected) (change='extra-field')
+FAIL: test_reformatted_observer_output_rejected (__main__.ReplayCheckerRegression.test_reformatted_observer_output_rejected) (change='leading-spaces')
+FAIL: test_reformatted_observer_output_rejected (__main__.ReplayCheckerRegression.test_reformatted_observer_output_rejected) (change='trailing-blank-lines')
+FAIL: test_reformatted_observer_output_rejected (__main__.ReplayCheckerRegression.test_reformatted_observer_output_rejected) (change='spaced-separators')
+Ran 28 tests in 34.054s
+FAILED (failures=6)

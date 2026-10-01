@@ -1,0 +1,6 @@
+# base ad774ee + tests only (Codex review round 5: #226 environment P1, #221 integer-domain P2)
+FAIL: test_integer_outside_canonical_domain_rejected (__main__.ReplayCheckerRegression.test_integer_outside_canonical_domain_rejected)
+FAIL: test_replaced_execution_environment_rejected (__main__.ReplayCheckerRegression.test_replaced_execution_environment_rejected) (key='PATH')
+FAIL: test_replaced_execution_environment_rejected (__main__.ReplayCheckerRegression.test_replaced_execution_environment_rejected) (key='PYTHONPATH')
+Ran 19 tests in 17.060s
+FAILED (failures=3)

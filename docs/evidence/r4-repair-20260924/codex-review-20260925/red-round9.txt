@@ -1,0 +1,4 @@
+# base 0b6ea45 + test only (Codex review round 9 on #221)
+FAIL: test_multibyte_output_over_byte_limit_rejected (__main__.ReplayCheckerRegression.test_multibyte_output_over_byte_limit_rejected)
+Ran 25 tests in 29.532s
+FAILED (failures=1)
