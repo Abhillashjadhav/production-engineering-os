@@ -276,3 +276,67 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Check existing boundary/process coverage before regeneration, rerun to terminal exit and require full ordered coverage before copying.
 5. **Yes.** One evidence repair commit can be reverted separately.
 6. **No.** No dependency, signing, sandbox change or new approval.
+
+## Unit — relaunch migration when Python ignores prefix environment (2026-09-30)
+
+1. **Yes, restructured.** Correct the existing migration source-only startup shortcut; no second launcher.
+2. **Yes.** PR #227 review shows -B -E/-I ignores a set PYTHONPYCACHEPREFIX while the shortcut mistakes it for an effective prefix.
+3. **Yes.** Callers with ignored prefix environment now relaunch instead of entering a later refusal. This is separate on the #227 head.
+4. **Yes.** Add no-exec -E/-I ignored-environment regressions, run red before implementation, then green.
+5. **Yes.** One startup condition and test are independently revertible.
+6. **No.** No sandbox weakening, OS change, new setting, dependency or product policy.
+
+# BAR: PR227 real isolated migration startup
+
+1. **Already exists? Yes, extend it.** Repair the existing migration script and its existing relaunch tests; no second runner or import path is introduced.
+2. **Approved criterion or reproduced blocker? Yes.** `python -I scripts/r3_task_store_migration.py --help` after a trusted local package installation reaches a bare self-import that isolated mode cannot resolve; the existing test accepts nonzero traceback exits.
+3. **Changes existing behavior? Yes.** The script's CLI entrypoint changes from an unnecessary module self-import to its already-defined `main()`. Test the trusted installed-package and decoy cases separately; no candidate source is added to Python's import path.
+4. **Failing automated check first? Yes.** The pre-repair real `-I` control must exit zero and print usage; the current assertion only checks that a decoy does not execute and return code is not 7, so it falsely passes an import traceback.
+5. **Independently revertible? Yes.** This script-entrypoint/test repair builds on the separately pinned prefix patch and can be reverted as one unit without changing migration policy.
+6. **Unrequested setting/dependency/extension? No.** Reuse the existing package installation, script and Python isolation flags. No host security setting, provider, or new runtime dependency is added.
+
+# PR227 source-admission evidence correction — 2026-10-01
+
+1. **Already exists? Yes.** Extend `require_source_only_interpreter` and the existing named source inventory; do not create another gate or inspect the broad module registry.
+2. **Approved criterion or reproduced blocker? Yes.** The existing W2 source-only-start decision and the PR227 review identify mutable no-/proc fallback and unverified ZIP/sourceless named-root origins.
+3. **Existing behavior affected? Yes.** Source-manifest construction and bound process admission may refuse a startup without kernel records or a named engine source without a regular `.py` origin. This isolated branch owns those effects.
+4. **Automated RED before change? Yes.** The three new focused cases in `test_process_source_only_admission.py` failed against the unchanged PR227 source: missing kernel records and named ZIP/sourceless engine origins were admitted. Existing regular-source startup remains the positive control. The recorded local red output is `/tmp/peos-pr227-source-red.log`.
+5. **Revert as one unit? Yes.** The two narrowly related source-admission checks, regressions and accuracy wording form one revertible PR227 patch.
+6. **New setting, dependency or extension? No.** Preserve the existing source-only mode, manifest and architecture scanner; add no provider, trust setting or public API.
+
+Historical prefix emptiness, arbitrary helper/future imports and mutable-global authenticity remain unverified by this in-process hygiene check. The separate outside-process verifier owns candidate-response judgments.
+
+## Unit — import only the pinned PEOS package in replay checker (2026-09-30)
+
+1. **Yes, restructured.** Replace the existing broad `sys.path` insertion with an explicit import of the already digest-checked `pmpe` package.
+2. **Yes.** PR #221 review shows an extra `src/yaml.py` in supplied source can shadow the checker dependency before evidence checks.
+3. **Yes.** The checker will ignore unrelated top-level source files while retaining the exact pinned `pmpe` package path; separate #221-pinned unit.
+4. **Yes.** Add a harmless untracked shadow-module regression, run red before the import change, then green plus existing verifier tests.
+5. **Yes.** One bootstrap import path and regression are independently revertible.
+6. **No.** No dependency, source-policy bypass, candidate execution, setting or product threshold.
+## Unit — verify exported historical replay logs (2026-09-30)
+
+1. **Yes, restructured.** Extend the existing W3 replay verifier's evidence checks; no alternate verifier.
+2. **Yes.** PR #231 review shows historical process and digest-check JSONL exports can be corrupted yet verifier exits zero.
+3. **Yes.** Corrupted-export refusal changes; this unit is isolated on the #231 head.
+4. **Yes.** Add failing export-mutation regressions before implementation, then run green.
+5. **Yes.** Log checks and tests are independently reversible from path portability.
+6. **No.** No product gate, approval packet, provider call, sandbox behavior or new dependency.
+
+## Unit — verify fresh replay checkout paths (2026-09-30)
+
+1. **Yes, restructured.** Extend the existing W3 replay verifier's path comparison; no alternate verifier.
+2. **Yes.** PR #231 review shows fresh-checkout runtime paths are compared literally to the old host.
+3. **Yes.** Fresh replay path admission changes; this unit is isolated on the #231 head.
+4. **Yes.** Add failing relocated-runtime and invalid-path regressions before fix, then run green.
+5. **Yes.** One verifier comparison and test are independently reversible.
+6. **No.** No product gate, approval packet, provider call, sandbox behavior or new dependency.
+
+## Unit — select the retained W3 verifier in CI (2026-10-01)
+
+1. **Yes, extend it.** Use the existing `tests` matrix in `ci.yml`; the W3 unittest lives outside pytest's configured testpaths.
+2. **Yes.** PR #231 review found that CI never selects the verifier guarding its historical replay exports.
+3. **No product behavior changes.** Both supported Python versions now run the read-only retained verifier regressions; a failed regression will fail CI.
+4. **Yes.** An exact-command selection assertion failed before this workflow edit and passes after it; the selected W3 suite passes all 12 tests locally.
+5. **Yes.** One CI step and this BAR entry can be reverted without changing replay evidence or product source.
+6. **No.** No new setting, dependency, provider, approval, security policy or product gate.

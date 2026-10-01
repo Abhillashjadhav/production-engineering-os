@@ -44,7 +44,7 @@ R4_REPLAY_PACKET=<packet> R4_REPLAY_SOURCE=<historical engine> \
   python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v
 ```
 
-The migration command relaunches itself source-only if started without those variables. `verify-replay.py` also accepts the retained archive once it is extracted (`tar xzf retained-replay.tar.gz`, then pass `w3-replay5`).
+The migration command relaunches itself source-only if started without those variables. `verify-replay.py` checks a fresh run's `runtime_imports` against the source checkout used by the verifier, rather than requiring the retained run's original absolute checkout path. It also accepts the retained archive once it is extracted (`tar xzf retained-replay.tar.gz`, then pass `w3-replay5`).
 
 Architecture scanner (invocation, environment and exit status in `architecture-scanner.txt`):
 
@@ -66,4 +66,5 @@ PYTHONPATH=src:. python -m pytest -p no:cacheprovider -q $T --junitxml=release-g
 - The same trusted-operator boundary as before: in-process code could still tamper.
 - The bytecode-injection and evidence-forgery adversarial rechecks recorded as UNVERIFIED in R4 were not rerun.
 - No sandbox proof: the historical host fallback is disclosed and is not isolation.
+- The verifier compares exported historical process outputs with ledger-bound process records and checks historical digest-log shape, order and before/after consistency. The older guard's path-dependent inventory digests and elapsed times are not independently bound by that ledger; these exports do not authenticate the historical execution.
 - No new product claim. The AI task planner is not generated or approved (see #218 / #219).

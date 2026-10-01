@@ -18,7 +18,7 @@ SOURCE = Path(os.environ.get("R4_REPLAY_SOURCE", str(REPO)))
 
 
 class ReplayCheckerRegression(unittest.TestCase):
-    def run_check(self, root, optimized=False):
+    def run_check(self, root, optimized=False, source=None):
         return subprocess.run(
             [
                 sys.executable,
@@ -28,7 +28,7 @@ class ReplayCheckerRegression(unittest.TestCase):
                 "--packet",
                 str(PACKET),
                 "--peos-source",
-                str(SOURCE),
+                str(source or SOURCE),
                 "--case",
                 root.name,
             ],
@@ -42,6 +42,15 @@ class ReplayCheckerRegression(unittest.TestCase):
             with self.subTest(case=name):
                 result = self.run_check(EVIDENCE / name)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_extra_top_level_source_module_cannot_shadow_checker_dependency(self):
+        """TEST-ONLY inert yaml.py must not be imported from supplied PEOS source."""
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "source"
+            shutil.copytree(SOURCE, source, ignore=shutil.ignore_patterns(".git", "__pycache__"))
+            (source / "src/yaml.py").write_text("SHADOW_SENTINEL = True\n")
+            result = self.run_check(EVIDENCE / "retained", source=source)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def mutate(self, name, mutation, optimized=False):
         with tempfile.TemporaryDirectory() as temporary:

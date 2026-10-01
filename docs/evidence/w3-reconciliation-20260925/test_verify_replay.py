@@ -52,6 +52,61 @@ class VerifyReplayRegression(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("OK:", result.stdout)
 
+    def test_exported_historical_logs_must_match_ledger_observations(self):
+        """Raw process and digest-check exports cannot be ignored by the verifier."""
+        for name in ("historical-processes.jsonl", "historical-digest-checks.jsonl"):
+            with self.subTest(export=name, mutation="invalid-json"):
+                self.refused(
+                    lambda replay, name=name: (replay / name).write_bytes(b"not json\n"),
+                    name,
+                )
+
+        def changed_process(replay):
+            path = replay / "historical-processes.jsonl"
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            rows[0]["stdout"] = "TEST-ONLY changed process output"
+            path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows))
+
+        def changed_digest(replay):
+            path = replay / "historical-digest-checks.jsonl"
+            rows = [json.loads(line) for line in path.read_text().splitlines()]
+            rows[1]["observed_inventory_digest"] = "sha256:" + "0" * 64
+            path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows))
+
+        self.refused(changed_process, "historical-processes.jsonl")
+        self.refused(changed_digest, "historical-digest-checks.jsonl")
+
+    def test_current_checkout_runtime_paths_verify_without_accepting_arbitrary_paths(self):
+        """Fresh replay records the source checkout used now, not the original host path."""
+
+        def current_checkout(replay):
+            self.change_json(
+                replay / "migration.json",
+                lambda value: value.update(
+                    {
+                        "runtime_imports": {
+                            "pmpe": str((REPO / "src/pmpe/__init__.py").resolve()),
+                            "pmpe.barebones": str((REPO / "src/pmpe/barebones.py").resolve()),
+                        }
+                    }
+                ),
+            )
+
+        result = self.run_verifier(current_checkout)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OK:", result.stdout)
+
+        def unrelated_checkout(replay):
+            current_checkout(replay)
+            self.change_json(
+                replay / "migration.json",
+                lambda value: value["runtime_imports"].update(
+                    {"pmpe": "/tmp/TEST-ONLY/unrelated/pmpe/__init__.py"}
+                ),
+            )
+
+        self.refused(unrelated_checkout, "runtime_imports")
+
     def test_approval_claims_in_the_summary_rejected(self):
         """The no-approval verdict rests on status and approval; both must match (Codex #231)."""
 

@@ -93,6 +93,8 @@ jobs:
         run: pytest tests/integration -q
       - name: end-to-end tests
         run: pytest tests/e2e -q
+      - name: retained W3 replay verifier regressions
+        run: python -B docs/evidence/w3-reconciliation-20260925/test_verify_replay.py -v
 
   candidate-isolation:
     runs-on: ubuntu-latest

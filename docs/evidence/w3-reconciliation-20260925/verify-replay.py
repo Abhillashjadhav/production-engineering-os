@@ -23,9 +23,13 @@ Checks, exiting 1 on the first failure:
 
 import hashlib
 import json
+import math
+import re
 import sys
 from pathlib import Path
 
+import pmpe
+import pmpe.barebones
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
@@ -75,6 +79,136 @@ def tree_digest(root):
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def exported_jsonl(directory, name):
+    """Read an adapter-written JSONL export with its exact one-line serialization."""
+    path = directory / name
+    if path.is_symlink() or not path.is_file():
+        fail(name + " is missing or not a regular file")
+    try:
+        content = path.read_text()
+        if not content or not content.endswith("\n"):
+            raise ValueError("missing records or final newline")
+        rows = [json.loads(line) for line in content.splitlines()]
+        if any(not isinstance(row, dict) for row in rows) or content != "".join(
+            json.dumps(row, sort_keys=True, default=str) + "\n" for row in rows
+        ):
+            raise ValueError("record shape or serialization differs from adapter output")
+        return rows
+    except (OSError, UnicodeError, ValueError) as exc:
+        fail(name + " is malformed: " + str(exc))
+
+
+def valid_guard_check(item, stage, subject):
+    return (
+        set(item)
+        == {
+            "stage",
+            "subject",
+            "checked",
+            "expected_inventory_digest",
+            "observed_inventory_digest",
+            "mismatches",
+        }
+        and item["stage"] == stage
+        and item["subject"] == subject
+        and type(item["checked"]) is int
+        and item["checked"] > 0
+        and isinstance(item["expected_inventory_digest"], str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", item["expected_inventory_digest"]) is not None
+        and item["expected_inventory_digest"] == item["observed_inventory_digest"]
+        and item["mismatches"] == []
+    )
+
+
+def verify_historical_exports(directory, gate_evidence, migration):
+    """Bind raw process outputs to ledger records and check historical guard chronology.
+
+    The older guard's inventory paths are not exported in the ledger. Its two
+    migration checks can be checked for shape and internal consistency here,
+    but their path-dependent inventory digests are not independently attested.
+    """
+    by_kind = {
+        gate["binding"]["kind"]: gate["evidence"]
+        for gate in gate_evidence["gates"]
+        if isinstance(gate.get("binding"), dict) and isinstance(gate.get("evidence"), dict)
+    }
+    boundaries = by_kind.get("digest_boundaries", {})
+    provenance = by_kind.get("generation_provenance", {})
+    protected = boundaries.get("protected_inventory")
+    historical_count = migration.get("historical_artifacts_bound")
+    if not isinstance(protected, dict) or type(historical_count) is not int:
+        fail("historical-digest-checks.jsonl has no bound inventory counts")
+    bound = boundaries.get("process_records")
+    if not isinstance(bound, list) or bound != provenance.get("process_records"):
+        fail("historical-processes.jsonl has no consistent ledger-bound process records")
+    processes = exported_jsonl(directory, "historical-processes.jsonl")
+    if len(processes) != len(bound):
+        fail("historical-processes.jsonl count differs from ledger-bound records")
+    for index, (raw, recorded) in enumerate(zip(processes, bound, strict=True)):
+        if (
+            not isinstance(recorded, dict)
+            or set(raw)
+            != {
+                "argv",
+                "check_index",
+                "criterion_id",
+                "elapsed_ms",
+                "environment",
+                "exit_code",
+                "mode",
+                "stderr",
+                "stdout",
+                "timeout_seconds",
+            }
+            or type(raw["check_index"]) is not int
+            or raw["check_index"] != index
+            or index != recorded.get("process_index")
+            or raw["criterion_id"] != "fixture"
+            or raw["mode"] != "AUTHORIZED_HOST_FALLBACK_NO_ADDITIONAL_ISOLATION"
+            or not isinstance(raw["elapsed_ms"], (int, float))
+            or not math.isfinite(raw["elapsed_ms"])
+            or raw["elapsed_ms"] < 0
+            or raw["argv"] != recorded.get("executed_argv")
+            or raw["environment"] != recorded.get("environment")
+            or raw["exit_code"] != recorded.get("exit_code")
+            or raw["timeout_seconds"] != recorded.get("timeout_seconds")
+            or not isinstance(raw["stdout"], str)
+            or not isinstance(raw["stderr"], str)
+            or "sha256:" + hashlib.sha256(raw["stdout"].encode()).hexdigest()
+            != recorded.get("stdout_digest")
+            or "sha256:" + hashlib.sha256(raw["stderr"].encode()).hexdigest()
+            != recorded.get("stderr_digest")
+        ):
+            fail("historical-processes.jsonl differs from ledger-bound process " + str(index))
+
+    checks = exported_jsonl(directory, "historical-digest-checks.jsonl")
+    if len(checks) != 2 * len(bound) + 2:
+        fail("historical-digest-checks.jsonl count differs from process chronology")
+    for endpoint, stage in ((checks[0], "migration_before"), (checks[-1], "migration_after")):
+        if not valid_guard_check(endpoint, stage, "frozen-v1"):
+            fail("historical-digest-checks.jsonl migration inventory check is invalid")
+        if endpoint["checked"] != historical_count + 1:
+            fail("migration.json historical count differs from historical-digest-checks.jsonl")
+    if any(
+        checks[0][key] != checks[-1][key]
+        for key in ("checked", "expected_inventory_digest", "observed_inventory_digest")
+    ):
+        fail("historical-digest-checks.jsonl migration inventory changed")
+    for index in range(len(bound)):
+        before, after = checks[2 * index + 1 : 2 * index + 3]
+        for item, stage in ((before, "before"), (after, "after")):
+            if (
+                not valid_guard_check(item, stage, "fixture")
+                or item["checked"] != historical_count + len(protected) + 2
+            ):
+                fail("historical-digest-checks.jsonl check differs at process " + str(index))
+        if any(
+            before[key] != after[key]
+            for key in ("checked", "expected_inventory_digest", "observed_inventory_digest")
+        ):
+            fail("historical-digest-checks.jsonl inventory changed at process " + str(index))
+
+
 def main(directory):
     summary = json.loads((directory / "replay-summary.json").read_text())
     try:
@@ -95,6 +229,7 @@ def main(directory):
     )
     bound = set(bound_manifest_digests(evidence))
     migration = json.loads((directory / "migration.json").read_text())
+    verify_historical_exports(directory, evidence, migration)
     if bound != {manifest} or migration.get("source_manifest_digest") != manifest:
         fail("source-manifest.json differs from the manifest the ledger and migration bind")
     # The exports behind the verdicts must be the contract and plan the ledger binds.
@@ -129,7 +264,20 @@ def main(directory):
     # The retained no-approval, no-model-call and historical-input claims behind the
     # verdicts: every field but the two source-bound digests equals the recorded run's.
     recorded_migration = json.loads((HERE / "migration.json").read_text())
-    source_bound = {"source_manifest_digest", "proposed_contract_digest"}
+    current_runtime_imports = {
+        "pmpe": str(Path(pmpe.__file__).resolve()),
+        "pmpe.barebones": str(Path(pmpe.barebones.__file__).resolve()),
+    }
+    recorded_manifest_digest = (
+        "sha256:" + hashlib.sha256((HERE / "source-manifest.json").read_bytes()).hexdigest()
+    )
+    runtime_imports = migration.get("runtime_imports")
+    if runtime_imports != current_runtime_imports and not (
+        manifest == recorded_manifest_digest
+        and runtime_imports == recorded_migration["runtime_imports"]
+    ):
+        fail("migration.json runtime_imports differ from the replay source checkout")
+    source_bound = {"source_manifest_digest", "proposed_contract_digest", "runtime_imports"}
     if (
         set(migration) != set(recorded_migration)
         or any(
@@ -140,7 +288,8 @@ def main(directory):
         or migration.get("proposed_contract_digest") != summary["contract_digest"]
     ):
         fail(
-            "migration.json approval, model-call or historical-input claims differ from the recorded run"
+            "migration.json approval, model-call or historical-input claims "
+            "differ from the recorded run"
         )
     publisher = json.loads((directory / "publisher-result.json").read_text())
     if (

@@ -8,6 +8,7 @@ This checks consistency of retained data, not historical runtime authentication.
 import argparse
 import ast
 import hashlib
+import importlib.util
 import json
 import re
 import sys
@@ -546,12 +547,30 @@ def check(directory, packet, source, case):
         )
     )
     entry_label = str(Path(recorded_roots["production-engineering-os"]) / entry_relative)
-    sys.path.insert(0, str(source / "src"))
     # A new empty prefix prevents Python from reading local stale bytecode. -B
     # alone only prevents writes and is not sufficient for this purpose.
     with tempfile.TemporaryDirectory(prefix="replay-checker-pycache-") as pycache:
         sys.pycache_prefix = pycache
-        import pmpe
+        # Loading the supplied src/ directory onto sys.path would also import any
+        # unrelated top-level module planted there (for example yaml.py). Only
+        # the digest-checked pmpe package may come from that source tree.
+        package_root = source / "src/pmpe"
+        require(
+            not any(name == "pmpe" or name.startswith("pmpe.") for name in sys.modules),
+            "checker imported PEOS before source validation",
+        )
+        package_spec = importlib.util.spec_from_file_location(
+            "pmpe",
+            package_root / "__init__.py",
+            submodule_search_locations=[str(package_root)],
+        )
+        require(
+            package_spec is not None and package_spec.loader is not None,
+            "checker could not load pinned PEOS package",
+        )
+        pmpe = importlib.util.module_from_spec(package_spec)
+        sys.modules["pmpe"] = pmpe
+        package_spec.loader.exec_module(pmpe)
         from pmpe.barebones import Template, _assertion_passes, compile_barebones_plan
         from pmpe.contracts.acceptance import PropertyAssertion
         from pmpe.contracts.authoring import verify_contract_approval
