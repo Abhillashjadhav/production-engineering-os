@@ -1,0 +1,5 @@
+# source: a1d257e; bwrap hidden by pointing the engine's fixed sandbox PATH at a missing directory
+# cmd: python -B -c "import sys, pytest; from pmpe import barebones; barebones._SANDBOX_PATH = \"/nonexistent\"; sys.exit(pytest.main([\"-p\", \"no:cacheprovider\", \"-o\", \"addopts=\", \"-q\", \"tests/integration/test_approved_bundle_run.py::test_complete_criterion_only_bundle_reaches_the_provider\"]))"
+.                                                                        [100%]
+1 passed in 1.56s
+# exit: 0

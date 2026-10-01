@@ -1,0 +1,4 @@
+# base feedbc3 + test only (Codex #228 P2s: runtime path grammar). template: refused only by the manifest binding, not by name; negative-control: admitted
+FAILED tests/integration/test_approved_bundle_run.py::test_unmaterializable_paths_are_refused_at_load[template]
+FAILED tests/integration/test_approved_bundle_run.py::test_unmaterializable_paths_are_refused_at_load[negative-control]
+2 failed, 22 passed in 8.64s

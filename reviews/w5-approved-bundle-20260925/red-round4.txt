@@ -1,0 +1,9 @@
+# base e754f52 + test only (Codex #228 P1: reserved source namespaces). Today these are refused only incidentally, by the manifest comparison, not by a reserved-name rule.
+E       AssertionError: Regex pattern did not match.
+E         Actual message: 'bundle sources differ from the approved source manifest'
+E       AssertionError: Regex pattern did not match.
+E         Actual message: 'bundle sources differ from the approved source manifest'
+FAILED tests/integration/test_approved_bundle_run.py::test_reserved_source_names_are_refused[engine/barebones.py]
+FAILED tests/integration/test_approved_bundle_run.py::test_reserved_source_names_are_refused[approval/contract]
+FAILED tests/integration/test_approved_bundle_run.py::test_reserved_source_names_are_refused[protected/x]
+3 failed, 24 deselected in 0.65s

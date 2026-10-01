@@ -35,7 +35,7 @@ _LEGACY_COMMANDS = frozenset(
     }
 )
 _BAREBONES_COMMANDS = frozenset(
-    {"compare", "compile", "run", "status", "evidence", "inspect", "package"}
+    {"compare", "compile", "run", "run-bundle", "status", "evidence", "inspect", "package"}
 )
 
 

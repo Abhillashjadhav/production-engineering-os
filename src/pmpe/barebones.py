@@ -33,6 +33,7 @@ from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
+from pmpe.process_approval import validate_approval_packet
 from pmpe.process_collection import RecordingSandbox
 from pmpe.process_gates import ProcessGateInputs, ProcessGateRuntime, validate_process_inputs
 from pmpe.release_gates import release_gate_results
@@ -1114,6 +1115,20 @@ def run_to_release_ready(
         repository_root=repository_root,
         template=active_template,
     )
+    if process_gate_inputs is not None and approval_payload["status"] == "VERIFIED":
+        # The CLI preflight compiles once, but the engine must bind the packet to
+        # its own freshly compiled plan before any workspace or provider effect.
+        try:
+            validate_approval_packet(
+                process_gate_inputs,
+                plan,
+                receipt_bytes=approval_receipt_bytes,
+                approval_verified=True,
+            )
+        except (ValueError, TypeError, AttributeError, OSError) as exc:
+            raise ContractInvalidError(
+                "approval packet invalid for executed plan: " + str(exc)
+            ) from exc
     counters["structured_criteria_count"] = sum(item.form != "human_test" for item in plan.criteria)
     counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)
     validated_isolation_report = validate_process_inputs(

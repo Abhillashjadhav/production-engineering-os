@@ -9,6 +9,24 @@
 
 No frozen source, trusted policy, scanner, allowlist, model, deployment, merge, or publication changes. A self-consistent unsigned rewrite remains unauthenticated without an independently retained head.
 
+## W5 — supported approved-bundle run (#224) — 2026-09-25
+
+1. **Already exists? Partly.** `examples/barebones/contract-file.py` loads frozen bindings, and the migration script assembles `ProcessGateInputs`. Neither is a supported CLI path. The loader's bindings and safe-path rules are promoted into `pmpe.approved_bundle`, and the example stays frozen as historical evidence.
+2. **Reproduced blocker? Yes.** The review (2026-09-25) found that `barebones_cmd._run` passes no bindings and no `ProcessGateInputs`, so gated contracts cannot run through the CLI.
+3. **Changes existing behaviour? No.** A new `run-bundle` subcommand; `run` and the other commands are unchanged.
+4. **Failing check first? Yes.** `reviews/w5-approved-bundle-20260925/red.txt`: 13 failing before implementation.
+5. **Revert as one unit? Yes.** Two new modules, one registration line, docs and tests.
+6. **New setting/dependency/extension? No new dependency.** The bundle layout is a fixed schema with no plugin surface. Measures must be frozen `tests/` files; actions may target explicit template modules, as the engine's default template does.
+
+## W5 test fix — criterion-only provider test on the local sandbox (#228) — 2026-09-25
+
+1. **Already exists? Yes.** Reuse the file's existing `LocalSandbox`, which the other engine-path tests in this file already use; no new test sandbox.
+2. **Reproduced blocker? Yes.** CI `tests (3.11)` on `460e104` failed in `test_complete_criterion_only_bundle_reaches_the_provider` with "candidate OS sandbox is unavailable": the plain `tests` job installs no `bwrap`, so the test reached the engine's default `BubblewrapCandidateSandbox`.
+3. **Changes behaviour with callers/tests? Yes, one test only.** That test now swaps `barebones.BubblewrapCandidateSandbox` for `LocalSandbox`, so it no longer depends on host `bwrap`. No source file changes. The real sandbox stays proven by the `candidate-isolation` job, which is unchanged; this test no longer adds host-sandbox coverage.
+4. **Failing check first? Yes.** `reviews/w5-approved-bundle-20260925/sandbox-red.txt`: with `bwrap` hidden, the test fails on `a556d40` (exit 1); `sandbox-green.txt`: the same command passes on `a1d257e` (exit 0).
+5. **Revert as one unit? Yes.** One test-only commit (`a1d257e`) plus this entry and its evidence.
+6. **New setting/dependency/extension? No.** No setting, dependency, workflow or skip marker; the test still runs in every job.
+
 ## W2 — source-only admission replaces registry scans (#217) — 2026-09-25
 
 Owner decision, 2026-09-25 18:29 IST, answering `reviews/r4-architecture-20260925/DECISION_REQUIRED.md`: **"Approve source-only start"**. Gated runs must start in a fresh source-only interpreter. The guard checks process state instead of scanning `sys.modules`. Gated direct calls in an unprepared interpreter are refused.
@@ -314,3 +332,56 @@ Historical prefix emptiness, arbitrary helper/future imports and mutable-global 
 4. **Yes.** Add a harmless untracked shadow-module regression, run red before the import change, then green plus existing verifier tests.
 5. **Yes.** One bootstrap import path and regression are independently revertible.
 6. **No.** No dependency, source-policy bypass, candidate execution, setting or product threshold.
+## Unit — preserve interpreter isolation across run-bundle relaunch (2026-09-30)
+
+1. **Yes, restructured.** Extend the existing source-only relaunch; no parallel launcher.
+2. **Yes.** PR #228 review and a no-exec argv witness show caller -E/-P/-s are dropped; -S also drops site exclusion.
+3. **Yes.** Existing run-bundle callers may rely on interpreter isolation. This is a separate PR228-pinned local branch and test unit.
+4. **Yes.** A subprocess/no-exec argv regression is added and run red before implementation, then green afterward.
+5. **Yes.** One relaunch function and its regression can be reverted without other repairs.
+6. **No.** No setting, dependency, extension surface, host security change or product policy is added.
+
+## Unit — unconditional source-manifest admission for run-bundle (2026-09-30)
+
+1. **Yes, restructured.** Reuse the existing source-manifest validation path; no parallel manifest authority.
+2. **Yes.** PR #228 review and test-only loader witness show schema 999 and wrong sandbox identity admitted without typed process gates.
+3. **Yes.** Bundle loader/CLI may reject previously accepted malformed packets. This is a separate PR228-pinned local branch and test unit.
+4. **Yes.** Add invalid-schema and wrong-runtime-identity criterion-only regressions, demonstrate red before editing runtime, then green.
+5. **Yes.** This manifest admission repair and tests are independently revertible from the relaunch fix.
+6. **No.** No setting, dependency, host sandbox change, new provider, approval issuance or product threshold.
+
+## Unit — reject empty dotted module segments in bundle bindings (2026-09-30)
+
+1. **Yes, restructured.** Tighten the existing bundle binding target grammar; no second parser.
+2. **Yes.** PR #228 review shows `foo.:bar` can pass loading with `foo/.py` and fail only after workspace/evidence creation.
+3. **Yes.** Existing bindings with empty dotted segments become refused; this is a separately reversible PR228-pinned unit.
+4. **Yes.** Add a no-execution loader regression, run red before regex change, then green.
+5. **Yes.** One parser line and regression can revert independently from other repairs.
+6. **No.** No setting, dependency, new extension surface or product threshold.
+
+## Unit — HALTED JSON on bundle file read failure (2026-09-30)
+
+1. **Yes, restructured.** Wrap only the existing bundle loader's filesystem errors; no alternate I/O path.
+2. **Yes.** PR #228 review identifies a stat/read race or permission error that currently escapes as a traceback.
+3. **Yes.** Existing CLI refusal behavior changes for a failed bundle read; this is separately reversible on the PR228 candidate.
+4. **Yes.** Add a deterministic monkeypatched read failure, run red before implementation, then green.
+5. **Yes.** One CLI preflight wrapper and its regression can revert independently.
+6. **No.** No permissions, host security settings, dependencies or product thresholds change.
+
+## Unit — recheck the plan actually executed by run-bundle (2026-09-30)
+
+1. **Yes, restructured.** Reuse the existing approval-packet validator against the engine's compiled plan; no second planner or policy.
+2. **Yes.** PR #228 review shows a criterion-only bundle can change a human test between CLI preflight and engine recompilation without binding the executed plan.
+3. **Yes.** Such changed plans now refuse before workspace/provider. This is a separate PR228-pinned runtime unit.
+4. **Yes.** Add a deterministic two-plan mismatch with no-execution sandbox double, run red before fix, then green.
+5. **Yes.** One engine admission call and regression can revert independently.
+6. **No.** No new setting, dependency, approval issuer, product threshold or external surface.
+
+## Unit — preserve descriptive source-manifest scope compatibility (2026-09-30)
+
+1. **Yes, restructured.** Relax only an overstrict comparison in the new shared parser; retain manifest schema and runtime identity validation.
+2. **Yes.** Independent Astra review found the preexisting canonical validator required `scope` presence but not the builder's exact prose string.
+3. **Yes.** Previously valid custom descriptive scope values are admitted again. This is an isolated superseding PR228 candidate.
+4. **Yes.** Add a TEST-ONLY custom-scope bundle control, run red before edit, then green with the full focused suite.
+5. **Yes.** One conditional and regression revert independently from other repairs.
+6. **No.** No new setting, dependency, sandbox/approval weakening or product threshold.

@@ -22,6 +22,7 @@ def test_default_cli_exposes_only_alpha_and_explicit_legacy_boundary() -> None:
         "compare",
         "compile",
         "run",
+        "run-bundle",
         "status",
         "evidence",
         "inspect",
