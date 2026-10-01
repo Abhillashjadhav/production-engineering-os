@@ -1,0 +1,47 @@
+{
+  "criteria": {
+    "AC-001": "PASS",
+    "AC-002": "PASS",
+    "AC-003": "PASS",
+    "AC-004": "PASS",
+    "AC-005": "PASS",
+    "AC-006": "PASS",
+    "AC-007": "PASS",
+    "AC-008": "PASS",
+    "AC-009": "PASS",
+    "AC-010": "PASS",
+    "AC-011": "PASS",
+    "AC-012": "PASS",
+    "AC-013": "PASS",
+    "AC-014": "PASS"
+  },
+  "criteria_passed": 14,
+  "criteria_total": 14,
+  "gates": {
+    "GATE-001": {
+      "reasons": [],
+      "status": "PASS"
+    },
+    "GATE-002": {
+      "reasons": [],
+      "status": "PASS"
+    },
+    "GATE-003": {
+      "reasons": [
+        "APPROVAL_PACKET_NOT_BOUND"
+      ],
+      "status": "NOT_EVALUATED"
+    },
+    "GATE-004": {
+      "reasons": [
+        "FRESH_MODEL_SESSION_NOT_ATTESTED"
+      ],
+      "status": "NOT_EVALUATED"
+    },
+    "GATE-005": {
+      "reasons": [],
+      "status": "PASS"
+    }
+  },
+  "source": "retained-replay.tar.gz :: w3-replay5/gate-evidence.json"
+}

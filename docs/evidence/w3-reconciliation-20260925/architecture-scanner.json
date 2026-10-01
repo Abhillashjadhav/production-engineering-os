@@ -1,0 +1,19 @@
+{
+  "head": "80cd230ca37f3d75e3aa2d1dd0733d8e464b45e0",
+  "scope": "unchanged text-only architecture scanner with the reviewed policy; not the composed CI job",
+  "unapproved_edges": [],
+  "protected_files": {
+    "scripts/ci/evaluate_security_profile.py": {
+      "sha256": "1991d09117a4a8385726f04e5bcdc6f80ed3a645b8aab07fac215dd60e06a5fd",
+      "same_as_ccabeecc": true
+    },
+    "security/security-profile-policy.json": {
+      "sha256": "417ddd1deaea43983901e8577dc42920a8979a98b7755d8510e74fa755af081a",
+      "same_as_ccabeecc": true
+    },
+    "security/secret-allowlist.json": {
+      "sha256": "77db25c79d5210a72c147f1c27cfffa7daba8c7d2400a5a63fa97424fe9c0965",
+      "same_as_ccabeecc": true
+    }
+  }
+}

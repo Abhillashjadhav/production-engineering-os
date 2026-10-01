@@ -314,3 +314,29 @@ Historical prefix emptiness, arbitrary helper/future imports and mutable-global 
 4. **Yes.** Add a harmless untracked shadow-module regression, run red before the import change, then green plus existing verifier tests.
 5. **Yes.** One bootstrap import path and regression are independently revertible.
 6. **No.** No dependency, source-policy bypass, candidate execution, setting or product threshold.
+## Unit — verify exported historical replay logs (2026-09-30)
+
+1. **Yes, restructured.** Extend the existing W3 replay verifier's evidence checks; no alternate verifier.
+2. **Yes.** PR #231 review shows historical process and digest-check JSONL exports can be corrupted yet verifier exits zero.
+3. **Yes.** Corrupted-export refusal changes; this unit is isolated on the #231 head.
+4. **Yes.** Add failing export-mutation regressions before implementation, then run green.
+5. **Yes.** Log checks and tests are independently reversible from path portability.
+6. **No.** No product gate, approval packet, provider call, sandbox behavior or new dependency.
+
+## Unit — verify fresh replay checkout paths (2026-09-30)
+
+1. **Yes, restructured.** Extend the existing W3 replay verifier's path comparison; no alternate verifier.
+2. **Yes.** PR #231 review shows fresh-checkout runtime paths are compared literally to the old host.
+3. **Yes.** Fresh replay path admission changes; this unit is isolated on the #231 head.
+4. **Yes.** Add failing relocated-runtime and invalid-path regressions before fix, then run green.
+5. **Yes.** One verifier comparison and test are independently reversible.
+6. **No.** No product gate, approval packet, provider call, sandbox behavior or new dependency.
+
+## Unit — select the retained W3 verifier in CI (2026-10-01)
+
+1. **Yes, extend it.** Use the existing `tests` matrix in `ci.yml`; the W3 unittest lives outside pytest's configured testpaths.
+2. **Yes.** PR #231 review found that CI never selects the verifier guarding its historical replay exports.
+3. **No product behavior changes.** Both supported Python versions now run the read-only retained verifier regressions; a failed regression will fail CI.
+4. **Yes.** An exact-command selection assertion failed before this workflow edit and passes after it; the selected W3 suite passes all 12 tests locally.
+5. **Yes.** One CI step and this BAR entry can be reverted without changing replay evidence or product source.
+6. **No.** No new setting, dependency, provider, approval, security policy or product gate.
