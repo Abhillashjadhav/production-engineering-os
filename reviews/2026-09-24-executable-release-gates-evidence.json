@@ -1,0 +1,147 @@
+{
+  "bandit_ci_high_severity": {
+    "command": "python -m bandit -r src scripts/ci -q --severity-level high",
+    "exit_code": 0
+  },
+  "bandit_informational_comparison": [
+    {
+      "counts": {
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 69,
+        "SEVERITY.MEDIUM": 20,
+        "SEVERITY.UNDEFINED": 0
+      },
+      "exit_code": 1,
+      "findings": 89,
+      "name": "baseline"
+    },
+    {
+      "counts": {
+        "SEVERITY.HIGH": 0,
+        "SEVERITY.LOW": 69,
+        "SEVERITY.MEDIUM": 20,
+        "SEVERITY.UNDEFINED": 0
+      },
+      "exit_code": 1,
+      "findings": 89,
+      "name": "candidate"
+    }
+  ],
+  "base_commit": "dd4271b70fcb9cb5b9dd279fe516c2fe50806751",
+  "behavioral_implementation_attempts": 1,
+  "bounded_regression": {
+    "command": "PYTHONPATH=src python -m pytest tests/unit/test_release_gate_compiler.py tests/integration/test_release_gate_runtime.py tests/unit/test_acceptance_compiler.py tests/integration/test_barebones_cli.py tests/e2e/test_barebones_e1.py tests/unit/test_pmos_contract_schema.py",
+    "errors": 0,
+    "exit_code": 0,
+    "failures": 0,
+    "junit_sha256": "d9df315d1beac9a80838729689e6bb906868c32af51bbffc5d5925171031c97b",
+    "skipped": 0,
+    "stdout": [
+      "........................................................................ [ 31%]",
+      "........................................................................ [ 63%]",
+      "........................................................................ [ 95%]",
+      "..........                                                               [100%]",
+      "226 passed in 9.22s"
+    ],
+    "tests": 226
+  },
+  "broad_full_suite_status": "Running when receipt written; no claim of full-suite completion",
+  "candidate_sandbox": "existing local test-only seam",
+  "finding": "F-01",
+  "formatting_corrections": 1,
+  "historical_example_fixture_diff": [],
+  "implementation_commit": "91383de192b6483d721e4573d92634e8a8b645c6",
+  "implementation_tree": "4f1bd0babc90f25ed7c5feff4ca93762d97e23fd",
+  "limitations": [
+    "Only explicit conjunctions of existing executable ACs are supported.",
+    "Description-only and process/evidence/disclosure gates remain blocked until supported approved bindings exist.",
+    "Historical DEMONSTRATED receipts are preserved, not reinterpreted as new gate evidence."
+  ],
+  "live_model_calls": false,
+  "modified_owner_approvals": false,
+  "mypy": {
+    "exit_code": 0,
+    "source_files": 189
+  },
+  "new_regressions": {
+    "exit_code": 0,
+    "passed": 26
+  },
+  "no_gate_compatibility": [
+    {
+      "contract": "e1-contract.json",
+      "plan_digest": "sha256:465768d2560b7cca1c98d1c31695b4b546e5ec8bf77178f97208fc9d05bf7231",
+      "same_plan_digest": true,
+      "same_plan_serialization": true
+    },
+    {
+      "contract": "readiness-contract.json",
+      "plan_digest": "sha256:54de6b9cbc21700c7ecac9cda15acc13716ccde519839041efed86abafba54e3",
+      "same_plan_digest": true,
+      "same_plan_serialization": true
+    }
+  ],
+  "production_isolation_claim": false,
+  "provider": "deterministic test provider",
+  "red": {
+    "exit_code": 1,
+    "failed": 25,
+    "failure_nodes": [
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_bindings_are_preserved_in_the_compiled_plan[pdc_array]",
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_bindings_are_preserved_in_the_compiled_plan[pdc_map]",
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_bindings_are_preserved_in_the_compiled_plan[canonical_map]",
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_invalid_binding_refuses_compilation[None]",
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_invalid_binding_refuses_compilation[refs1]",
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_invalid_binding_refuses_compilation[AC-001]",
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_invalid_binding_refuses_compilation[refs3]",
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_invalid_binding_refuses_compilation[refs4]",
+      "tests/unit/test_release_gate_compiler.py::test_release_gate_invalid_binding_refuses_compilation[refs5]",
+      "tests/unit/test_release_gate_compiler.py::test_description_only_gate_is_unbound_not_silently_dropped[False]",
+      "tests/unit/test_release_gate_compiler.py::test_description_only_gate_is_unbound_not_silently_dropped[True]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[None]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[all tests pass]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[gates2]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[gates3]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[gates4]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[gates5]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[gates6]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[gates7]",
+      "tests/unit/test_release_gate_compiler.py::test_malformed_or_unsupported_gate_cannot_be_dropped[gates8]",
+      "tests/unit/test_release_gate_compiler.py::test_competing_gate_declarations_are_not_merged_by_guessing",
+      "tests/integration/test_release_gate_runtime.py::test_every_bound_gate_has_snapshot_bound_runtime_evidence[ok]",
+      "tests/integration/test_release_gate_runtime.py::test_every_bound_gate_has_snapshot_bound_runtime_evidence[broken]",
+      "tests/integration/test_release_gate_runtime.py::test_unbound_gate_fails_before_provider_or_workspace",
+      "tests/integration/test_release_gate_runtime.py::test_missing_criterion_outcome_is_not_inferred_pass"
+    ],
+    "passed": 1,
+    "raw_log_sha256": "9c2784f86f940609242d710782a794eb4cc966138296bbb12f82b418ea444966"
+  },
+  "red_only_commit": "1b807a68dd2020bcabad0c5cfd649c236f602219",
+  "ruff": {
+    "check_exit_code": 0,
+    "files": 302,
+    "format_exit_code": 0
+  },
+  "secret_scanner": {
+    "allowlist_digest": "sha256:7a29e022ccf1216716c66a8daf99bc60daa6c2521c8d05a5fb3a836c5b9db602",
+    "candidate_sha": "91383de192b6483d721e4573d92634e8a8b645c6",
+    "committed_script_digest": "sha256:3a20d9568bb60646a319c28e45b0626262d035e7e3d5de241c857bcf9123523d",
+    "finding_count": 0,
+    "findings": [],
+    "profile": "no-ignore-secret/v1",
+    "report_digest": "sha256:28ec3bf3ea82aa6a37bcef212ef1e2f483065085a7a4835e567b704a0da1eaee",
+    "tool_identity": {
+      "name": "pmpe-no-ignore-secret",
+      "ruleset_digest": "sha256:266fdf7928893a59b4200ad6b34c8c92d96fc48994f482ec4aef9e50e56ec691",
+      "version": "1.0.0"
+    }
+  },
+  "source_blobs": {
+    "schemas/pmos_contract_bundle.schema.json": "ef1b8ddab24e1bfd9840de0db874461f7f4863e1",
+    "src/pmpe/barebones.py": "f183ce55b0a954e6b50a45125f731c9a0bb8c304",
+    "src/pmpe/contracts/acceptance.py": "33811f9c082dbdcfb737c2d6d94c40eeb64361a7",
+    "src/pmpe/contracts/release_gates.py": "c184ab3c1f50cf7773cd1a2cd67f40e444757fa9",
+    "src/pmpe/release_gates.py": "a1c225da211dd1e9a1f7d180d72739b66d561595",
+    "src/pmpe/schemas/pmos_contract_bundle.schema.json": "ef1b8ddab24e1bfd9840de0db874461f7f4863e1"
+  }
+}

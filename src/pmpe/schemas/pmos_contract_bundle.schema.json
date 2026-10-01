@@ -1863,6 +1863,9 @@
           "additionalProperties": {
             "additionalProperties": false,
             "properties": {
+              "acceptance_criterion_refs": {
+                "$ref": "#/$defs/acceptance_reference_list"
+              },
               "description": {
                 "$ref": "#/$defs/non_empty_string"
               },
