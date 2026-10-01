@@ -305,6 +305,49 @@ def _assert_snapshot_identity(source_checkout: Path, expected_tree_digest: str) 
         raise RuntimeError("source snapshot changed during the matrix")
 
 
+_SNAPSHOT_MATERIALIZER = """\
+import json, os, sys
+descriptor, root = int(sys.argv[1]), sys.argv[2]
+with os.fdopen(descriptor, "rb") as image:
+    header = json.loads(image.read(int.from_bytes(image.read(8), "big")))
+    for relative, mode in header["directories"]:
+        os.mkdir(os.path.join(root, relative), 0o700)
+    for relative, mode, size in header["files"]:
+        content = image.read(size)
+        if len(content) != size:
+            raise SystemExit("private source image is truncated")
+        path = os.path.join(root, relative)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+        with os.fdopen(os.open(path, flags, 0o600), "wb") as target:
+            target.write(content)
+        os.chmod(path, mode)
+    if image.read(1):
+        raise SystemExit("private source image has trailing data")
+for relative, mode in reversed(header["directories"]):
+    os.chmod(os.path.join(root, relative), mode)
+os.chmod(root, header["root_mode"])
+os.execv(sys.argv[3], sys.argv[3:])
+"""
+
+
+def _snapshot_image_bytes(
+    entries: list[dict[str, str | int]], files: list[tuple[str, bytes, int]]
+) -> bytes:
+    """Serialize the verified tree for the in-sandbox materializer: header, then bytes."""
+
+    header = {
+        "directories": [
+            [str(entry["path"]), int(_snapshot_mode(entry), 8)]
+            for entry in entries[1:]
+            if entry["type"] == "directory"
+        ],
+        "files": [[relative, mode, len(content)] for relative, content, mode in files],
+        "root_mode": int(_snapshot_mode(entries[0]), 8),
+    }
+    encoded = json.dumps(header, separators=(",", ":"), sort_keys=True).encode()
+    return len(encoded).to_bytes(8, "big") + encoded + b"".join(item[1] for item in files)
+
+
 def _sealed_memfd(content: bytes) -> int:
     try:
         descriptor = os.memfd_create(
@@ -343,64 +386,55 @@ def _snapshot_command(
     entries, files = _snapshot_image(source_checkout)
     if _snapshot_entries_digest(entries) != expected_tree_digest:
         raise RuntimeError("private source image does not match the captured snapshot")
-    descriptors: list[int] = []
     root_entry = entries[0]
     if root_entry.get("path") != "." or root_entry.get("type") != "directory":
         raise RuntimeError("source snapshot root entry is invalid")
-    command = [
-        bwrap_executable,
-        "--die-with-parent",
-        "--bind",
-        "/",
-        "/",
-        "--perms",
-        _snapshot_mode(root_entry),
-        "--tmpfs",
-        str(source_checkout),
-    ]
-    for entry in entries:
-        if entry["type"] == "directory" and entry["path"] != ".":
-            command.extend(
-                (
-                    "--perms",
-                    _snapshot_mode(entry),
-                    "--dir",
-                    str(source_checkout / str(entry["path"])),
-                )
-            )
+    # One sealed image and a fixed argv: bwrap refuses more than 9000 arguments, so the
+    # tree is unpacked inside the sandbox and a nested bwrap then makes it read-only.
+    descriptor = _sealed_memfd(_snapshot_image_bytes(entries, files))
     try:
-        for relative, content, mode in files:
-            descriptor = _sealed_memfd(content)
-            descriptors.append(descriptor)
-            command.extend(
-                (
-                    "--perms",
-                    f"{mode:04o}",
-                    "--file",
-                    str(descriptor),
-                    str(source_checkout / relative),
-                )
-            )
-        command.extend(
-            (
-                "--remount-ro",
-                str(source_checkout),
-                "--chdir",
-                str(source_checkout),
-                "--",
-                *argv,
-            )
-        )
+        command = [
+            bwrap_executable,
+            "--die-with-parent",
+            "--bind",
+            "/",
+            "/",
+            "--perms",
+            "0700",
+            "--tmpfs",
+            str(source_checkout),
+            "--chdir",
+            "/",
+            "--",
+            sys.executable,
+            "-I",
+            "-B",
+            "-S",
+            "-c",
+            _SNAPSHOT_MATERIALIZER,
+            str(descriptor),
+            str(source_checkout),
+            bwrap_executable,
+            "--die-with-parent",
+            "--bind",
+            "/",
+            "/",
+            "--remount-ro",
+            str(source_checkout),
+            "--chdir",
+            str(source_checkout),
+            "--",
+            *argv,
+        ]
         return _command(
             command,
             environment=environment,
-            pass_fds=tuple(descriptors),
+            pass_fds=(descriptor,),
             timeout=timeout,
             cwd=source_checkout,
         )
     finally:
-        for descriptor in descriptors:
-            os.close(descriptor)
+        os.close(descriptor)
         _assert_snapshot_identity(source_checkout, expected_tree_digest)
 
 
