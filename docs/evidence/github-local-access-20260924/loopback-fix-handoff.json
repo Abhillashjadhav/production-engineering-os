@@ -1,0 +1,20 @@
+{
+  "branch": "fix/peos-loopback-preview-20260924",
+  "base_sha": "dd4271b70fcb9cb5b9dd279fe516c2fe50806751",
+  "head_sha": "a925dcffa36cf171e4917ac9e089d1b6bdb85ff3",
+  "tree_sha": "0b098c3cbd5ee9cea579e0fa9b6ae5d9735b21d7",
+  "commits": [
+    "d151a5edeb211e45f1b063c7e27cfb69ae8af92f 0d34c2ff22968091bc3197d55194abf5d73bbc1c test: require loopback defaults for local frontend",
+    "a925dcffa36cf171e4917ac9e089d1b6bdb85ff3 0b098c3cbd5ee9cea579e0fa9b6ae5d9735b21d7 fix: bind local frontend previews to loopback by default"
+  ],
+  "working_tree_clean": true,
+  "source_diff_check_exit": 0,
+  "remote_written": false,
+  "independent_review": "Root: no blocker; 6/6 focused tests independently executed; no SKILL.md changed, lint not applicable",
+  "verification_scope": "Configuration property regression and existing toolchain contract; four temporary-file seeded wildcard mutations rejected; no running-server/browser test or laptop/network probe",
+  "evidence": [
+    "loopback-red.txt",
+    "loopback-green.json",
+    "loopback-seeded-check.json"
+  ]
+}

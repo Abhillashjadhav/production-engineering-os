@@ -1,0 +1,14 @@
+[
+  {
+    "check": 0,
+    "status": "fulfilled",
+    "exit_code": 0,
+    "output": "......                                                                   [100%]\n"
+  },
+  {
+    "check": 1,
+    "status": "fulfilled",
+    "exit_code": 0,
+    "output": "All checks passed!\n1 file already formatted\n"
+  }
+]
