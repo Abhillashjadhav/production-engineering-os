@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from .adapter import load_adapter_settings, load_normalized_run, map_normalized_run
+from .beacon import finish_recording, start_recording
 from .integration import bind_baseline, connection_report
 from .models import RunEnvelope, canonical_run_line
 from .outbox import canonical_outbox_identity, enqueue, flush_resilient, http_post_sender
@@ -109,6 +110,19 @@ def main() -> int:
     serve.add_argument("--port", type=int, default=8000)
     serve.add_argument("--frontend-dir", type=Path)
     args = parser.parse_args()
+    # Serve requests have their own operation records; health/read requests are
+    # intentionally not observed. Do not create an endless server-session run.
+    recorder = None if args.command == "serve" else start_recording("pm-evals." + args.command)
+    try:
+        result = _dispatch(args)
+    except BaseException as exc:
+        finish_recording(recorder, error=exc)
+        raise
+    finish_recording(recorder, code=result)
+    return result
+
+
+def _dispatch(args: argparse.Namespace) -> int:
     try:
         if args.command == "init":
             from .demo import build_demo_runs
