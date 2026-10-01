@@ -294,3 +294,14 @@ script was committed or executed before the original documentation change.
 4. **Failing automated check first? Yes.** The pre-repair real `-I` control must exit zero and print usage; the current assertion only checks that a decoy does not execute and return code is not 7, so it falsely passes an import traceback.
 5. **Independently revertible? Yes.** This script-entrypoint/test repair builds on the separately pinned prefix patch and can be reverted as one unit without changing migration policy.
 6. **Unrequested setting/dependency/extension? No.** Reuse the existing package installation, script and Python isolation flags. No host security setting, provider, or new runtime dependency is added.
+
+# PR227 source-admission evidence correction — 2026-10-01
+
+1. **Already exists? Yes.** Extend `require_source_only_interpreter` and the existing named source inventory; do not create another gate or inspect the broad module registry.
+2. **Approved criterion or reproduced blocker? Yes.** The existing W2 source-only-start decision and the PR227 review identify mutable no-/proc fallback and unverified ZIP/sourceless named-root origins.
+3. **Existing behavior affected? Yes.** Source-manifest construction and bound process admission may refuse a startup without kernel records or a named engine source without a regular `.py` origin. This isolated branch owns those effects.
+4. **Automated RED before change? Yes.** The three new focused cases in `test_process_source_only_admission.py` failed against the unchanged PR227 source: missing kernel records and named ZIP/sourceless engine origins were admitted. Existing regular-source startup remains the positive control. The recorded local red output is `/tmp/peos-pr227-source-red.log`.
+5. **Revert as one unit? Yes.** The two narrowly related source-admission checks, regressions and accuracy wording form one revertible PR227 patch.
+6. **New setting, dependency or extension? No.** Preserve the existing source-only mode, manifest and architecture scanner; add no provider, trust setting or public API.
+
+Historical prefix emptiness, arbitrary helper/future imports and mutable-global authenticity remain unverified by this in-process hygiene check. The separate outside-process verifier owns candidate-response judgments.
