@@ -276,3 +276,21 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Check existing boundary/process coverage before regeneration, rerun to terminal exit and require full ordered coverage before copying.
 5. **Yes.** One evidence repair commit can be reverted separately.
 6. **No.** No dependency, signing, sandbox change or new approval.
+
+## Unit — relaunch migration when Python ignores prefix environment (2026-09-30)
+
+1. **Yes, restructured.** Correct the existing migration source-only startup shortcut; no second launcher.
+2. **Yes.** PR #227 review shows -B -E/-I ignores a set PYTHONPYCACHEPREFIX while the shortcut mistakes it for an effective prefix.
+3. **Yes.** Callers with ignored prefix environment now relaunch instead of entering a later refusal. This is separate on the #227 head.
+4. **Yes.** Add no-exec -E/-I ignored-environment regressions, run red before implementation, then green.
+5. **Yes.** One startup condition and test are independently revertible.
+6. **No.** No sandbox weakening, OS change, new setting, dependency or product policy.
+
+# BAR: PR227 real isolated migration startup
+
+1. **Already exists? Yes, extend it.** Repair the existing migration script and its existing relaunch tests; no second runner or import path is introduced.
+2. **Approved criterion or reproduced blocker? Yes.** `python -I scripts/r3_task_store_migration.py --help` after a trusted local package installation reaches a bare self-import that isolated mode cannot resolve; the existing test accepts nonzero traceback exits.
+3. **Changes existing behavior? Yes.** The script's CLI entrypoint changes from an unnecessary module self-import to its already-defined `main()`. Test the trusted installed-package and decoy cases separately; no candidate source is added to Python's import path.
+4. **Failing automated check first? Yes.** The pre-repair real `-I` control must exit zero and print usage; the current assertion only checks that a decoy does not execute and return code is not 7, so it falsely passes an import traceback.
+5. **Independently revertible? Yes.** This script-entrypoint/test repair builds on the separately pinned prefix patch and can be reverted as one unit without changing migration policy.
+6. **Unrequested setting/dependency/extension? No.** Reuse the existing package installation, script and Python isolation flags. No host security setting, provider, or new runtime dependency is added.

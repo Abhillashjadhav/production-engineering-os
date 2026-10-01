@@ -6,6 +6,7 @@ import whatever `pmpe` the environment points at instead of the isolated one.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -40,7 +41,10 @@ def test_relaunch_preserves_environment_isolation(tmp_path: Path, option: str) -
         check=False,
     )
     assert "DECOY PMPE IMPORTED" not in result.stdout, result.stdout + result.stderr
-    assert result.returncode != 7, result.stdout + result.stderr
+    assert "DECOY PMPE IMPORTED" not in result.stderr, result.stdout + result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "usage:" in result.stdout
+    assert "Traceback" not in result.stderr
 
 
 def test_relaunch_keeps_the_option_terminator_last(tmp_path: Path) -> None:
@@ -62,3 +66,44 @@ def test_relaunch_keeps_the_option_terminator_last(tmp_path: Path) -> None:
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "usage:" in result.stdout
+
+
+@pytest.mark.parametrize("option", ["-E", "-I"])
+def test_ignored_prefix_environment_still_relaunches_source_only(option: str) -> None:
+    """Capture execv without running a child when Python ignored the advertised prefix."""
+    witness = f"""
+import json, os, runpy, sys
+sys.path.insert(0, {str(ROOT / "src")!r})
+sys.path.insert(0, {str(ROOT / "scripts")!r})
+class Captured(Exception): pass
+record = {{}}
+def capture(path, argv):
+    record.update(path=path, argv=argv)
+    raise Captured()
+os.execv = capture
+sys.orig_argv = [sys.executable, '-B', {option!r}, {str(SCRIPT)!r}, '--help']
+sys.argv = [{str(SCRIPT)!r}, '--help']
+try:
+    runpy.run_path({str(SCRIPT)!r}, run_name='__main__')
+except (Captured, SystemExit):
+    pass
+print('TEST-ONLY-CAPTURE ' + json.dumps({{'argv': record.get('argv'),
+    'effective_prefix': sys.pycache_prefix, 'ignore_environment': sys.flags.ignore_environment}}))
+"""
+    environment = dict(os.environ)
+    environment.pop("PYTHONDONTWRITEBYTECODE", None)
+    environment["PYTHONPYCACHEPREFIX"] = "/tmp/TEST-ONLY-ignored-prefix"
+    result = subprocess.run(
+        [sys.executable, "-B", option, "-c", witness],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    row = json.loads(result.stdout.split("TEST-ONLY-CAPTURE ")[-1])
+    assert row["effective_prefix"] is None
+    assert row["ignore_environment"] == 1
+    assert row["argv"] is not None
+    assert option in row["argv"]
+    assert "-X" in row["argv"]

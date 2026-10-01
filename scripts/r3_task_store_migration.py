@@ -18,10 +18,7 @@ from typing import Any
 # off and an empty private cache prefix, both fixed at start. -B alone still reads
 # existing .pyc files, and a prefix assigned now cannot vouch for earlier imports, so
 # relaunch with the same arguments before importing the engine.
-if __name__ == "__main__" and not (
-    sys.flags.dont_write_bytecode
-    and (sys._xoptions.get("pycache_prefix") or os.environ.get("PYTHONPYCACHEPREFIX"))
-):
+if __name__ == "__main__" and not (sys.flags.dont_write_bytecode and sys.pycache_prefix):
     # Keep the caller's interpreter options (-I, -E, -O, -W ...): sys.orig_argv holds
     # them between the executable and the script arguments that sys.argv repeats.
     _options = sys.orig_argv[1 : len(sys.orig_argv) - len(sys.argv)]
@@ -389,6 +386,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    import r3_task_store_migration
-
-    raise SystemExit(r3_task_store_migration.main())
+    raise SystemExit(main())
