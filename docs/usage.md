@@ -24,6 +24,21 @@ CLI result. A terminal append I/O failure instead returns `UNKNOWN` with
 event. Other evidence-storage failures may also leave an incomplete ledger.
 An immediate failure response alone never proves a terminal event was stored.
 
+## Fixed PMOS task-tracker reference
+
+The [task-tracker reference harness](../examples/pmos-task-tracker/README.md)
+adds one packaged `pmos-task-tracker-v1` template for the unchanged PMOS
+14-case packet. Compile with both `--template pmos-task-tracker-v1` and
+`--core-harness-mapping PATH`; the mapping digest must be bound in the contract.
+The new checked-in contract is a draft, so compilation reports
+`CORE_HARNESS_PROOF_PENDING`. An approved run additionally needs a separately
+approved receipt for that exact new draft digest. A test-only issued copy can
+exercise all 14 cases and the ten-create measure, but still halts on provider
+write isolation. The five mapped conditions remain required; their runtime
+proofs are not established by static compilation or fixture tests. See the
+[pipeline-health definition](pipeline-health.md) for how passed, failed,
+skipped and blocked stages are reported.
+
 ## Legacy-compatible commands
 
 | Command | Purpose | Exit codes |

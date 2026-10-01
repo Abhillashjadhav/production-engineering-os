@@ -4,13 +4,18 @@
 
 An open-source, local-first reference implementation that compiles a machine-checkable product contract into executable assertions, drives one bounded Coder through a command adapter, executes generated candidate code inside an OS sandbox, and records a tamper-evident evidence chain.
 
-**Outside-verifier implementation candidate (PE8):** the independently checked
-execution path is limited to structured Given/When/Then criteria. The trusted
+**Outside-verifier implementation candidate (PE8):** the generic execution
+path is limited to structured Given/When/Then criteria. The trusted
 supervisor applies the approved predicates to one strict JSON response from a
 Bubblewrap-isolated candidate action. Human pytest tests, template proofs and
-candidate-reported measures still compile for compatibility, but a run with any
+unregistered measures still compile for compatibility, but a run with any
 such required criterion halts with `UNSUPPORTED_VERIFICATION_MODE` before a
-provider or candidate runs. The [published #235 baseline CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160)
+provider or candidate runs. A fixed
+[PMOS task-tracker reference harness](examples/pmos-task-tracker/README.md)
+implements its approved 14 cases, including the ten-record measure, under a
+new draft mapping. Its ordinary test fixture does not approve the new draft or
+prove a live model build, all five required release conditions, or supported-host
+release. The [published #235 baseline CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160)
 passed its selected real-sandbox matrix on Python 3.11 and 3.12; that is
 offline candidate/provider containment evidence, not live-provider release proof.
 Each changed tree needs fresh commit-bound checks; see
@@ -20,6 +25,9 @@ A passing candidate response is retained as `candidate_response_verified`,
 then either current provider mode halts with
 `PROVIDER_WRITE_ISOLATION_UNVERIFIED`. It cannot emit `RELEASE_READY` while
 the complete live-provider and protected-verifier boundary remains unproved.
+The [pipeline-health definition](docs/pipeline-health.md) requires verified
+proof for every required stage on the same final inputs; a fixture PASS is
+reported only for its actual test scope.
 
 An opt-in [offline confined provider launcher](docs/provider-isolation.md)
 runs a bundled stdlib Python adapter inside Bubblewrap with no network or

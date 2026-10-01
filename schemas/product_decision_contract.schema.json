@@ -44,6 +44,7 @@
       "type": "string",
       "description": "Digest of the upstream PM Agent OS source material this contract was derived from."
     },
+    "required_harness_digest": { "type": "string", "minLength": 71 },
     "product_name": { "type": "string", "minLength": 1 },
     "problem": { "type": "string", "minLength": 10 },
     "target_user": { "type": "string", "minLength": 1 },

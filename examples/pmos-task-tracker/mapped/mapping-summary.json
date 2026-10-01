@@ -1,0 +1,12 @@
+{
+  "criterion_count": 14,
+  "exact_draft_digest_approved": false,
+  "mapped_answers_digest": "sha256:9b7d73e44111cb5ef51780f24c57337c0f90928c4b1d0db3c930176614d76ab5",
+  "mapped_draft_digest": "sha256:4f4b04110e57a641e5ed49c497dd76d89bb6474d5761d1add4c44ba94b8f8592",
+  "mapped_plan_digest": "sha256:b35a864aa103b29243cdbffaa58a81011d8de6e18b70f7b855626646f142b071",
+  "release_eligible": false,
+  "required_condition_count": 5,
+  "required_harness_digest": "sha256:ee7e2a688d7118c830acce3074c434fc0f9b4b7f1fa408897c1a70c41d17f39c",
+  "runtime_or_live_provider_proof": false,
+  "status": "DRAFT_READY_FOR_EXACT_DIGEST_REVIEW"
+}

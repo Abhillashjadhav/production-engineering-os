@@ -44,6 +44,7 @@ _OPTIONAL_ANSWER_FIELDS = {
     "approved_product_decisions",
     "contract_id",
     "contract_version",
+    "required_harness_digest",
 }
 
 _ACTIVITY_METRIC_TERMS = (
@@ -156,6 +157,11 @@ def build_contract_draft(answers: dict[str, Any]) -> ContractDraftResult:
             "contract answers contain an unmapped field: "
             f"{unknown_fields[0]}; map or remove it before approval"
         )
+    if "required_harness_digest" in answers and (
+        not isinstance(answers["required_harness_digest"], str)
+        or _DIGEST.fullmatch(answers["required_harness_digest"]) is None
+    ):
+        raise SpecError("required_harness_digest must be a canonical SHA-256 digest")
     raw_findings = [
         (field, "Required product truth is missing.")
         for field in sorted(_REQUIRED_ANSWER_FIELDS)
@@ -218,6 +224,8 @@ def build_contract_draft(answers: dict[str, Any]) -> ContractDraftResult:
         "target_user": answers["target_user"],
         "unresolved_questions": [],
     }
+    if "required_harness_digest" in answers:
+        draft["required_harness_digest"] = answers["required_harness_digest"]
     _validate_contract_object(draft)
     return ContractDraftResult(
         status="DRAFT_READY_FOR_APPROVAL",

@@ -1,0 +1,80 @@
+# Fixed, supervisor-supplied wrapper appended to the unchanged PMOS observer.
+# It executes inside the candidate's existing Bubblewrap namespace. Assertions
+# remain in the PEOS supervisor, outside this process.
+import time
+
+__file__ = sys.argv[3]
+_invocation = json.loads(sys.argv[1])
+_method = _invocation["method"]
+_arguments = _invocation["arguments"]
+_deadline = time.monotonic() + float(sys.argv[2])
+_trace = []
+_original_call = _call
+_original_run = subprocess.run
+
+
+def _bounded_run(*args, **kwargs):
+    remaining = _deadline - time.monotonic()
+    if remaining <= 0:
+        raise RuntimeError("OBSERVER_TOTAL_TIMEOUT")
+    kwargs["timeout"] = min(2.0, remaining)
+    return _original_run(*args, **kwargs)
+
+
+subprocess.run = _bounded_run
+
+
+def _recorded_call(store, arguments):
+    if time.monotonic() >= _deadline:
+        raise RuntimeError("OBSERVER_TOTAL_TIMEOUT")
+    command = [
+        sys.executable,
+        "-I",
+        "-B",
+        str(Path(__file__).resolve().parents[2] / "product.py"),
+        "--store",
+        str(store),
+        *arguments,
+    ]
+    result = _original_call(store, arguments)
+    _trace.append({"argv": command, "result": result})
+    if result.get("exit_code") == "timeout":
+        if time.monotonic() >= _deadline:
+            raise RuntimeError("OBSERVER_TOTAL_TIMEOUT")
+        raise RuntimeError("OBSERVER_CHILD_TIMEOUT")
+    if type(result.get("exit_code")) is not int or result["exit_code"] not in (0, 1, 2):
+        raise RuntimeError("OBSERVER_PROCESS_FAILED")
+    output = result.get("output")
+    if not isinstance(output, dict) or output.get("invalid_json") is True:
+        raise RuntimeError("OBSERVER_RESPONSE_INVALID")
+    return result
+
+
+_call = _recorded_call
+try:
+    if _method == "observe":
+        if not isinstance(_arguments, dict):
+            raise RuntimeError("OBSERVER_ARGUMENTS_INVALID")
+        _observation = observe(**_arguments)
+        if _observation.get("process_count") != len(_trace):
+            raise RuntimeError("OBSERVER_PROCESS_COUNT_INVALID")
+    elif _method == "missing_acknowledged_records":
+        if _arguments != {}:
+            raise RuntimeError("OBSERVER_ARGUMENTS_INVALID")
+        _observation = missing_acknowledged_records()
+        if (
+            len(_trace) != 11
+            or any(item["argv"][-2] != "create" for item in _trace[:10])
+            or _trace[-1]["argv"][-3:] != ["list", "--status", "all"]
+            or _observation.get("workload_size") != 10
+        ):
+            raise RuntimeError("OBSERVER_SEQUENCE_INVALID")
+    else:
+        raise RuntimeError("OBSERVER_METHOD_INVALID")
+    if time.monotonic() > _deadline:
+        raise RuntimeError("OBSERVER_TOTAL_TIMEOUT")
+except (RuntimeError, TypeError, ValueError, KeyError) as error:
+    code = str(error) if isinstance(error, RuntimeError) else "OBSERVER_FAILED"
+    print(json.dumps({"status": "ERROR", "code": code, "trace": _trace}))
+    raise SystemExit(2)
+print(json.dumps({"status": "OK", "observation": _observation, "trace": _trace}))

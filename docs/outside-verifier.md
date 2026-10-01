@@ -1,7 +1,10 @@
 # Outside-verifier boundary (PE8)
 
-This local implementation measures the approved structured Given/When/Then
-outcome at one registered action's **public JSON response**. It does not prove a
+The generic path measures the approved structured Given/When/Then outcome at
+one registered action's **public JSON response**. The fixed
+[PMOS task-tracker reference](../examples/pmos-task-tracker/README.md) also
+collects its 14 approved CLI scenarios and ten-record measure through a
+separately identified observer. Neither path proves a
 private Python return value, internal implementation, absence of side effects,
 general correctness, or hidden inputs.
 
@@ -11,7 +14,7 @@ verdict. For each required criterion it checks Given against trusted context,
 selects the registered target and literal arguments, runs the frozen candidate
 snapshot through Bubblewrap, admits one bounded UTF-8 JSON value, then applies
 the original Then predicates outside candidate Python. A missing, malformed,
-duplicate-key, non-finite, over-range, oversized or nonzero-exit response is a
+duplicate-key, non-finite, over-range, oversized or nonzero-exit generic action response is a
 verification error, not an assertion RED or PASS. Candidate stdout claiming a
 verdict is just candidate data. The supported `matches` operator keeps its
 approved Python-regex semantics but runs under a trusted child-process watchdog
@@ -22,17 +25,25 @@ criteria; host filesystem bookkeeping is not preempted mid-operation. The
 aggregate observation limit is 8 MB. These are execution-resource bounds,
 not product-quality thresholds.
 
+The fixed task-tracker observer distinguishes its expected product CLI errors
+with JSON and exit 1 or 2 from observer/process/protocol failures. Successful
+observations retain the full sequential command/result trace, including AC-013's
+ten creates and fresh readback. Its contract predicates and verdict remain in
+the supervisor. Its mapped draft lacks exact-digest approval; required
+GATE-002 through GATE-005 proofs and live provider isolation are not established.
+
 Each attempt records supervisor-computed observations and response blobs bound
 to the contract, plan, template and candidate manifest. New release records use
 `external-json-response-v1`; inspection does not label older pytest-based
 records independently verified. Evidence-integrity PASS and product-verification
 PASS remain separate claims. Human release authorization is still required.
 
-The compiler still accepts `human_test`, `satisfied_by_template`, and `measure`
-for compatibility. The runtime refuses them with criterion-specific
-`UNSUPPORTED_VERIFICATION_MODE` before provider/candidate execution, including
-mixed plans. A trusted human-test observation adapter or a protected
-measurement collector would require a future separate contract.
+The compiler still accepts `human_test`, `satisfied_by_template`, and measures
+for compatibility. The generic runtime refuses these modes with
+criterion-specific `UNSUPPORTED_VERIFICATION_MODE` before provider/candidate
+execution, including mixed plans. The only current measure exception is the
+digest-bound, fixed task-tracker registry. Unregistered measures and all
+human/template criteria remain unsupported at runtime.
 
 **Current limit:** Bubblewrap contains generated candidate code, but the outer
 generic provider command runs as the invoking host user. It can write any
