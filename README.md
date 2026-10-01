@@ -60,6 +60,9 @@ Read the [acceptance grammar](docs/acceptance-criteria-grammar.md) and [deletion
 - Linux
 - Bubblewrap (`bwrap`)
 - `prlimit` from util-linux
+- Repository scanning requires `/usr/bin/git` or `/bin/git` resolving to a root-owned
+  regular executable that is not group- or world-writable. A Git binary found
+  only elsewhere on `PATH` does not satisfy this guard.
 - User namespaces permitted by the host
 - A command-backed model provider for any real-model run
 
