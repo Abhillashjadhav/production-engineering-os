@@ -120,6 +120,7 @@ jobs:
             tests/unit/test_candidate_sandbox.py::test_real_candidate_sandbox_executes_the_exact_recorded_agent \
             tests/unit/test_candidate_sandbox.py::test_engine_fails_closed_when_candidate_sandbox_is_unavailable \
             tests/unit/test_candidate_sandbox.py::test_model_file_path_cannot_escape_through_symlink \
+            tests/unit/test_real_behavior_drift_eval.py::test_real_snapshot_command_mounts_a_large_tree_read_only \
             tests/e2e/test_barebones_e1.py::test_e1_real_contract_reaches_release_ready \
             -q
 
