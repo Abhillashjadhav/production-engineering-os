@@ -20,10 +20,16 @@ PEOS main branch.
 The original PMOS approved contract, receipt, all 14 acceptance criteria and
 five release-condition descriptions remain byte-for-byte unchanged. The new
 [`mapped/contract.draft.json`](mapped/contract.draft.json) is version 2 and
-still **DRAFT**. The owner approved the *mapping approach* in the October 1
-conversation; the owner has not approved this draft's exact digest or issued
-its approval receipt. The historical version-1 receipt cannot authorize the
-new draft.
+remains the immutable **DRAFT** reviewed by the owner. On October 2, the owner
+approved its exact canonical digest
+`sha256:4f4b04110e57a641e5ed49c497dd76d89bb6474d5761d1add4c44ba94b8f8592`
+in conversation. The existing publisher derived
+[`approved/contract-approved.json`](approved/contract-approved.json) and
+[`approved/approval-receipt.json`](approved/approval-receipt.json) without
+changing the reviewed draft, mapping, 14 cases or five conditions. The receipt
+is a digest-bound record of that authorization, not a cryptographic signature
+or proof that any release condition passed. The historical version-1 receipt
+cannot authorize the version-2 contract.
 
 [`mapped/core-harness-mapping.json`](mapped/core-harness-mapping.json) binds:
 
@@ -43,8 +49,9 @@ The fixed `pmos-task-tracker-v1` adapter runs each acceptance criterion with a
 fresh private store. Within a criterion, every setup/step launches a fresh
 sequential product CLI process, with an individual timeout and a total
 observation deadline. Successful observations keep the complete command/result
-sequence as a separate evidence blob. An observer error is reported as a
-failure, but its partial command trace is not persisted by this version. AC-013
+sequence as a separate evidence blob. An ordinary observer error keeps its
+available command/result prefix in a separate blob, explicitly marked
+incomplete and classified as execution failure rather than assertion RED. AC-013
 runs exactly ten sequential creates followed by
 a fresh list process; a passing value needs at least ten distinct valid
 acknowledgements and zero missing records. Invalid-input product results with
@@ -75,9 +82,11 @@ The renderer must reproduce the checked-in mapped files exactly. `compile`
 reports `COMPILES` and `CORE_HARNESS_PROOF_PENDING`, not run or release
 eligibility. Most integration tests use a test-only issuer, provider and local
 candidate sandbox; they cover the public CLI, all 14 cases, the ten-create
-measurement, evidence readback and a terminal `HALTED` result. The dedicated
+measurement, persistence and filtering repairs, evidence readback and a
+terminal `HALTED` result. One fixture test admits the new owner-approved
+contract and receipt, while still using a test-only provider and sandbox. The dedicated
 Linux CI candidate-isolation matrix also selects one ordinary product UAT on
 the real candidate sandbox; its result must be checked on the exact published
-commit. Neither test route stands in for owner approval or live provider
-proof. Current stage definitions and proof requirements are in
+commit. Neither test route stands in for live provider proof. Current stage
+definitions and proof requirements are in
 [`docs/pipeline-health.md`](../../docs/pipeline-health.md).

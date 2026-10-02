@@ -43,6 +43,7 @@ from pmpe.model_provider import (
     OFFLINE_PROVIDER_ISOLATION,
     ModelProvider,
 )
+from pmpe.pipeline_health import core_pipeline_health
 from pmpe.provider_isolation import OfflineConfinedProvider
 from pmpe.task_tracker_harness import MEASURE_TARGET, REGISTRY_NAME, fixed_template
 
@@ -618,28 +619,30 @@ def _status(args: argparse.Namespace) -> int:
     if not isinstance(cause, str):
         cause = "PASS" if event_type == "release_ready" else "IN_PROGRESS"
     telemetry = payload.get("telemetry")
-    _json(
-        {
-            "run_id": args.run_id,
-            "state": terminal.get("state"),
-            "cause": cause,
-            "events": len(events),
-            "head_event_digest": terminal.get("event_digest"),
-            "telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
-            "approval": approval,
-            "verification_assurance": assurance,
-            "diagnostics": payload.get("diagnostics", []),
-            "release_eligible": False,
-            "release_blocker": (
-                "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
-                if terminal.get("state") == "RELEASE_READY"
-                else cause
-            ),
-            "candidate_response_verified": payload.get("candidate_response_verified", False)
-            or cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED",
-            "candidate_digest": payload.get("candidate_digest"),
-        }
-    )
+    output = {
+        "run_id": args.run_id,
+        "state": terminal.get("state"),
+        "cause": cause,
+        "events": len(events),
+        "head_event_digest": terminal.get("event_digest"),
+        "telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
+        "approval": approval,
+        "verification_assurance": assurance,
+        "diagnostics": payload.get("diagnostics", []),
+        "release_eligible": False,
+        "release_blocker": (
+            "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+            if terminal.get("state") == "RELEASE_READY"
+            else cause
+        ),
+        "candidate_response_verified": payload.get("candidate_response_verified", False)
+        or cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED",
+        "candidate_digest": payload.get("candidate_digest"),
+    }
+    health = core_pipeline_health(events, approval, assurance)
+    if health is not None:
+        output["pipeline_health"] = health
+    _json(output)
     return 0
 
 

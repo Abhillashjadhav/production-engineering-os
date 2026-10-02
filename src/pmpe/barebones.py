@@ -107,6 +107,26 @@ class ContractInvalidError(ValueError):
     """The baseline proves that an admitted contract or template is not runnable."""
 
 
+class TaskTrackerObservationError(ContractInvalidError):
+    """A fixed observer failed before producing a usable assertion observation."""
+
+    def __init__(self, message: str, code: str, trace: list[dict[str, Any]]) -> None:
+        super().__init__(message)
+        self.code = code
+        self.trace = trace
+        self.criterion_id: str | None = None
+
+
+class TaskTrackerObservationTimeoutError(RuntimeError):
+    """The fixed observer exhausted its trusted aggregate time budget."""
+
+    def __init__(self, trace: list[dict[str, Any]]) -> None:
+        super().__init__("TRUSTED_OBSERVATION_TIME_LIMIT")
+        self.code = "OBSERVER_TOTAL_TIMEOUT"
+        self.trace = trace
+        self.criterion_id: str | None = None
+
+
 class TerminalPersistenceError(EvidenceIntegrityError):
     """The durable state of a terminal event cannot be confirmed."""
 
@@ -779,11 +799,41 @@ def _run_fixed_task_tracker(
         except (CanonicalInputError, UnicodeError):
             failure = None
         code = failure.get("code") if isinstance(failure, Mapping) else None
+        raw_trace = failure.get("trace") if isinstance(failure, Mapping) else None
+        partial_trace: list[dict[str, Any]] = []
+        if (
+            isinstance(failure, Mapping)
+            and set(failure) == {"status", "code", "trace"}
+            and failure.get("status") == "ERROR"
+            and isinstance(code, str)
+            and isinstance(raw_trace, list)
+        ):
+            for item in raw_trace:
+                if not isinstance(item, Mapping) or set(item) != {"argv", "result"}:
+                    partial_trace = []
+                    break
+                argv = item["argv"]
+                outcome = item["result"]
+                if (
+                    not isinstance(argv, list)
+                    or not all(isinstance(value, str) for value in argv)
+                    or not isinstance(outcome, Mapping)
+                    or set(outcome) != {"exit_code", "output"}
+                ):
+                    partial_trace = []
+                    break
+                partial_trace.append({"argv": argv, "result": dict(outcome)})
         if code == "OBSERVER_TOTAL_TIMEOUT":
-            raise RuntimeError("TRUSTED_OBSERVATION_TIME_LIMIT")
+            raise TaskTrackerObservationTimeoutError(partial_trace)
         if code == "OBSERVER_CHILD_TIMEOUT":
-            raise ContractInvalidError("task-tracker child process timed out")
-        raise ContractInvalidError("task-tracker observer failed before an assertion")
+            raise TaskTrackerObservationError(
+                "task-tracker child process timed out", code, partial_trace
+            )
+        raise TaskTrackerObservationError(
+            "task-tracker observer failed before an assertion",
+            code if isinstance(code, str) else "OBSERVER_ERROR_UNVERIFIED",
+            partial_trace,
+        )
     try:
         envelope = strict_json_value_loads(completed.stdout.encode("utf-8"))
     except (CanonicalInputError, UnicodeError) as exc:
@@ -1082,6 +1132,8 @@ def _verify_snapshot(
                     )
                 )
             except ContractInvalidError as exc:
+                if isinstance(exc, TaskTrackerObservationError):
+                    exc.criterion_id = criterion.criterion_id
                 if criterion.human_test is None:
                     if criterion_results is not None:
                         criterion_results[criterion.criterion_id] = (
@@ -1096,6 +1148,9 @@ def _verify_snapshot(
                         (criterion.human_test.path,),
                     )
                 )
+            except TaskTrackerObservationTimeoutError as exc:
+                exc.criterion_id = criterion.criterion_id
+                raise
             observed = _workspace_snapshot(isolated)
             if observed != snapshot:
                 changed = tuple(
@@ -1598,6 +1653,27 @@ def run_to_release_ready(
             },
         )
 
+    def record_observer_failure(
+        exc: TaskTrackerObservationError | TaskTrackerObservationTimeoutError,
+        attempt: int,
+        state: RunState,
+    ) -> None:
+        trace_digest = ledger.put_blob(canonical_json_bytes(exc.trace))
+        ledger.append(
+            event_type="supervisor_observation_failed",
+            state=state,
+            subject_digest=subject_digest,
+            blob_digests=(trace_digest,),
+            payload={
+                "attempt": attempt,
+                "criterion_id": exc.criterion_id,
+                "observer_code": exc.code,
+                "classification": "EXECUTION_FAILURE_NOT_ASSERTION",
+                "trace_digest": trace_digest,
+                "trace_complete": False,
+            },
+        )
+
     if stop_requested():
         append_terminal_event(
             event_type="stopped",
@@ -1658,6 +1734,8 @@ def run_to_release_ready(
                 "baseline must fail every non-template criterion by assertion"
             )
     except (ContractInvalidError, RuntimeError, OSError) as exc:
+        if isinstance(exc, (TaskTrackerObservationError, TaskTrackerObservationTimeoutError)):
+            record_observer_failure(exc, 0, RunState.BUILDING)
         record_execution_failure(exc)
         raise
     try:
@@ -1874,6 +1952,8 @@ def run_to_release_ready(
                     observations=observations,
                 )
             except ContractInvalidError as exc:
+                if isinstance(exc, TaskTrackerObservationError):
+                    record_observer_failure(exc, attempt, RunState.VERIFYING)
                 implicated_files = tuple(
                     sorted(
                         {
@@ -1894,6 +1974,8 @@ def run_to_release_ready(
                     ),
                 )
             except (RuntimeError, OSError) as exc:
+                if isinstance(exc, TaskTrackerObservationTimeoutError):
+                    record_observer_failure(exc, attempt, RunState.VERIFYING)
                 record_execution_failure(exc)
                 raise
             expected_ids = {criterion.criterion_id for criterion in plan.criteria}

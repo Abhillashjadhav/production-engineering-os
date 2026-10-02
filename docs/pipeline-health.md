@@ -30,11 +30,16 @@ lint, build and supported-host CI; and the final outside-verifier decision.
 An old check cannot be transferred across a changed tree or contract. A
 test-only issuer/provider/sandbox must be labeled as such at each stage.
 
-For the PMOS task-tracker reference currently checked in, the static mapping
-and 14-case **test-only fixture UAT** have ordinary local evidence. The new
-draft still lacks the owner's exact-digest approval and real provider run.
+For the PMOS task-tracker reference currently checked in, the static mapping,
+owner-approved derived contract/receipt and 14-case **test-only fixture UAT**
+have ordinary local evidence. The approved contract has no real provider run.
 GATE-001 has no authorized live-run verdict; GATE-002 through GATE-005 have no
 complete current proof. Protected provider-write isolation has no authenticated
 live proof. The current engine's `HALTED` result is therefore the correct
-release result even where the test fixture's 14 assertions pass. This page is
-a health definition and limitation report, not a gate certificate.
+release result even where the test fixture's 14 assertions pass. The
+`pmpe barebones status` command includes a conservative `pipeline_health`
+projection for mapped runs:
+recorded candidate assertions are scoped to that local run, all five release
+conditions remain blocked, and absent commit-bound checks, source revision and
+wall-clock evidence are explicitly unknown. This page and that projection are
+limitation reports, not gate certificates.

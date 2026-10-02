@@ -21,6 +21,7 @@ from pmpe.barebones import (
     BudgetCaps,
     ContractInvalidError,
     RunState,
+    TaskTrackerObservationError,
     _run_fixed_task_tracker,
     run_to_release_ready,
 )
@@ -36,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKET = ROOT / "examples/pmos-task-tracker"
 SOURCE = PACKET / "source"
 MAPPED = PACKET / "mapped"
+APPROVED = PACKET / "approved"
 
 
 def _json(path: Path) -> dict[str, Any]:
@@ -92,6 +94,27 @@ def test_frozen_source_and_mapped_draft_preserve_all_pmos_cases_and_conditions()
     assert plan is not None
     assert len(plan.conditions) == 5
     assert plan.unproven_conditions() == tuple(f"GATE-{index:03}" for index in range(1, 6))
+
+
+def test_owner_approved_derived_contract_binds_exact_frozen_draft() -> None:
+    draft = _json(MAPPED / "contract.draft.json")
+    mapping = _json(MAPPED / "core-harness-mapping.json")
+    approved = _json(APPROVED / "contract-approved.json")
+    receipt = _json(APPROVED / "approval-receipt.json")
+    assert receipt["draft_digest"] == canonical_digest(draft)
+    assert receipt["draft_digest"] == (
+        "sha256:4f4b04110e57a641e5ed49c497dd76d89bb6474d5761d1add4c44ba94b8f8592"
+    )
+    assert approved["required_harness_digest"] == canonical_digest(mapping)
+    assert approved["acceptance_criteria"] == draft["acceptance_criteria"]
+    assert approved["binary_release_gates"] == draft["binary_release_gates"]
+    assert (
+        verify_contract_approval(approved, receipt, expected_approver="Abhillash Jadhav")
+        == receipt["receipt_digest"]
+    )
+    assert [
+        item.condition_id for item in compile_required_harness(approved, mapping).conditions
+    ] == [f"GATE-{index:03}" for index in range(1, 6)]
 
 
 def test_missing_or_inconsistent_core_harness_mapping_refuses_admission() -> None:
@@ -165,6 +188,29 @@ class RepairingProductFixtureProvider:
         broken_line = 'tasks = [task for task in tasks if task["status"] == args.status]'
         assert broken_line in correct
         source = correct.replace(broken_line, "tasks = []") if self.calls == 1 else correct
+        return {"request_digest": request["request_digest"], "files": {"product.py": source}}
+
+
+class BrokenCliFixtureProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"product.py": "# TEST-ONLY missing CLI JSON\n"},
+        }
+
+
+class RepairingPersistenceFixtureProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        self.calls += 1
+        correct = (ROOT / "tests/fixtures/pmos_task_tracker_product.py").read_text()
+        write_line = "save_store(args.store, state)"
+        assert correct.count(write_line) == 2
+        source = correct.replace(write_line, "pass") if self.calls == 1 else correct
         return {"request_digest": request["request_digest"], "files": {"product.py": source}}
 
 
@@ -278,11 +324,13 @@ def test_mapped_test_issuance_runs_all_14_approved_cases_and_still_halts_release
 
 
 def test_fixed_harness_accepts_an_ordinary_second_attempt_product_repair(tmp_path: Path) -> None:
-    draft = _json(MAPPED / "contract.draft.json")
+    approved = _json(APPROVED / "contract-approved.json")
+    receipt_path = APPROVED / "approval-receipt.json"
+    receipt = _json(receipt_path)
     mapping = _json(MAPPED / "core-harness-mapping.json")
     provider = RepairingProductFixtureProvider()
     result = run_to_release_ready(
-        contract=draft,
+        contract=approved,
         repository_root=tmp_path,
         workspace=tmp_path / "candidate",
         run_id="test-only-filter-repair",
@@ -291,6 +339,9 @@ def test_fixed_harness_accepts_an_ordinary_second_attempt_product_repair(tmp_pat
         budget=BudgetCaps(max_attempts=2),
         candidate_sandbox=_LocalCandidateTestSandbox(),
         core_harness_mapping=mapping,
+        approval_receipt=receipt,
+        approval_authority="Abhillash Jadhav",
+        approval_receipt_bytes=receipt_path.read_bytes(),
     )
     assert provider.calls == 2
     assert (result.state, result.cause) == (
@@ -298,10 +349,94 @@ def test_fixed_harness_accepts_an_ordinary_second_attempt_product_repair(tmp_pat
         "PROVIDER_WRITE_ISOLATION_UNVERIFIED",
     )
     events = tuple(EvidenceLedger.open_existing(tmp_path, result.run_id).verify())
+    validated = next(event for event in events if event["event_type"] == "contract_validated")
+    assert validated["payload"]["approval"]["status"] == "VERIFIED"
     assert sum(event["event_type"] == "verification_started" for event in events) == 2
+    first = [event for event in events if event["event_type"] == "supervisor_observations"][1]
+    assert first["payload"]["attempt"] == 1
+    failed_ids = {
+        item["criterion_id"]
+        for item in first["payload"]["observations"]
+        if item["assertions_passed"] is False
+    }
+    assert failed_ids == {"AC-004", "AC-005"}
     final = [event for event in events if event["event_type"] == "supervisor_observations"][-1]
     assert all(item["assertions_passed"] for item in final["payload"]["observations"])
     assert not any(event["event_type"] == "release_ready" for event in events)
+
+
+def test_fixed_harness_repairs_persistence_across_cli_processes(tmp_path: Path) -> None:
+    provider = RepairingPersistenceFixtureProvider()
+    result = run_to_release_ready(
+        contract=_json(MAPPED / "contract.draft.json"),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="test-only-persistence-repair",
+        provider=provider,
+        template=fixed_template(),
+        budget=BudgetCaps(max_attempts=2),
+        candidate_sandbox=_LocalCandidateTestSandbox(),
+        core_harness_mapping=_json(MAPPED / "core-harness-mapping.json"),
+    )
+    assert provider.calls == 2
+    assert (result.state, result.cause) == (
+        RunState.HALTED,
+        "PROVIDER_WRITE_ISOLATION_UNVERIFIED",
+    )
+    events = tuple(EvidenceLedger.open_existing(tmp_path, result.run_id).verify())
+    observations = [event for event in events if event["event_type"] == "supervisor_observations"]
+    first, repaired = observations[1:]
+    assert first["payload"]["attempt"] == 1
+    failed_ids = {
+        item["criterion_id"]
+        for item in first["payload"]["observations"]
+        if item["assertions_passed"] is False
+    }
+    assert "AC-002" in failed_ids
+    assert repaired["payload"]["attempt"] == 2
+    assert all(item["assertions_passed"] is True for item in repaired["payload"]["observations"])
+    assert not any(event["event_type"] == "release_ready" for event in events)
+
+
+def test_ordinary_candidate_observer_error_retains_partial_trace_without_assertion_pass(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = run_to_release_ready(
+        contract=_json(MAPPED / "contract.draft.json"),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="test-only-observer-error-trace",
+        provider=BrokenCliFixtureProvider(),
+        template=fixed_template(),
+        budget=BudgetCaps(max_attempts=1),
+        candidate_sandbox=_LocalCandidateTestSandbox(),
+        core_harness_mapping=_json(MAPPED / "core-harness-mapping.json"),
+    )
+    assert result.state is RunState.HALTED
+    ledger = EvidenceLedger.open_existing(tmp_path, result.run_id)
+    events = tuple(ledger.verify())
+    error = next(
+        event for event in events if event["event_type"] == "supervisor_observation_failed"
+    )
+    assert error["payload"]["attempt"] == 1
+    assert error["payload"]["criterion_id"] == "AC-001"
+    assert error["payload"]["observer_code"] == "OBSERVER_RESPONSE_INVALID"
+    assert error["payload"]["classification"] == "EXECUTION_FAILURE_NOT_ASSERTION"
+    assert error["payload"]["trace_complete"] is False
+    trace_digest = error["payload"]["trace_digest"]
+    assert trace_digest in error["blob_digests"]
+    trace = json.loads(ledger.read_blob(trace_digest))
+    assert trace[0]["argv"][-1] == "list"
+    assert trace[0]["result"] == {"exit_code": 0, "output": {"invalid_json": True}}
+    assert not any(event["event_type"] == "candidate_response_verified" for event in events)
+    assert not any(event["event_type"] == "release_ready" for event in events)
+    assert main(["barebones", "status", result.run_id, "--repository-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["pipeline_health"]["classification"] == "UNHEALTHY"
+    stages = {item["name"]: item for item in status["pipeline_health"]["stages"]}
+    assert stages["candidate_observer_execution"]["status"] == "FAIL"
+    assert stages["candidate_case_assertions"]["status"] == "BLOCKED"
+    assert stages["GATE-001"]["status"] == "BLOCKED"
 
 
 @pytest.mark.skipif(
@@ -335,7 +470,9 @@ def test_fixed_task_tracker_product_uat_in_supported_candidate_sandbox(tmp_path:
 
 def test_fixed_observer_refuses_protocol_failure_instead_of_assertion_red(tmp_path: Path) -> None:
     (tmp_path / "product.py").write_text("# TEST-ONLY missing CLI JSON\n")
-    with pytest.raises(ContractInvalidError, match="observer failed before an assertion"):
+    with pytest.raises(
+        TaskTrackerObservationError, match="observer failed before an assertion"
+    ) as failure:
         _run_fixed_task_tracker(
             tmp_path,
             "observe",
@@ -343,6 +480,72 @@ def test_fixed_observer_refuses_protocol_failure_instead_of_assertion_red(tmp_pa
             _LocalCandidateTestSandbox(),
             deadline=None,
         )
+    assert failure.value.code == "OBSERVER_RESPONSE_INVALID"
+    assert len(failure.value.trace) == 1
+    assert failure.value.trace[0]["argv"][-1] == "list"
+    assert failure.value.trace[0]["result"] == {
+        "exit_code": 0,
+        "output": {"invalid_json": True},
+    }
+
+
+def test_baseline_observer_error_is_persisted_as_execution_failure_not_red(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail_observer(*_args: Any, **_kwargs: Any) -> None:
+        raise TaskTrackerObservationError(
+            "task-tracker observer failed before an assertion",
+            "OBSERVER_RESPONSE_INVALID",
+            [
+                {
+                    "argv": ["python", "product.py", "list"],
+                    "result": {"exit_code": 0, "output": {"invalid_json": True}},
+                }
+            ],
+        )
+
+    monkeypatch.setattr(barebones_runtime, "_run_fixed_task_tracker", fail_observer)
+    with pytest.raises(TaskTrackerObservationError):
+        run_to_release_ready(
+            contract=_json(MAPPED / "contract.draft.json"),
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="test-only-baseline-observer-error",
+            provider=RetainedProductFixtureProvider(),
+            template=fixed_template(),
+            budget=BudgetCaps(max_attempts=1),
+            candidate_sandbox=_LocalCandidateTestSandbox(),
+            core_harness_mapping=_json(MAPPED / "core-harness-mapping.json"),
+        )
+    ledger = EvidenceLedger.open_existing(tmp_path, "test-only-baseline-observer-error")
+    events = tuple(ledger.verify())
+    error = next(
+        event for event in events if event["event_type"] == "supervisor_observation_failed"
+    )
+    assert error["payload"]["attempt"] == 0
+    assert error["payload"]["criterion_id"] == "AC-001"
+    assert error["payload"]["classification"] == "EXECUTION_FAILURE_NOT_ASSERTION"
+    assert not any(event["event_type"] == "meaningful_red_confirmed" for event in events)
+    assert (events[-1]["event_type"], events[-1]["payload"]["cause"]) == (
+        "halted",
+        "CONTRACT_INVALID",
+    )
+    assert (
+        main(
+            [
+                "barebones",
+                "status",
+                "test-only-baseline-observer-error",
+                "--repository-root",
+                str(tmp_path),
+            ]
+        )
+        == 0
+    )
+    health = json.loads(capsys.readouterr().out)["pipeline_health"]
+    assert health["classification"] == "UNHEALTHY"
+    stages = {item["name"]: item for item in health["stages"]}
+    assert stages["meaningful_assertion_red"]["status"] == "FAIL"
 
 
 def test_fixed_observer_bounds_each_child_process(tmp_path: Path) -> None:
@@ -447,3 +650,18 @@ def test_public_cli_runs_test_only_task_tracker_packet_but_refuses_release(
     inspection = json.loads(capsys.readouterr().out)
     assert inspection["candidate_response_verified"] is True
     assert inspection["release_eligible"] is False
+    assert main(["barebones", "status", run_id, "--repository-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    health = status["pipeline_health"]
+    assert health["classification"] == "INCOMPLETE"
+    assert health["contract_digest"] == canonical_digest(issued.contract)
+    assert health["mapping_digest"] == canonical_digest(_json(mapping))
+    assert health["source_revision"] is health["checked_at"] is None
+    stages = {item["name"]: item for item in health["stages"]}
+    assert stages["meaningful_assertion_red"]["status"] == "PASS"
+    assert stages["candidate_case_assertions"]["status"] == "PASS"
+    assert stages["candidate_case_assertions"]["scope"] == "LOCAL_RUN_EVIDENCE"
+    assert stages["GATE-001"]["status"] == "BLOCKED"
+    assert all(stages[f"GATE-{index:03}"]["status"] == "BLOCKED" for index in range(2, 6))
+    assert stages["provider_write_confinement"]["status"] == "BLOCKED"
+    assert stages["supported_host_ci"]["status"] == "UNKNOWN"

@@ -29,7 +29,9 @@ The fixed task-tracker observer distinguishes its expected product CLI errors
 with JSON and exit 1 or 2 from observer/process/protocol failures. Successful
 observations retain the full sequential command/result trace, including AC-013's
 ten creates and fresh readback. Its contract predicates and verdict remain in
-the supervisor. Its mapped draft lacks exact-digest approval; required
+the supervisor. Ordinary observer failures retain the available partial trace
+as incomplete execution-failure evidence. Its mapped draft now has a separate
+owner-approved derived contract and receipt; required
 GATE-002 through GATE-005 proofs and live provider isolation are not established.
 
 Each attempt records supervisor-computed observations and response blobs bound

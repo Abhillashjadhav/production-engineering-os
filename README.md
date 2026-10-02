@@ -13,8 +13,9 @@ such required criterion halts with `UNSUPPORTED_VERIFICATION_MODE` before a
 provider or candidate runs. A fixed
 [PMOS task-tracker reference harness](examples/pmos-task-tracker/README.md)
 implements its approved 14 cases, including the ten-record measure, under a
-new draft mapping. Its ordinary test fixture does not approve the new draft or
-prove a live model build, all five required release conditions, or supported-host
+new mapping. The owner-approved derived contract and receipt are separate from
+the immutable draft. Its ordinary test fixture does not prove a live model
+build, all five required release conditions, or supported-host
 release. The [published #235 baseline CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/36848781160)
 passed its selected real-sandbox matrix on Python 3.11 and 3.12; that is
 offline candidate/provider containment evidence, not live-provider release proof.
