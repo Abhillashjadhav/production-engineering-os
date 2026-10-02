@@ -65,6 +65,9 @@ result and requires that exact node to execute once. A skip, collection error, s
 error, fixture error, or runner error is never accepted as a passing or meaningful
 failing assertion.
 
+If `human_test` is present, it must be a complete path/node/command object. A null,
+empty, or otherwise malformed value is rejected rather than omitted from the plan.
+
 ### Explicitly satisfied by the template
 
 ```json
@@ -97,7 +100,7 @@ callable. Extending the operator or action registry requires a failing real cont
 Before entering `BUILDING`, the compiler proves:
 
 1. every requirement ID has at least one implementation task;
-2. every requirement ID has at least one criterion;
+2. every requirement ID has at least one successfully compiled criterion;
 3. every criterion references an existing requirement;
 4. every criterion selects exactly one accepted form;
 5. every structured action and operator is registered;
