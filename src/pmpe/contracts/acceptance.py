@@ -616,13 +616,14 @@ def compile_acceptance_plan(
                     )
                 )
                 continue
+            diagnostics_before_assertions = len(diagnostics)
             given = _assertions(
                 item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
             )
             then = _assertions(
                 item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
             )
-            if given and then:
+            if given and then and len(diagnostics) == diagnostics_before_assertions:
                 compiled.append(
                     CompiledCriterion(
                         cid,
