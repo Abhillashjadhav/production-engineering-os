@@ -222,6 +222,51 @@ def test_invalid_criterion_does_not_count_as_requirement_coverage(tmp_path: Path
     assert ("REQUIREMENT_UNCOVERED", "FR-001") in diagnostics
 
 
+@pytest.mark.parametrize(
+    ("given", "expected_code"),
+    [
+        (
+            [
+                {"path": "service.running", "operator": "eq", "value": True},
+                {"path": "service.running", "operator": "unknown", "value": True},
+            ],
+            "UNKNOWN_ASSERTION_OPERATOR",
+        ),
+        (
+            [
+                {"path": "service.running", "operator": "eq", "value": True},
+                {"path": "service.running", "operator": "eq", "value": False},
+            ],
+            "CONTRADICTORY_ASSERTIONS",
+        ),
+    ],
+)
+def test_invalid_assertion_does_not_count_as_compiled_coverage(
+    tmp_path: Path, given: list[dict[str, object]], expected_code: str
+) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "given": given,
+            "when": {"action": "health", "arguments": {}},
+            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    diagnostics = {(item.code, item.subject_id) for item in failure.value.diagnostics}
+    assert (expected_code, "AC-001") in diagnostics
+    assert ("REQUIREMENT_UNCOVERED", "FR-001") in diagnostics
+
+
 def test_human_test_missing_fails_before_build(tmp_path: Path) -> None:
     contract = _contract(
         {
