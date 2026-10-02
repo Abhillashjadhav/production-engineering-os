@@ -15,6 +15,11 @@ The installed product surface is one command group:
 The historical `pmpe barebones <contract> ...` spelling remains a compatibility alias
 for `pmpe barebones run <contract> ...`, but it is not shown as a second product path.
 All commands emit one JSON object so users and automation see the same state.
+An invalid `--provider-command` is reported as `HALTED/CONTRACT_INVALID` before
+a run begins. If a trusted provider command cannot start or its I/O fails during
+the required Coder call, the admitted run records `HALTED/MODEL_PROVIDER_FAILED`
+in its evidence ledger. An unavailable advisory review is recorded in the
+annotation without changing a verified candidate's state.
 
 ## Legacy-compatible commands
 

@@ -111,7 +111,9 @@ _PROVIDER_ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
 _MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
 
 
-def _classify_provider_error(error: RuntimeError) -> str:
+def _classify_provider_error(error: RuntimeError | OSError) -> str:
+    if isinstance(error, OSError):
+        return "MODEL_PROVIDER_FAILED"
     message = str(error)
     if _CREDENTIAL.search(message) or not _PROVIDER_ERROR_CODE.fullmatch(message):
         return "MODEL_PROVIDER_FAILED"
@@ -1194,7 +1196,7 @@ def run_to_release_ready(
                 budget=active_budget,
                 counters=counters,
             )
-        except RuntimeError as exc:
+        except (RuntimeError, OSError) as exc:
             cause = _classify_provider_error(exc)
             ledger.append(
                 event_type="halted",
@@ -1379,7 +1381,7 @@ def run_to_release_ready(
                         budget=active_budget,
                         counters=counters,
                     )
-                except RuntimeError as exc:
+                except (RuntimeError, OSError) as exc:
                     annotation = {"status": "unavailable", "cause": _classify_provider_error(exc)}
                 release_payload: dict[str, Any] = {
                     "annotation": dict(annotation),
