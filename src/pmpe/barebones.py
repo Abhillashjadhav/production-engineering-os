@@ -36,6 +36,7 @@ from pmpe.contracts.canonical import (
     strict_json_value_loads,
     strict_loads,
 )
+from pmpe.core_harness import CoreHarnessInvalidError, compile_required_harness
 from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
@@ -45,6 +46,7 @@ from pmpe.model_provider import (
     ModelProvider,
 )
 from pmpe.release_gates import release_gate_results
+from pmpe.task_tracker_harness import ACTION_TARGET, MEASURE_TARGET, REGISTRY_NAME, runner_source
 
 
 class RunState(StrEnum):
@@ -103,6 +105,26 @@ class RunResult:
 
 class ContractInvalidError(ValueError):
     """The baseline proves that an admitted contract or template is not runnable."""
+
+
+class TaskTrackerObservationError(ContractInvalidError):
+    """A fixed observer failed before producing a usable assertion observation."""
+
+    def __init__(self, message: str, code: str, trace: list[dict[str, Any]]) -> None:
+        super().__init__(message)
+        self.code = code
+        self.trace = trace
+        self.criterion_id: str | None = None
+
+
+class TaskTrackerObservationTimeoutError(RuntimeError):
+    """The fixed observer exhausted its trusted aggregate time budget."""
+
+    def __init__(self, trace: list[dict[str, Any]]) -> None:
+        super().__init__("TRUSTED_OBSERVATION_TIME_LIMIT")
+        self.code = "OBSERVER_TOTAL_TIMEOUT"
+        self.trace = trace
+        self.criterion_id: str | None = None
 
 
 class TerminalPersistenceError(EvidenceIntegrityError):
@@ -737,6 +759,117 @@ def _run_action(
         raise ContractInvalidError("action did not return one JSON value") from exc
 
 
+def _run_fixed_task_tracker(
+    workspace: Path,
+    method: str,
+    arguments: Mapping[str, Any],
+    sandbox: CandidateSandbox,
+    *,
+    deadline: float | None,
+) -> tuple[Mapping[str, Any], list[dict[str, Any]]]:
+    """Collect data through the one fixed PMOS observer inside the candidate sandbox."""
+
+    remaining = _remaining_verification_time(deadline)
+    timeout = min(_ACTION_TIMEOUT_SECONDS, remaining) if remaining else _ACTION_TIMEOUT_SECONDS
+    completed = sandbox.run(
+        workspace,
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            runner_source(),
+            json.dumps({"method": method, "arguments": dict(arguments)}, sort_keys=True),
+            str(timeout),
+            "/workspace/tests/acceptance/task_tracker.py",
+        ],
+        timeout_seconds=timeout,
+        environment={
+            "HOME": "/tmp/home",
+            "LC_ALL": "C",
+            "PATH": _SANDBOX_PATH,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+            "TMPDIR": "/tmp",
+        },
+    )
+    if completed.returncode != 0:
+        try:
+            failure = strict_json_value_loads(completed.stdout.encode("utf-8"))
+        except (CanonicalInputError, UnicodeError):
+            failure = None
+        code = failure.get("code") if isinstance(failure, Mapping) else None
+        raw_trace = failure.get("trace") if isinstance(failure, Mapping) else None
+        partial_trace: list[dict[str, Any]] = []
+        if (
+            isinstance(failure, Mapping)
+            and set(failure) == {"status", "code", "trace"}
+            and failure.get("status") == "ERROR"
+            and isinstance(code, str)
+            and isinstance(raw_trace, list)
+        ):
+            for item in raw_trace:
+                if not isinstance(item, Mapping) or set(item) != {"argv", "result"}:
+                    partial_trace = []
+                    break
+                argv = item["argv"]
+                outcome = item["result"]
+                if (
+                    not isinstance(argv, list)
+                    or not all(isinstance(value, str) for value in argv)
+                    or not isinstance(outcome, Mapping)
+                    or set(outcome) != {"exit_code", "output"}
+                ):
+                    partial_trace = []
+                    break
+                partial_trace.append({"argv": argv, "result": dict(outcome)})
+        if code == "OBSERVER_TOTAL_TIMEOUT":
+            raise TaskTrackerObservationTimeoutError(partial_trace)
+        if code == "OBSERVER_CHILD_TIMEOUT":
+            raise TaskTrackerObservationError(
+                "task-tracker child process timed out", code, partial_trace
+            )
+        raise TaskTrackerObservationError(
+            "task-tracker observer failed before an assertion",
+            code if isinstance(code, str) else "OBSERVER_ERROR_UNVERIFIED",
+            partial_trace,
+        )
+    try:
+        envelope = strict_json_value_loads(completed.stdout.encode("utf-8"))
+    except (CanonicalInputError, UnicodeError) as exc:
+        raise ContractInvalidError("task-tracker observer returned malformed JSON") from exc
+    if not isinstance(envelope, Mapping) or set(envelope) != {"status", "observation", "trace"}:
+        raise ContractInvalidError("task-tracker observer response has invalid shape")
+    result = envelope["observation"]
+    trace = envelope["trace"]
+    if envelope["status"] != "OK" or not isinstance(result, Mapping) or not isinstance(trace, list):
+        raise ContractInvalidError("task-tracker observer response is incomplete")
+    observed_trace: list[dict[str, Any]] = []
+    for item in trace:
+        if not isinstance(item, Mapping) or set(item) != {"argv", "result"}:
+            raise ContractInvalidError("task-tracker command trace is malformed")
+        argv = item["argv"]
+        outcome = item["result"]
+        if (
+            not isinstance(argv, list)
+            or not all(isinstance(value, str) for value in argv)
+            or not isinstance(outcome, Mapping)
+            or type(outcome.get("exit_code")) is not int
+            or outcome["exit_code"] not in {0, 1, 2}
+            or not isinstance(outcome.get("output"), Mapping)
+            or outcome["output"].get("invalid_json") is True
+        ):
+            raise ContractInvalidError("task-tracker command trace has an invalid result")
+        observed_trace.append({"argv": argv, "result": dict(outcome)})
+    if method == "missing_acknowledged_records" and (
+        len(observed_trace) != 11
+        or any(item["argv"][-2] != "create" for item in observed_trace[:10])
+        or observed_trace[-1]["argv"][-3:] != ["list", "--status", "all"]
+    ):
+        raise ContractInvalidError("task-tracker sequential measurement is incomplete")
+    return dict(result), observed_trace
+
+
 def _run_pytest_node(
     workspace: Path,
     test: TemplateTest,
@@ -862,6 +995,46 @@ def _criterion_findings(
     observations: dict[str, dict[str, Any]] | None = None,
     deadline: float | None = None,
 ) -> tuple[Finding, ...]:
+    if criterion.form == "measure":
+        if (
+            template.version != REGISTRY_NAME
+            or template.measures.get(criterion.measure) != MEASURE_TARGET
+        ):
+            raise ContractInvalidError(
+                f"{criterion.criterion_id}: measure has no independent observation adapter"
+            )
+        assert criterion.operator is not None and criterion.minimum_sample is not None
+        result, trace = _run_fixed_task_tracker(
+            workspace, "missing_acknowledged_records", {}, sandbox, deadline=deadline
+        )
+        sample_size = result.get("sample_size")
+        if type(sample_size) is not int or sample_size < 0 or "value" not in result:
+            raise ContractInvalidError("task-tracker measure returned invalid sample data")
+        passed = sample_size >= criterion.minimum_sample and _assertion_passes(
+            PropertyAssertion("value", criterion.operator, criterion.value),
+            result,
+            deadline=deadline,
+        )
+        if observations is not None:
+            observations[criterion.criterion_id] = {
+                "criterion_id": criterion.criterion_id,
+                "action": criterion.measure,
+                "target": MEASURE_TARGET,
+                "response": dict(result),
+                "response_digest": canonical_digest(result),
+                "trace": trace,
+                "assertions_passed": passed,
+            }
+        if passed:
+            return ()
+        return (
+            Finding(
+                "ASSERTION_FAILED",
+                criterion.criterion_id,
+                "compiled acceptance measure failed",
+                ("product.py",),
+            ),
+        )
     if criterion.form != "given_when_then":
         raise ContractInvalidError(
             f"{criterion.criterion_id}: {criterion.form} has no independent observation adapter"
@@ -871,11 +1044,25 @@ def _criterion_findings(
         if not _assertion_passes(item, template.context, deadline=deadline):
             raise ContractInvalidError(f"{criterion.criterion_id}: Given precondition is false")
     target = template.actions[criterion.when.action]
-    result = _run_action(workspace, target, criterion.when.arguments, sandbox, deadline=deadline)
+    action_trace: list[dict[str, Any]] | None = None
+    if target == ACTION_TARGET:
+        if template.version != REGISTRY_NAME:
+            raise ContractInvalidError("task-tracker action is outside its fixed registry")
+        result, action_trace = _run_fixed_task_tracker(
+            workspace,
+            "observe",
+            criterion.when.arguments,
+            sandbox,
+            deadline=deadline,
+        )
+    else:
+        result = _run_action(
+            workspace, target, criterion.when.arguments, sandbox, deadline=deadline
+        )
     wrapped = {"result": result}
     passed = all(_assertion_passes(item, wrapped, deadline=deadline) for item in criterion.then)
     if observations is not None:
-        observations[criterion.criterion_id] = {
+        entry: dict[str, Any] = {
             "criterion_id": criterion.criterion_id,
             "action": criterion.when.action,
             "target": target,
@@ -883,9 +1070,16 @@ def _criterion_findings(
             "response_digest": canonical_digest(result),
             "assertions_passed": passed,
         }
+        if action_trace is not None:
+            entry["trace"] = action_trace
+        observations[criterion.criterion_id] = entry
     if passed:
         return ()
-    module = target.split(":", maxsplit=1)[0].replace(".", "/") + ".py"
+    module = (
+        "product.py"
+        if target == ACTION_TARGET
+        else target.split(":", maxsplit=1)[0].replace(".", "/") + ".py"
+    )
     return (
         Finding(
             "ASSERTION_FAILED",
@@ -938,6 +1132,8 @@ def _verify_snapshot(
                     )
                 )
             except ContractInvalidError as exc:
+                if isinstance(exc, TaskTrackerObservationError):
+                    exc.criterion_id = criterion.criterion_id
                 if criterion.human_test is None:
                     if criterion_results is not None:
                         criterion_results[criterion.criterion_id] = (
@@ -952,6 +1148,9 @@ def _verify_snapshot(
                         (criterion.human_test.path,),
                     )
                 )
+            except TaskTrackerObservationTimeoutError as exc:
+                exc.criterion_id = criterion.criterion_id
+                raise
             observed = _workspace_snapshot(isolated)
             if observed != snapshot:
                 changed = tuple(
@@ -1154,12 +1353,21 @@ def run_to_release_ready(
     approval_receipt: Mapping[str, Any] | None = None,
     approval_authority: str | None = None,
     approval_receipt_bytes: bytes | None = None,
+    core_harness_mapping: Mapping[str, Any] | None = None,
 ) -> RunResult:
     """Run the frozen core, retaining candidate evidence without unsafe release."""
 
     started = time.monotonic()
     contract = copy.deepcopy(dict(contract))
+    try:
+        harness_plan = compile_required_harness(contract, core_harness_mapping)
+    except CoreHarnessInvalidError as exc:
+        raise ContractInvalidError(str(exc)) from exc
     active_template = copy.deepcopy(template or default_template())
+    if active_template.version == REGISTRY_NAME and harness_plan is None:
+        raise ContractInvalidError("fixed task-tracker template requires a bound core harness")
+    if harness_plan is not None and active_template.version != REGISTRY_NAME:
+        raise ContractInvalidError("bound core harness requires the fixed task-tracker template")
     template_digest = canonical_digest(asdict(active_template))
     active_budget = budget or BudgetCaps()
     active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
@@ -1185,6 +1393,12 @@ def run_to_release_ready(
         "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
         "provider_write_isolation": provider_write_isolation,
     }
+    if harness_plan is not None:
+        counters["core_harness"] = {
+            "mapping_digest": harness_plan.mapping_digest,
+            "required_condition_ids": [item.condition_id for item in harness_plan.conditions],
+            "proof_status": "NOT_ESTABLISHED",
+        }
     subject_digest = canonical_digest(contract)
     approval_inputs = (approval_receipt, approval_authority, approval_receipt_bytes)
     if any(item is None for item in approval_inputs) and not all(
@@ -1318,21 +1532,25 @@ def run_to_release_ready(
         candidate_blob, candidate_file_blobs = _candidate_manifest(snapshot, ledger)
         entries: list[dict[str, Any]] = []
         response_blobs: list[str] = []
+        trace_blobs: list[str] = []
         for criterion_id in sorted(observations):
             observation = observations[criterion_id]
             response_digest = ledger.put_blob(canonical_json_bytes(observation["response"]))
             if response_digest != observation["response_digest"]:
                 raise ContractInvalidError("observed response digest changed")
             response_blobs.append(response_digest)
-            entries.append(
-                {
-                    "criterion_id": criterion_id,
-                    "action": observation["action"],
-                    "target": observation["target"],
-                    "response_digest": response_digest,
-                    "assertions_passed": observation["assertions_passed"],
-                }
-            )
+            entry: dict[str, Any] = {
+                "criterion_id": criterion_id,
+                "action": observation["action"],
+                "target": observation["target"],
+                "response_digest": response_digest,
+                "assertions_passed": observation["assertions_passed"],
+            }
+            if "trace" in observation:
+                trace_digest = ledger.put_blob(canonical_json_bytes(observation["trace"]))
+                entry["trace_digest"] = trace_digest
+                trace_blobs.append(trace_digest)
+            entries.append(entry)
         evidence = {
             "protocol": _VERIFICATION_PROTOCOL,
             "attempt": attempt,
@@ -1348,7 +1566,13 @@ def run_to_release_ready(
             event_type="supervisor_observations",
             state=state,
             subject_digest=subject_digest,
-            blob_digests=(evidence_blob, candidate_blob, *candidate_file_blobs, *response_blobs),
+            blob_digests=(
+                evidence_blob,
+                candidate_blob,
+                *candidate_file_blobs,
+                *response_blobs,
+                *trace_blobs,
+            ),
             payload={**evidence, "evidence_digest": evidence_blob},
         )
         return evidence_blob
@@ -1386,6 +1610,11 @@ def run_to_release_ready(
         }
         for item in plan.criteria
         if item.form != "given_when_then"
+        and not (
+            item.form == "measure"
+            and harness_plan is not None
+            and active_template.measures.get(item.measure) == MEASURE_TARGET
+        )
     ]
     if unsupported:
         append_terminal_event(
@@ -1421,6 +1650,27 @@ def run_to_release_ready(
                 "cause": cause,
                 "detail": str(exc),
                 "telemetry": _terminal_telemetry(),
+            },
+        )
+
+    def record_observer_failure(
+        exc: TaskTrackerObservationError | TaskTrackerObservationTimeoutError,
+        attempt: int,
+        state: RunState,
+    ) -> None:
+        trace_digest = ledger.put_blob(canonical_json_bytes(exc.trace))
+        ledger.append(
+            event_type="supervisor_observation_failed",
+            state=state,
+            subject_digest=subject_digest,
+            blob_digests=(trace_digest,),
+            payload={
+                "attempt": attempt,
+                "criterion_id": exc.criterion_id,
+                "observer_code": exc.code,
+                "classification": "EXECUTION_FAILURE_NOT_ASSERTION",
+                "trace_digest": trace_digest,
+                "trace_complete": False,
             },
         )
 
@@ -1484,6 +1734,8 @@ def run_to_release_ready(
                 "baseline must fail every non-template criterion by assertion"
             )
     except (ContractInvalidError, RuntimeError, OSError) as exc:
+        if isinstance(exc, (TaskTrackerObservationError, TaskTrackerObservationTimeoutError)):
+            record_observer_failure(exc, 0, RunState.BUILDING)
         record_execution_failure(exc)
         raise
     try:
@@ -1700,6 +1952,8 @@ def run_to_release_ready(
                     observations=observations,
                 )
             except ContractInvalidError as exc:
+                if isinstance(exc, TaskTrackerObservationError):
+                    record_observer_failure(exc, attempt, RunState.VERIFYING)
                 implicated_files = tuple(
                     sorted(
                         {
@@ -1720,6 +1974,8 @@ def run_to_release_ready(
                     ),
                 )
             except (RuntimeError, OSError) as exc:
+                if isinstance(exc, TaskTrackerObservationTimeoutError):
+                    record_observer_failure(exc, attempt, RunState.VERIFYING)
                 record_execution_failure(exc)
                 raise
             expected_ids = {criterion.criterion_id for criterion in plan.criteria}
@@ -1746,6 +2002,36 @@ def run_to_release_ready(
             gate_evidence_digest, gates = record_release_gates(
                 verification_snapshot, criterion_results, attempt, RunState.VERIFYING
             )
+            if harness_plan is not None:
+                observed_stages = harness_plan.observed_stages(gates)
+                blocking_ids = [
+                    item["condition_id"] for item in observed_stages if item["status"] != "PASS"
+                ]
+                stage_evidence = {
+                    "attempt": attempt,
+                    "mapping_digest": harness_plan.mapping_digest,
+                    "contract_digest": subject_digest,
+                    "plan_digest": plan.plan_digest,
+                    "conditions": observed_stages,
+                    "blocking_condition_ids": blocking_ids,
+                    "release_eligible": False,
+                }
+                stage_blob = ledger.put_blob(canonical_json_bytes(stage_evidence))
+                ledger.append(
+                    event_type="core_conditions_evaluated",
+                    state=RunState.VERIFYING,
+                    subject_digest=subject_digest,
+                    blob_digests=(stage_blob,),
+                    payload={**stage_evidence, "evidence_digest": stage_blob},
+                )
+                counters["core_harness"] = {
+                    "mapping_digest": harness_plan.mapping_digest,
+                    "required_condition_ids": [
+                        item.condition_id for item in harness_plan.conditions
+                    ],
+                    "blocking_condition_ids": blocking_ids,
+                    "proof_status": "NOT_ESTABLISHED",
+                }
             findings += tuple(
                 Finding(
                     "RELEASE_GATE_FAILED"

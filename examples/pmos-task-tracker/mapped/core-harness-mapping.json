@@ -1,0 +1,97 @@
+{
+  "criterion_ids": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010",
+    "AC-011",
+    "AC-012",
+    "AC-013",
+    "AC-014"
+  ],
+  "mapping_approval_scope": "all 14 criteria and all five release conditions",
+  "mapping_approval_source": "Sentinel_9c3320c8e9d881919428b5e6e1ff6341",
+  "registry": {
+    "action_target": "pmpe_task_tracker:observe",
+    "baseline_digest": "sha256:c8ad051fbb21abfabf06916c4dc9ec140859b5bf6dc91025e500f54e933a7fe3",
+    "evaluator_digest": "sha256:7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66",
+    "measure_target": "pmpe_task_tracker:missing_acknowledged_records",
+    "name": "pmos-task-tracker-v1",
+    "version": "1",
+    "wrapper_digest": "sha256:9c3c33d18e94ddd8235580a98fc3d8aba39dd885492654663a0faa9f45826b28"
+  },
+  "required_conditions": [
+    {
+      "condition_id": "GATE-001",
+      "criterion_refs": [
+        "AC-001",
+        "AC-002",
+        "AC-003",
+        "AC-004",
+        "AC-005",
+        "AC-006",
+        "AC-007",
+        "AC-008",
+        "AC-009",
+        "AC-010",
+        "AC-011",
+        "AC-012",
+        "AC-013",
+        "AC-014"
+      ],
+      "description": "Every approved AC-001 through AC-014 passes unchanged; severity does not permit skipping a criterion.",
+      "harness_stage": "product_acceptance",
+      "required": true
+    },
+    {
+      "condition_id": "GATE-002",
+      "criterion_refs": [],
+      "description": "The meaningful baseline fails by assertion; isolated persistence and filtering mutations fail unchanged checks for the intended behavior, not a missing prerequisite or arbitrary crash.",
+      "harness_stage": "meaningful_red_and_regressions",
+      "required": true
+    },
+    {
+      "condition_id": "GATE-003",
+      "criterion_refs": [],
+      "description": "Every approval-bound digest matches immediately before and immediately after each authoritative check. A mismatch fails the run, regardless of its behavioral verdict.",
+      "harness_stage": "approval_bound_integrity",
+      "required": true
+    },
+    {
+      "condition_id": "GATE-004",
+      "criterion_refs": [],
+      "description": "Actual in-session model request/response evidence, exact commands, generated artifact and criterion-linked observations are retained; no undisclosed manual repair.",
+      "harness_stage": "build_provenance",
+      "required": true
+    },
+    {
+      "condition_id": "GATE-005",
+      "criterion_refs": [],
+      "description": "Report root privileges, forgeable receipts, active-session reproduction and the environment-blocked real-sandbox leg. An allowed weaker-isolation run cannot be represented as full isolation or general readiness.",
+      "harness_stage": "limitations_report",
+      "required": true
+    }
+  ],
+  "schema_version": "pmos-core-harness-mapping-v1",
+  "source_commit": "2acc3fa0c81f1237f8ab7b5681b478630c530931",
+  "source_contract_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "source_raw_sha256": {
+    "ACCEPTANCE.md": "7788286762d679c26769e4abc05406597829cdb89da57a0425d4353d79c5e7a8",
+    "README.md": "a9fc43ca99cdc023628b0098c2d0c6df1e2e3d3a52fc92b7aeea260c3c23a775",
+    "approval-receipt.json": "856ef2b3257a54c3834c44f95d61b245be4906807db50d2f88dc63e219b1d09c",
+    "bindings.json": "3414ac07671405b6d69a41af91b1e96b8324d1c4455b0e262f5e04123540dac0",
+    "contract.approved.json": "41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2",
+    "evaluator.py": "7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66",
+    "execution-profile.json": "4a46f594d269e130b8933cd032fa7fb400c0a510553f77140efa2a1fab683120",
+    "publisher-input.json": "37303040df5b8dc6a9d3ae8182654872e629b59e1212dca736586693ecd50c40",
+    "scenarios.json": "0c5bd5d6f5b0130333c823be2f136df31487b26b22a6b74837bdfc8061806620"
+  },
+  "source_receipt_digest": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef",
+  "source_repository": "Abhillashjadhav/PM-agent-OS"
+}

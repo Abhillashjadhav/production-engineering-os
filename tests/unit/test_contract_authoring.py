@@ -73,6 +73,43 @@ def test_complete_answers_produce_schema_valid_draft(tmp_path: Path) -> None:
     assert not contract.runnable
 
 
+def test_required_harness_digest_is_publisher_and_receipt_bound(tmp_path: Path) -> None:
+    answers = _answers()
+    required_digest = "sha256:" + "a" * 64
+    answers["required_harness_digest"] = required_digest
+    draft = build_contract_draft(answers)
+    assert draft.draft is not None and draft.draft_digest is not None
+    assert draft.draft["required_harness_digest"] == required_digest
+    issued = approve_contract_draft(
+        draft.draft,
+        expected_draft_digest=draft.draft_digest,
+        approver="test-only-issuer",
+        approved_at="2026-10-01T00:00:00Z",
+    )
+    assert (
+        verify_contract_approval(
+            issued.contract, issued.receipt, expected_approver="test-only-issuer"
+        )
+        == issued.receipt["receipt_digest"]
+    )
+    path = tmp_path / "bound-contract.json"
+    path.write_text(json.dumps(issued.contract))
+    assert load_contract(path).raw["required_harness_digest"] == required_digest
+    issued.contract["required_harness_digest"] = "sha256:" + "b" * 64
+    with pytest.raises(ContractViolation, match="approval receipt is not bound"):
+        verify_contract_approval(
+            issued.contract, issued.receipt, expected_approver="test-only-issuer"
+        )
+
+
+@pytest.mark.parametrize("digest", ["", "sha256:short", "sha256:" + "z" * 64, 123])
+def test_invalid_required_harness_digest_refuses_draft(digest: object) -> None:
+    answers = _answers()
+    answers["required_harness_digest"] = digest
+    with pytest.raises(SpecError, match="required_harness_digest"):
+        build_contract_draft(answers)
+
+
 def test_approval_is_bound_to_exact_draft_digest(tmp_path: Path) -> None:
     draft = build_contract_draft(_answers())
     assert draft.draft is not None and draft.draft_digest is not None

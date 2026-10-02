@@ -123,6 +123,7 @@ jobs:
             tests/e2e/test_barebones_e1.py::test_e1_real_contract_preserves_candidate_evidence_but_blocks_release \
             tests/e2e/test_barebones_e1.py::test_outside_verifier_real_candidate_cannot_change_host_or_verdict \
             tests/integration/test_provider_isolation.py::test_real_offline_provider_cannot_write_host_or_forge_release \
+            tests/integration/test_pmos_core_harness.py::test_fixed_task_tracker_product_uat_in_supported_candidate_sandbox \
             -q
 
   security-static:

@@ -21,13 +21,16 @@ from typing import Any, cast
 
 from pmpe.barebones import (
     ContractInvalidError,
+    Template,
     TerminalPersistenceError,
     compile_barebones_plan,
+    default_template,
     run_to_release_ready,
 )
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
+from pmpe.core_harness import CoreHarnessInvalidError, compile_required_harness
 from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import (
     ProviderBehavior,
@@ -40,7 +43,9 @@ from pmpe.model_provider import (
     OFFLINE_PROVIDER_ISOLATION,
     ModelProvider,
 )
+from pmpe.pipeline_health import core_pipeline_health
 from pmpe.provider_isolation import OfflineConfinedProvider
+from pmpe.task_tracker_harness import MEASURE_TARGET, REGISTRY_NAME, fixed_template
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -64,12 +69,43 @@ def _load_contract(path: Path) -> Mapping[str, Any]:
     return contract
 
 
+def _load_core_harness_mapping(path: str | None) -> Mapping[str, Any] | None:
+    if path is None:
+        return None
+    try:
+        source = Path(path).read_bytes()
+    except OSError as exc:
+        raise ContractInvalidError("cannot read required core harness mapping") from exc
+    try:
+        mapping = strict_loads(source, "application/json")
+    except CanonicalInputError as exc:
+        raise ContractInvalidError("required core harness mapping is malformed") from exc
+    if not isinstance(mapping, Mapping):
+        raise ContractInvalidError("required core harness mapping must be an object")
+    return mapping
+
+
+def _selected_template(name: str, has_harness: bool) -> Template:
+    if name == REGISTRY_NAME and has_harness:
+        return fixed_template()
+    if name == "barebones-1" and not has_harness:
+        return default_template()
+    raise ContractInvalidError("fixed task-tracker template and bound core harness must agree")
+
+
 def _compile(args: argparse.Namespace) -> int:
     try:
         contract = _load_contract(Path(args.contract))
+        mapping = _load_core_harness_mapping(args.core_harness_mapping)
+        try:
+            harness_plan = compile_required_harness(contract, mapping)
+        except CoreHarnessInvalidError as exc:
+            raise ContractInvalidError(str(exc)) from exc
+        template = _selected_template(args.template, harness_plan is not None)
         plan = compile_barebones_plan(
             contract=contract,
             repository_root=Path(args.repository_root).resolve(),
+            template=template,
         )
     except CanonicalInputError as exc:
         _json(
@@ -98,23 +134,37 @@ def _compile(args: argparse.Namespace) -> int:
         {"criterion_id": item.criterion_id, "form": item.form}
         for item in plan.criteria
         if item.form != "given_when_then"
+        and not (
+            item.form == "measure"
+            and harness_plan is not None
+            and template.measures.get(item.measure) == MEASURE_TARGET
+        )
     ]
-    _json(
-        {
-            "status": "COMPILES",
-            "contract_status": contract.get("contract_status"),
-            "execution_eligibility": (
-                "UNSUPPORTED_VERIFICATION_MODE" if unsupported else "SUPPORTED"
-            ),
-            "unsupported_criteria": unsupported,
-            "coverage": {
-                "structured": structured,
-                "human_test": human,
-                "total": len(plan.criteria),
-            },
-            "plan": plan.as_dict(),
+    output: dict[str, Any] = {
+        "status": "COMPILES",
+        "contract_status": contract.get("contract_status"),
+        "execution_eligibility": (
+            "UNSUPPORTED_VERIFICATION_MODE"
+            if unsupported
+            else "CORE_HARNESS_PROOF_PENDING"
+            if harness_plan is not None
+            else "SUPPORTED"
+        ),
+        "unsupported_criteria": unsupported,
+        "coverage": {
+            "structured": structured,
+            "human_test": human,
+            "total": len(plan.criteria),
+        },
+        "plan": plan.as_dict(),
+    }
+    if harness_plan is not None:
+        output["core_harness"] = {
+            "mapping_digest": harness_plan.mapping_digest,
+            "required_condition_ids": [item.condition_id for item in harness_plan.conditions],
+            "proof_status": "NOT_ESTABLISHED",
         }
-    )
+    _json(output)
     return 0
 
 
@@ -278,6 +328,12 @@ def _run(args: argparse.Namespace) -> int:
             raise ContractInvalidError("cannot read approval receipt") from exc
         receipt = strict_loads(receipt_source, "application/json")
         _require_approved_contract(contract, receipt, args.expected_approver)
+        mapping = _load_core_harness_mapping(args.core_harness_mapping)
+        try:
+            harness_plan = compile_required_harness(contract, mapping)
+        except CoreHarnessInvalidError as exc:
+            raise ContractInvalidError(str(exc)) from exc
+        template = _selected_template(args.template, harness_plan is not None)
         command = args.provider_command
         bundle = args.provider_offline_bundle
         entry = args.provider_offline_entry
@@ -314,6 +370,8 @@ def _run(args: argparse.Namespace) -> int:
                 approval_receipt=receipt,
                 approval_authority=args.expected_approver,
                 approval_receipt_bytes=receipt_source,
+                core_harness_mapping=mapping,
+                template=template,
             )
         except (RuntimeError, OSError) as exc:
             _json({"state": "HALTED", "cause": "EXECUTION_FAILED", "detail": str(exc)})
@@ -536,6 +594,11 @@ def _verification_assurance(
         or any(
             item.get("response_digest") not in observed.get("blob_digests", []) for item in entries
         )
+        or any(
+            "trace_digest" in item
+            and item.get("trace_digest") not in observed.get("blob_digests", [])
+            for item in entries
+        )
     ):
         raise EvidenceIntegrityError("supervisor observations are inconsistent")
     return assurance
@@ -556,28 +619,30 @@ def _status(args: argparse.Namespace) -> int:
     if not isinstance(cause, str):
         cause = "PASS" if event_type == "release_ready" else "IN_PROGRESS"
     telemetry = payload.get("telemetry")
-    _json(
-        {
-            "run_id": args.run_id,
-            "state": terminal.get("state"),
-            "cause": cause,
-            "events": len(events),
-            "head_event_digest": terminal.get("event_digest"),
-            "telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
-            "approval": approval,
-            "verification_assurance": assurance,
-            "diagnostics": payload.get("diagnostics", []),
-            "release_eligible": False,
-            "release_blocker": (
-                "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
-                if terminal.get("state") == "RELEASE_READY"
-                else cause
-            ),
-            "candidate_response_verified": payload.get("candidate_response_verified", False)
-            or cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED",
-            "candidate_digest": payload.get("candidate_digest"),
-        }
-    )
+    output = {
+        "run_id": args.run_id,
+        "state": terminal.get("state"),
+        "cause": cause,
+        "events": len(events),
+        "head_event_digest": terminal.get("event_digest"),
+        "telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
+        "approval": approval,
+        "verification_assurance": assurance,
+        "diagnostics": payload.get("diagnostics", []),
+        "release_eligible": False,
+        "release_blocker": (
+            "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+            if terminal.get("state") == "RELEASE_READY"
+            else cause
+        ),
+        "candidate_response_verified": payload.get("candidate_response_verified", False)
+        or cause == "PROVIDER_WRITE_ISOLATION_UNVERIFIED",
+        "candidate_digest": payload.get("candidate_digest"),
+    }
+    health = core_pipeline_health(events, approval, assurance)
+    if health is not None:
+        output["pipeline_health"] = health
+    _json(output)
     return 0
 
 
@@ -1099,6 +1164,10 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     )
     compile_parser.add_argument("contract")
     compile_parser.add_argument("--repository-root", default=".")
+    compile_parser.add_argument("--core-harness-mapping")
+    compile_parser.add_argument(
+        "--template", choices=("barebones-1", REGISTRY_NAME), default="barebones-1"
+    )
     compile_parser.set_defaults(fn=_compile)
 
     run_parser = commands.add_parser("run", help="run one approved contract")
@@ -1106,6 +1175,10 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     run_parser.add_argument("--workspace", required=True)
     run_parser.add_argument("--run-id", required=True)
     run_parser.add_argument("--repository-root", default=".")
+    run_parser.add_argument("--core-harness-mapping")
+    run_parser.add_argument(
+        "--template", choices=("barebones-1", REGISTRY_NAME), default="barebones-1"
+    )
     run_parser.add_argument("--approval-receipt", required=True)
     run_parser.add_argument(
         "--expected-approver",

@@ -19,6 +19,7 @@ from pmpe.domain.errors import SpecError
 from pmpe.ingestion.schema import SchemaValidator
 
 _SAFE_CONTRACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _ID_COLLECTIONS = (
     "functional_requirements",
     "acceptance_criteria",
@@ -129,6 +130,12 @@ def load_contract(path: Path) -> ProductDecisionContract:
     contract_id = data.get("contract_id")
     if not isinstance(contract_id, str) or not _SAFE_CONTRACT_ID.fullmatch(contract_id):
         errors.append("contract_id: unsafe or unbounded identifier")
+    required_harness_digest = data.get("required_harness_digest")
+    if "required_harness_digest" in data and (
+        not isinstance(required_harness_digest, str)
+        or _SHA256.fullmatch(required_harness_digest) is None
+    ):
+        errors.append("required_harness_digest: malformed SHA-256 digest")
     for collection in _ID_COLLECTIONS:
         seen: set[str] = set()
         for item in data.get(collection, []):

@@ -8,7 +8,7 @@ The installed product surface is one command group:
 |---|---|---|
 | `pmpe barebones compile <contract> --repository-root DIR` | compile acceptance truth and report deterministic coverage without starting a run | 0 valid · 3 halted |
 | `pmpe barebones run <contract> ...` | run an approved structured contract through the bounded Coder, retain candidate-only evidence when verification passes, and stop at `HALTED` | 3 halted; the reserved 0 ready path is unavailable in the current provider modes |
-| `pmpe barebones status <run_id> --repository-root DIR` | verify the evidence chain and report its current state | 0 valid · 3 invalid |
+| `pmpe barebones status <run_id> --repository-root DIR` | verify the evidence chain and report its current state, with a conservative stage-health projection for mapped runs | 0 valid · 3 invalid |
 | `pmpe barebones evidence <run_id> --repository-root DIR` | verify and locate the event log and referenced blobs | 0 valid · 3 invalid |
 | `pmpe barebones inspect <run_id> --repository-root DIR [--workspace DIR] [--file PATH]` | inspect the sealed candidate and optionally detect workspace drift | 0 match · 3 invalid/drift |
 
@@ -23,6 +23,22 @@ CLI result. A terminal append I/O failure instead returns `UNKNOWN` with
 `EVIDENCE_PERSISTENCE_UNCONFIRMED`; `status` may retain the earlier in-progress
 event. Other evidence-storage failures may also leave an incomplete ledger.
 An immediate failure response alone never proves a terminal event was stored.
+
+## Fixed PMOS task-tracker reference
+
+The [task-tracker reference harness](../examples/pmos-task-tracker/README.md)
+adds one packaged `pmos-task-tracker-v1` template for the unchanged PMOS
+14-case packet. Compile with both `--template pmos-task-tracker-v1` and
+`--core-harness-mapping PATH`; the mapping digest must be bound in the contract.
+The immutable checked-in draft still compiles as `CORE_HARNESS_PROOF_PENDING`.
+The owner's exact-digest approval produced a separate approved contract and
+receipt under `examples/pmos-task-tracker/approved/`. This admits the mapped
+requirements but does not satisfy runtime conditions. A test-only issued copy can
+exercise all 14 cases and the ten-create measure, but still halts on provider
+write isolation. The five mapped conditions remain required; their runtime
+proofs are not established by static compilation or fixture tests. See the
+[pipeline-health definition](pipeline-health.md) for how passed, failed,
+skipped and blocked stages are reported.
 
 ## Legacy-compatible commands
 
