@@ -403,6 +403,140 @@ def test_provider_timeout_is_a_classified_halt(
     assert event["payload"]["telemetry"] == result.telemetry
 
 
+@pytest.mark.parametrize("provider_command", ["'unbalanced", ""])
+def test_malformed_provider_command_has_structured_pre_run_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], provider_command: str
+) -> None:
+    run_id = "malformed-provider-command"
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(tmp_path / "candidate"),
+                "--run-id",
+                run_id,
+                "--repository-root",
+                str(tmp_path),
+                "--approval-receipt",
+                str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                provider_command,
+            ]
+        )
+        == 3
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert output == {
+        "state": "HALTED",
+        "cause": "CONTRACT_INVALID",
+        "detail": "provider command is malformed",
+    }
+    assert not (tmp_path / "candidate").exists()
+    assert not (tmp_path / ".pmpe" / "runs" / run_id).exists()
+
+
+@pytest.mark.parametrize("failure", ["missing-executable", "request-io"])
+def test_provider_start_or_io_failure_is_persisted_as_terminal_halt(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    if failure == "request-io":
+
+        def interrupted_io(*_args: object, **_kwargs: object) -> object:
+            raise OSError("TEST-ONLY provider I/O failure")
+
+        monkeypatch.setattr(barebones_cmd, "_run_provider_command", interrupted_io)
+    run_id = f"provider-{failure}"
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(tmp_path / "candidate"),
+                "--run-id",
+                run_id,
+                "--repository-root",
+                str(tmp_path),
+                "--approval-receipt",
+                str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                str(tmp_path / "absent-provider"),
+            ]
+        )
+        == 3
+    )
+    immediate = json.loads(capsys.readouterr().out)
+    assert (immediate["state"], immediate["cause"]) == ("HALTED", "MODEL_PROVIDER_FAILED")
+    assert immediate["model_calls"] == 1
+    events = [
+        json.loads(line)
+        for line in (tmp_path / ".pmpe" / "runs" / run_id / "events.jsonl").read_text().splitlines()
+    ]
+    assert (events[-1]["event_type"], events[-1]["state"]) == ("halted", "HALTED")
+    assert events[-1]["payload"]["cause"] == "MODEL_PROVIDER_FAILED"
+    assert "TEST-ONLY" not in json.dumps(events)
+    assert main(["barebones", "status", run_id, "--repository-root", str(tmp_path)]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert (status["state"], status["cause"]) == ("HALTED", "MODEL_PROVIDER_FAILED")
+
+
+def test_advisory_provider_io_failure_remains_a_nonblocking_annotation(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_invoke = CommandModelProvider.invoke
+
+    def invoke_with_advisory_io_failure(
+        self: CommandModelProvider, *, purpose: str, request: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            raise OSError("TEST-ONLY advisory I/O failure")
+        return original_invoke(self, purpose=purpose, request=request)
+
+    monkeypatch.setattr(CommandModelProvider, "invoke", invoke_with_advisory_io_failure)
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(tmp_path / "candidate"),
+                "--run-id",
+                "advisory-provider-io",
+                "--repository-root",
+                str(tmp_path),
+                "--approval-receipt",
+                str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                f"{sys.executable} {_REPOSITORY / 'examples/barebones/e1-provider.py'}",
+            ]
+        )
+        == 0
+    )
+    output = json.loads(capsys.readouterr().out)
+    assert output["state"] == "RELEASE_READY"
+    assert output["annotation"] == {
+        "status": "unavailable",
+        "cause": "MODEL_PROVIDER_FAILED",
+    }
+    assert "TEST-ONLY" not in json.dumps(output)
+
+
 def test_malformed_contract_is_reported_without_a_traceback(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -542,6 +676,44 @@ def test_command_provider_output_is_bounded_before_capture() -> None:
             2,
             output_limit_bytes=32,
         )
+
+
+def test_command_provider_terminates_process_after_stream_io_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InterruptedSelector:
+        def __enter__(self) -> InterruptedSelector:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def register(self, *_args: object) -> None:
+            return None
+
+        def get_map(self) -> dict[str, bool]:
+            return {"stdout": True}
+
+        def select(self, *_args: object) -> None:
+            raise OSError("TEST-ONLY stream I/O failure")
+
+    started: list[subprocess.Popen[bytes]] = []
+    original_popen = subprocess.Popen
+
+    def record_process(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        process = original_popen(*args, **kwargs)
+        started.append(process)
+        return process
+
+    monkeypatch.setattr(barebones_cmd.selectors, "DefaultSelector", InterruptedSelector)
+    monkeypatch.setattr(barebones_cmd.subprocess, "Popen", record_process)
+    with pytest.raises(OSError, match="TEST-ONLY stream I/O failure"):
+        barebones_cmd._run_provider_command(
+            (sys.executable, "-c", "import time; time.sleep(10)"), b"{}", 2
+        )
+
+    assert len(started) == 1
+    assert started[0].poll() is not None
 
 
 def test_provider_group_is_fenced_before_the_exited_leader_is_reaped(
