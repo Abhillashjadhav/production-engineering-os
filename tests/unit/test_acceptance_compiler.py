@@ -174,6 +174,54 @@ def test_human_test_is_path_and_digest_bound(tmp_path: Path) -> None:
     assert plan.criteria[0].human_test.file_digest.startswith("sha256:")
 
 
+@pytest.mark.parametrize("human_test", [None, False, 0, "", [], {}])
+@pytest.mark.parametrize("canonical_array", [False, True])
+def test_present_malformed_human_test_is_rejected(
+    tmp_path: Path, human_test: object, canonical_array: bool
+) -> None:
+    criterion = {"requirement_refs": ["FR-001"], "human_test": human_test}
+    contract = _contract(criterion)
+    if canonical_array:
+        contract["acceptance_criteria"] = [{"id": "AC-001", **criterion}]
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    diagnostics = {(item.code, item.subject_id) for item in failure.value.diagnostics}
+    assert ("INVALID_HUMAN_TEST_REFERENCE", "AC-001") in diagnostics
+    assert ("REQUIREMENT_UNCOVERED", "FR-001") in diagnostics
+
+
+def test_invalid_criterion_does_not_count_as_requirement_coverage(tmp_path: Path) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "given": [{"path": "service.running", "operator": "eq", "value": True}],
+            "when": {"action": "unregistered", "arguments": {}},
+            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    diagnostics = {(item.code, item.subject_id) for item in failure.value.diagnostics}
+    assert ("ACTION_NOT_REGISTERED", "AC-001") in diagnostics
+    assert ("REQUIREMENT_UNCOVERED", "FR-001") in diagnostics
+
+
 def test_human_test_missing_fails_before_build(tmp_path: Path) -> None:
     contract = _contract(
         {
