@@ -1,0 +1,441 @@
+{
+  "schema_version": "1",
+  "product": "personal AI task planner (first PEOS proof)",
+  "contract_status": "NOT_APPROVED",
+  "complete_product_claim": "BLOCKED",
+  "authority": "Product decisions belong exclusively to the owner or a product manager he explicitly authorizes. An unanswered decision is not a fallback value.",
+  "decisions": {
+    "D1": {
+      "status": "DECIDED",
+      "question": "What must PEOS deliver first?",
+      "answer": "A complete AI task planner with a UI on localhost; PEOS performs architecture, engineering, AI, testing and local delivery using reusable components/templates.",
+      "source": "owner interview 2026-09-25 16:23-16:36 IST (private handoff; paraphrased)"
+    },
+    "D2": {
+      "status": "OPEN",
+      "question": "For fresh generation (G4), is the trusted-operator model sufficient when an actual session's request/response evidence is independently retained, or is stronger provider-authenticated proof required?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "G4 evidence trust model"
+      ]
+    },
+    "D3": {
+      "status": "OPEN",
+      "question": "Should G2 prove the verifier rejects frozen known-bad fixtures, or that it detects defects injected into each newly generated candidate?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "G2 claim"
+      ]
+    },
+    "D4": {
+      "status": "OPEN",
+      "question": "Monitoring system of record: pm-evals-web, obsplane, or defer the choice?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "monitoring consolidation"
+      ],
+      "notes": "Does not block PEOS repair or the planner."
+    },
+    "D5": {
+      "status": "OPEN",
+      "question": "Outcome metric and target, leading metrics, guardrails and main trade-off: what must the user accomplish, with what limits on manual effort, time and errors?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "success criteria",
+        "acceptance thresholds"
+      ]
+    },
+    "D6": {
+      "status": "DECIDED",
+      "question": "Who uses it and how is it distributed?",
+      "answer": "One person locally; others fork the PEOS workflow/repository and run their own instance. No tenancy or shared hosting.",
+      "source": "owner interview 2026-09-25 16:30 IST (private handoff; paraphrased)"
+    },
+    "D7": {
+      "status": "OPEN",
+      "question": "UI behaviour and template inputs: screens, journeys, and the clickable approval pop-up surface (local web UI notification vs OS-native).",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "UI journeys",
+        "approval pop-up surface",
+        "which template inputs may vary"
+      ]
+    },
+    "D8": {
+      "status": "DECIDED",
+      "question": "Must the product itself contain AI?",
+      "answer": "Yes: an automatic task builder that interprets work conversations; AI-assisted coding alone does not satisfy it.",
+      "source": "owner interview 2026-09-25 16:36 IST (private handoff; paraphrased)"
+    },
+    "D9": {
+      "status": "DECIDED",
+      "question": "Which conversation sources?",
+      "answer": "ChatGPT is required and primary; Claude is optional and may be omitted if it adds substantial complexity; requested local Wispr text and other authorized sources after access is verified.",
+      "source": "owner interview 2026-09-25 16:38-16:58 IST (private handoff; paraphrased)"
+    },
+    "D10": {
+      "status": "DECIDED",
+      "question": "How are tasks derived?",
+      "answer": "Infer tasks from discussions and follow the latest agreed state; a later agreement (e.g. tomorrow changed to ten days later) supersedes, and quoting an old plan does not restore it. Remind before deadlines (policy in D14).",
+      "source": "owner interview 2026-09-25 16:41 IST (private handoff; paraphrased)"
+    },
+    "D11": {
+      "status": "DECIDED",
+      "question": "Calendar write policy?",
+      "answer": "New entries are created automatically in the evening batch when information and scheduling rules are settled; changes to existing entries require approval through a clickable pop-up; reprocessing must not duplicate events.",
+      "source": "owner interview 2026-09-25 16:47-17:00 IST (private handoff; paraphrased)"
+    },
+    "D12a": {
+      "status": "DECIDED",
+      "question": "Calendar provider?",
+      "answer": "Google Calendar.",
+      "source": "owner interview 2026-09-25 16:49 IST (private handoff; paraphrased)"
+    },
+    "D12b": {
+      "status": "OPEN",
+      "question": "Which Google calendar receives entries, and may any other people be invited (attendees / invitation emails)?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "target calendar",
+        "attendee and invitation policy"
+      ]
+    },
+    "D13a": {
+      "status": "DECIDED",
+      "question": "What happens to tasks due today with no completion update?",
+      "answer": "Ask 'Yes, I have completed it' / 'I have not completed it'; silence or elapsed time is not completion.",
+      "source": "owner interview 2026-09-25 16:51 IST (private handoff; paraphrased)"
+    },
+    "D13b": {
+      "status": "OPEN",
+      "question": "When and where is the completion prompt shown, how are other updates interpreted, and what follows 'I have not completed it'?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "prompt time",
+        "prompt surface",
+        "non-binary updates",
+        "unfinished-task handling"
+      ]
+    },
+    "D14": {
+      "status": "OPEN",
+      "question": "When and where do advance reminders appear (timing, channel, repeats)?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "timing",
+        "channel",
+        "repeat policy"
+      ]
+    },
+    "D15a": {
+      "status": "DECIDED",
+      "question": "Input mode?",
+      "answer": "Available text and transcripts only (including local Wispr text); no live audio capture.",
+      "source": "owner interview 2026-09-25 16:58 IST (private handoff; paraphrased)"
+    },
+    "D15b": {
+      "status": "OPEN",
+      "question": "Where is a newly created task chat opened?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "task-chat destination"
+      ]
+    },
+    "D16": {
+      "status": "DECIDED",
+      "question": "Scheduling rules?",
+      "answer": "Use the owner's existing daily scheduling rules and protected time; ask for access if unavailable; never invent them.",
+      "source": "owner interview 2026-09-25 16:51 IST (private handoff; paraphrased)"
+    },
+    "D17": {
+      "status": "DECIDED",
+      "question": "When does the review run?",
+      "answer": "Daily at 20:00 Asia/Kolkata, covering all agreed upcoming dates, not only tomorrow.",
+      "source": "owner interview 2026-09-25 17:00-17:43 IST (private handoff; paraphrased)"
+    },
+    "D18": {
+      "status": "OPEN",
+      "question": "What should the app do when a possible task, date, superseding agreement or task identity is unclear?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "uncertainty threshold",
+        "uncertainty response"
+      ]
+    },
+    "D19a": {
+      "status": "DECIDED",
+      "question": "What if a task has no duration?",
+      "answer": "Ask the owner; never estimate or default.",
+      "source": "owner interview 2026-09-25 17:54 IST (private handoff; paraphrased)"
+    },
+    "D19b": {
+      "status": "OPEN",
+      "question": "Prioritization, splitting and capacity conflicts when no permitted slot fits.",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "priority",
+        "splitting",
+        "conflict handling"
+      ]
+    },
+    "D20": {
+      "status": "OPEN",
+      "question": "Data handling: which histories are read initially, what is stored locally and for how long, and may transcript text be sent to the chosen model service?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "initial sources/history scope",
+        "local retention",
+        "model data destination"
+      ]
+    },
+    "D21": {
+      "status": "OPEN",
+      "question": "Operational exceptions: laptop asleep/offline at 20:00, task time already passed, input after the run, source/write failures, approval clicked after the batch.",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "missed runs",
+        "elapsed tasks",
+        "late input",
+        "failure/retry",
+        "post-batch approvals"
+      ]
+    },
+    "D22": {
+      "status": "PARTIALLY_DECIDED",
+      "question": "ChatGPT has no official automatable read path for consumer chat history (feasibility 2026-09-25). How should the required ChatGPT source be read?",
+      "answer": "ChatGPT stays the required primary source and evening processing must be automatic. Daily manual export, copy-paste, dropping ChatGPT and scraping are not approved; no workaround may be chosen without the owner.",
+      "source": "owner message 2026-09-25 21:35 IST (this session; paraphrased)",
+      "open_parts": [
+        "a supported automatic ChatGPT access route, or the owner's choice of the smallest change that makes one available"
+      ],
+      "notes": "Verification 2026-09-25 (search-engine excerpts of help.openai.com and developers.openai.com; those domains were not fetchable from the build environment): no supported automatic read of consumer (Plus/Pro) ChatGPT conversations was found. The OpenAI API cannot read chatgpt.com chats; self-service export is manual (up to 7 days, link expires after 24 h); apps/MCP connectors receive only what a live chat sends and must not request chat history; the macOS app encrypts its local store. Supported routes with limits: (1) the Compliance Platform delivers conversation logs for ChatGPT Enterprise and Edu workspaces only (sales-led, org-level); (2) a ChatGPT scheduled task can deliver a daily result by push or email, but whether a task sees chat history is unverified and output would be a summary, not transcripts. Requirement R2 stays BLOCKED."
+    },
+    "D23": {
+      "status": "OPEN",
+      "question": "Which runtime AI performs extraction inside the planner, within existing subscriptions?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "runtime model path"
+      ],
+      "notes": "Candidates found: Codex CLI signed in with the ChatGPT plan, Claude Code headless mode with the Claude plan (without --bare), or a local model. Each shares plan quotas or has quality/hardware limits; none is verified on the owner's laptop."
+    },
+    "D25": {
+      "status": "DECIDED",
+      "question": "Spending constraint?",
+      "answer": "Use existing subscriptions; no additional API or GPU spending without asking.",
+      "source": "owner task instructions, this session's opening request (constraint list; paraphrased)"
+    },
+    "D26": {
+      "status": "OPEN",
+      "question": "Google OAuth app mode for a personal unattended app: 'Testing' (refresh tokens expire every 7 days, requiring weekly re-consent) or 'In production' unverified personal use (one-time warning screen)?",
+      "answer": null,
+      "source": null,
+      "open_parts": [
+        "OAuth publishing mode"
+      ]
+    }
+  },
+  "requirements": {
+    "R1": {
+      "statement": "Run the daily review at 20:00 Asia/Kolkata.",
+      "decision_refs": [
+        "D17"
+      ],
+      "blocked_by": [],
+      "status": "SETTLED"
+    },
+    "R2": {
+      "statement": "Read available work conversations and transcripts: ChatGPT required and primary, Claude optional, requested local Wispr text and other authorized sources after access is verified.",
+      "decision_refs": [
+        "D9",
+        "D15a",
+        "D20",
+        "D22"
+      ],
+      "blocked_by": [
+        "D20",
+        "D22"
+      ],
+      "status": "BLOCKED"
+    },
+    "R3": {
+      "statement": "Do not capture live audio.",
+      "decision_refs": [
+        "D15a"
+      ],
+      "blocked_by": [],
+      "status": "SETTLED"
+    },
+    "R4": {
+      "statement": "Infer tasks from discussions and follow the latest agreed state; a quoted old plan does not restore it.",
+      "decision_refs": [
+        "D8",
+        "D10",
+        "D18",
+        "D20",
+        "D23"
+      ],
+      "blocked_by": [
+        "D18",
+        "D20",
+        "D23"
+      ],
+      "status": "BLOCKED"
+    },
+    "R5": {
+      "statement": "The evening review processes new tasks across all agreed upcoming dates, not only tomorrow.",
+      "decision_refs": [
+        "D17"
+      ],
+      "blocked_by": [],
+      "status": "SETTLED"
+    },
+    "R6": {
+      "statement": "Place tasks using the existing daily scheduling rules and protected time; ask for schedule access if unavailable.",
+      "decision_refs": [
+        "D16",
+        "D19b"
+      ],
+      "blocked_by": [
+        "D19b"
+      ],
+      "status": "BLOCKED"
+    },
+    "R7": {
+      "statement": "If a task has no duration, ask the owner; never estimate or default.",
+      "decision_refs": [
+        "D19a"
+      ],
+      "blocked_by": [],
+      "status": "SETTLED"
+    },
+    "R8": {
+      "statement": "Create new Google Calendar entries automatically during the evening run when information and scheduling rules are settled.",
+      "decision_refs": [
+        "D11",
+        "D12a",
+        "D12b",
+        "D26"
+      ],
+      "blocked_by": [
+        "D12b",
+        "D26"
+      ],
+      "status": "BLOCKED"
+    },
+    "R9": {
+      "statement": "Changes to existing calendar entries require approval through a clickable pop-up.",
+      "decision_refs": [
+        "D11",
+        "D21",
+        "D7"
+      ],
+      "blocked_by": [
+        "D21",
+        "D7"
+      ],
+      "status": "BLOCKED"
+    },
+    "R10": {
+      "statement": "Reprocessing the same obligation never creates a duplicate calendar event.",
+      "decision_refs": [
+        "D11",
+        "D18"
+      ],
+      "blocked_by": [
+        "D18"
+      ],
+      "status": "BLOCKED"
+    },
+    "R11": {
+      "statement": "For tasks due today without a completion update, ask 'Yes, I have completed it' / 'I have not completed it'; silence is not completion.",
+      "decision_refs": [
+        "D13a",
+        "D13b"
+      ],
+      "blocked_by": [
+        "D13b"
+      ],
+      "status": "BLOCKED"
+    },
+    "R12": {
+      "statement": "Advance reminders and task chats.",
+      "decision_refs": [
+        "D10",
+        "D14",
+        "D15b"
+      ],
+      "blocked_by": [
+        "D14",
+        "D15b"
+      ],
+      "status": "BLOCKED"
+    },
+    "R13": {
+      "statement": "Use existing subscriptions; no additional API or GPU spending without asking.",
+      "decision_refs": [
+        "D25"
+      ],
+      "blocked_by": [],
+      "status": "SETTLED"
+    },
+    "R14": {
+      "statement": "Success criteria and release acceptance for the planner.",
+      "decision_refs": [
+        "D5"
+      ],
+      "blocked_by": [
+        "D5"
+      ],
+      "status": "BLOCKED"
+    },
+    "R15": {
+      "statement": "Behaviour when the 20:00 run is missed or an operation fails.",
+      "decision_refs": [
+        "D21"
+      ],
+      "blocked_by": [
+        "D21"
+      ],
+      "status": "BLOCKED"
+    },
+    "R16": {
+      "statement": "Localhost UI journeys.",
+      "decision_refs": [
+        "D1",
+        "D7"
+      ],
+      "blocked_by": [
+        "D7"
+      ],
+      "status": "BLOCKED"
+    },
+    "R17": {
+      "statement": "Fresh generation of the planner by PEOS is proven by retained evidence.",
+      "decision_refs": [
+        "D1",
+        "D2",
+        "D3"
+      ],
+      "blocked_by": [
+        "D2",
+        "D3"
+      ],
+      "status": "BLOCKED"
+    }
+  }
+}
