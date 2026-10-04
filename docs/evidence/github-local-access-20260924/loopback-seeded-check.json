@@ -1,0 +1,22 @@
+{
+  "seeded_regressions": [
+    {
+      "mutation": "dev_cli_wildcard",
+      "outcome": "rejected"
+    },
+    {
+      "mutation": "start_cli_wildcard",
+      "outcome": "rejected"
+    },
+    {
+      "mutation": "server_config_wildcard",
+      "outcome": "rejected"
+    },
+    {
+      "mutation": "preview_config_wildcard",
+      "outcome": "rejected"
+    }
+  ],
+  "unmodified_fixed_configuration": "accepted",
+  "method": "Temporary file copies only; no servers or network probes"
+}
