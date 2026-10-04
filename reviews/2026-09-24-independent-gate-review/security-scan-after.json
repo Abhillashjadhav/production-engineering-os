@@ -1,0 +1,11 @@
+{
+  "base_commit": "aacfde34088abc425fb6d467cba388e5d54852de",
+  "scan_scope": "reviews/2026-09-24-independent-gate-review",
+  "scanner": "pmpe.quality.security_scan.scan_tree",
+  "review_script_sha256": "ad66fddf80009ac6784dbfec435f38bf31711ef0a8d21ecf4bb2d50491876726",
+  "reused_source": "src/pmpe/demo/synthetic.py",
+  "reused_source_sha256": "c8edda78fb3ec7516f344d7da219c6664156383fe605f30bd7386a6f905193f7",
+  "findings": [],
+  "runtime_scanner_policy_allowlist_unchanged": true,
+  "repair_attempt": 1
+}

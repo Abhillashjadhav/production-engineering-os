@@ -1,0 +1,18 @@
+{
+  "source_commit": "aacfde34088abc425fb6d467cba388e5d54852de",
+  "scan_scope": "reviews/2026-09-24-independent-gate-review",
+  "findings": [
+    {
+      "id": "SEC-001",
+      "category": "security",
+      "severity": "critical",
+      "blocking": true,
+      "safe_to_autofix": false,
+      "file": "reviews/2026-09-24-independent-gate-review/adversarial_probes.py",
+      "line": 86,
+      "message": "eval() on dynamic input enables code injection",
+      "rule": "SEC_EVAL"
+    }
+  ],
+  "repair_attempt": 1
+}
