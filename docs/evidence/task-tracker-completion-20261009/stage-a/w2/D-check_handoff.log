@@ -1,0 +1,3 @@
+HANDOFF_SETUP_BLOCKED: PUBLISHER_PROVENANCE_UNKNOWN: the installed package does not identify the reviewed Git source.
+Checked Python: /home/user/stageA-clean/handoff-venv/bin/python
+Follow docs/HANDOFF.md using that same Python environment.

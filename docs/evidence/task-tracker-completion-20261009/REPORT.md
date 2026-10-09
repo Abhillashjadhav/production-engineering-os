@@ -149,5 +149,5 @@ no deployment surface exists in either repository.
 
 Ruff check: pass. Ruff format: 299 files already formatted. Strict mypy: 187 source files, no
 issues. New unit tests: 5/5 (regression report). Full `pytest tests/unit tests/integration
-tests/e2e`: **2905 passed, 4 skipped, 0 failed, exit 0 (pytest -q -q hides the summary line; counts derived from the progress marks)** (full log in `branch-tests.log`). PMOS branch: offline suite 29/29, repository audit PASS,
+tests/e2e`: 2905 passed / 4 skipped / 0 failed was *derived* from quiet-mode progress marks in `branch-tests.log`; the authoritative clean-room run at e8a929d (stage-a/w2/B-pytest.log, summary line captured) is **2909 passed, 4 skipped, 1 failed** in 24m19s, the failure being the non-deterministic `test_support_package_v1.py::test_package_verification_rederives_every_port`, unrelated to the task tracker and passing on isolated re-run. PMOS branch: offline suite 29/29, repository audit PASS,
 PR quality gate PASS, current-authoring 7/7 at pin `297a11d7`, drift test 2/3 (RED by design).

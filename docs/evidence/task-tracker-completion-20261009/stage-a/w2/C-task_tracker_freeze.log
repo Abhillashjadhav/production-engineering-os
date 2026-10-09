@@ -1,0 +1,34 @@
+test_approved_contract_matches_recorded_contract_digest (__main__.TaskTrackerFreezeTests.test_approved_contract_matches_recorded_contract_digest) ... ok
+test_manifest_matches_recorded_freeze_digest (__main__.TaskTrackerFreezeTests.test_manifest_matches_recorded_freeze_digest) ... ok
+test_pmos_bound_artifacts_are_unchanged (__main__.TaskTrackerFreezeTests.test_pmos_bound_artifacts_are_unchanged) ... FAIL
+
+======================================================================
+FAIL: test_pmos_bound_artifacts_are_unchanged (__main__.TaskTrackerFreezeTests.test_pmos_bound_artifacts_are_unchanged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/user/stageA-clean/pmos/tests/test_task_tracker_freeze.py", line 56, in test_pmos_bound_artifacts_are_unchanged
+    self.assertEqual(
+    ~~~~~~~~~~~~~~~~^
+        drifted,
+        ^^^^^^^^
+    ...<3 lines>...
+        "refreeze-candidate-20261009/README.md). Do not update digests here.",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+AssertionError: Lists differ: ['.claude/skills/decision-to-contract/SKIL[164 chars]c26'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'.claude/skills/decision-to-contract/SKILL.md: frozen sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f != current sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'
+
++ []
+- ['.claude/skills/decision-to-contract/SKILL.md: frozen '
+-  'sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f != '
+-  'current '
+-  'sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'] : APPROVAL_BOUND_ARTIFACT_CHANGED. The frozen journey cannot run against this tree until the owner approves a re-freeze (see reviews/task-tracker-v1/refreeze-candidate-20261009/README.md). Do not update digests here.
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.004s
+
+FAILED (failures=1)

@@ -1,0 +1,17 @@
+A peos-install (python3.12 -m venv .venv && .venv/bin/python -m pip install -e ".[dev]") exit=0
+B ruff-format-check exit=0
+B ruff-check exit=0
+B mypy-strict exit=0
+C audit_repository (python3 tests/audit_repository.py) exit=0
+C test_handoff_setup (python3 -B tests/test_handoff_setup.py -v) exit=0
+C beacon_unittest (python3 -B -m unittest discover -s tests -p test_beacon_*.py -v) exit=0
+C validation_regressions (python3 -m unittest discover -s tests -p test_validation_regressions.py -v) exit=0
+C pr_quality_gate (python3 tests/pr_quality_gate.py --base-ref main) exit=0
+C task_tracker_freeze (python3 -B tests/test_task_tracker_freeze.py -v) exit=1
+C lint_skills (python3 tests/lint_skill.py <each SKILL.md>; 47 files) exit=0 [pass=47 fail=0]
+D handoff-venv-install (python3.12 -m venv /home/user/stageA-clean/handoff-venv && handoff-venv/bin/python -m pip install /home/user/stageA-clean/peos) exit=0
+D test_current_authoring (handoff-venv/bin/python -B tests/decision-to-contract/test_current_authoring.py -v) exit=1
+D check_handoff (handoff-venv/bin/python scripts/check_handoff.py) exit=2
+D validate_contract (handoff-venv/bin/python tests/decision-to-contract/validate_contract.py) exit=0
+B pytest (.venv/bin/python -m pytest tests/unit tests/integration tests/e2e -o addopts="" -rs) exit=1
+B pytest-DIAGNOSTIC-RERUN-single-test (.venv/bin/python -m pytest tests/unit/test_support_package_v1.py::test_package_verification_rederives_every_port -o addopts="" -rs) exit=0

@@ -1,0 +1,305 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/user/stageA-clean/peos
+configfile: pyproject.toml
+plugins: platformdirs-4.12.4
+collected 2914 items
+
+tests/unit/test_acceptance_compiler.py ................................. [  1%]
+.......................                                                  [  1%]
+tests/unit/test_agent_evals.py ...........                               [  2%]
+tests/unit/test_agent_plane.py ..................                        [  2%]
+tests/unit/test_api_contract.py ........                                 [  3%]
+tests/unit/test_architecture_compiler.py .......................         [  3%]
+tests/unit/test_assurance.py .........................                   [  4%]
+tests/unit/test_barebones_cli_journey.py ............                    [  5%]
+tests/unit/test_barebones_drift.py .......                               [  5%]
+tests/unit/test_candidate_sandbox.py .............sss                    [  6%]
+tests/unit/test_codex_cli_provider.py .................................. [  7%]
+                                                                         [  7%]
+tests/unit/test_codex_review_gate.py ...............................     [  8%]
+tests/unit/test_config.py ..........                                     [  8%]
+tests/unit/test_contract_authoring.py ...........                        [  8%]
+tests/unit/test_contract_file_entry.py ......                            [  9%]
+tests/unit/test_contract_semantic_validator.py ......................... [ 10%]
+........................................................................ [ 12%]
+........................................................................ [ 14%]
+.........                                                                [ 15%]
+tests/unit/test_contracts.py .....................                       [ 16%]
+tests/unit/test_default_cli_surface.py ....                              [ 16%]
+tests/unit/test_deployment_policy.py .............                       [ 16%]
+tests/unit/test_drift.py .................                               [ 17%]
+tests/unit/test_eadpr.py .......                                         [ 17%]
+tests/unit/test_evidence_bundle.py ................................      [ 18%]
+tests/unit/test_evidence_ledger.py ...........................           [ 19%]
+tests/unit/test_evidence_lineage_and_replay.py ........                  [ 19%]
+tests/unit/test_evidence_runtime_and_identity.py ..........              [ 20%]
+tests/unit/test_executed_traceability.py .............                   [ 20%]
+tests/unit/test_frontend_ci_classifier.py .............................. [ 21%]
+......                                                                   [ 21%]
+tests/unit/test_frontend_ci_workflow.py ...                              [ 21%]
+tests/unit/test_frontend_toolchain_migration.py .....                    [ 22%]
+tests/unit/test_fullstack_contract.py ..........                         [ 22%]
+tests/unit/test_fullstack_journey.py ............                        [ 22%]
+tests/unit/test_fullstack_preview.py ..............                      [ 23%]
+tests/unit/test_fullstack_reviewers.py ........                          [ 23%]
+tests/unit/test_fullstack_schema.py .......                              [ 23%]
+tests/unit/test_fullstack_stack.py ............                          [ 24%]
+tests/unit/test_guided_experience.py ....................                [ 24%]
+tests/unit/test_isolated_red_execution.py .............................. [ 25%]
+........                                                                 [ 26%]
+tests/unit/test_legacy_v1_isolation.py ....                              [ 26%]
+tests/unit/test_lifecycle_control.py ................................... [ 27%]
+........................................................................ [ 29%]
+................................                                         [ 31%]
+tests/unit/test_merge_admission.py ..................................... [ 32%]
+.                                                                        [ 32%]
+tests/unit/test_merge_gate.py .........                                  [ 32%]
+tests/unit/test_normalizer.py .....                                      [ 32%]
+tests/unit/test_openai_responses_provider.py ..........                  [ 33%]
+tests/unit/test_personal_cli.py .......                                  [ 33%]
+tests/unit/test_personal_execution.py .................................. [ 34%]
+.........................................                                [ 36%]
+tests/unit/test_personal_runtime.py ......................               [ 36%]
+tests/unit/test_phase_b_template_selection.py .......................... [ 37%]
+.....................................................................    [ 40%]
+tests/unit/test_plan_bound_evidence.py ................................. [ 41%]
+...................................                                      [ 42%]
+tests/unit/test_planner.py ........                                      [ 42%]
+tests/unit/test_pmos_compiler.py ....................................... [ 43%]
+..                                                                       [ 44%]
+tests/unit/test_pmos_contract_documentation.py ...........               [ 44%]
+tests/unit/test_pmos_contract_schema.py ................................ [ 45%]
+........................................................................ [ 48%]
+...................                                                      [ 48%]
+tests/unit/test_pmos_intake.py ..................................        [ 49%]
+tests/unit/test_policy_engine.py ............                            [ 50%]
+tests/unit/test_pr_review_agent_workflow.py .....                        [ 50%]
+tests/unit/test_pr_review_policy.py ...                                  [ 50%]
+tests/unit/test_publication_truth.py ......                              [ 50%]
+tests/unit/test_readonly_guard.py .....                                  [ 50%]
+tests/unit/test_real_behavior_drift_eval.py ..........s................. [ 51%]
+.                                                                        [ 51%]
+tests/unit/test_recorded_tool_agent.py ................................. [ 53%]
+..........                                                               [ 53%]
+tests/unit/test_repository_intelligence.py ............................. [ 54%]
+........................................................................ [ 56%]
+........................................................................ [ 59%]
+........................................................................ [ 61%]
+.........................................................                [ 63%]
+tests/unit/test_requirement_validator.py .................               [ 64%]
+tests/unit/test_schema_validation.py ...........                         [ 64%]
+tests/unit/test_security_profile_ci.py ................................. [ 65%]
+........................................................................ [ 68%]
+........................................................................ [ 70%]
+................................                                         [ 71%]
+tests/unit/test_security_profiles.py ................................... [ 73%]
+........                                                                 [ 73%]
+tests/unit/test_security_scanner.py .................................... [ 74%]
+.............                                                            [ 75%]
+tests/unit/test_session_file_provider.py ......                          [ 75%]
+tests/unit/test_specialist_admission.py .                                [ 75%]
+tests/unit/test_support_package_cli.py ...                               [ 75%]
+tests/unit/test_support_package_v1.py ...............F.................. [ 76%]
+..................................................                       [ 78%]
+tests/unit/test_support_synthetic_corpus.py ............................ [ 79%]
+.....                                                                    [ 79%]
+tests/unit/test_support_workflow_cli.py ..........                       [ 79%]
+tests/unit/test_support_workflow_discovery.py .......................    [ 80%]
+tests/unit/test_support_workflow_runtime.py ....................         [ 81%]
+tests/unit/test_task_tracker_regression_report.py .....                  [ 81%]
+tests/unit/test_test_plan_compiler.py .................................. [ 82%]
+.............                                                            [ 82%]
+tests/unit/test_traceability.py .....                                    [ 83%]
+tests/unit/test_trajectory.py ................................           [ 84%]
+tests/unit/test_trajectory_fullstack.py ..........                       [ 84%]
+tests/unit/test_trusted_security_bootstrap.py ..............             [ 85%]
+tests/unit/test_upstream_admission_receipts.py ......................... [ 85%]
+.......                                                                  [ 86%]
+tests/unit/test_workflow_state.py .............                          [ 86%]
+tests/integration/test_atomic_implementation.py ........................ [ 87%]
+..................................                                       [ 88%]
+tests/integration/test_barebones_cli.py ................................ [ 89%]
+........                                                                 [ 89%]
+tests/integration/test_candidate_freeze.py ......                        [ 90%]
+tests/integration/test_capability_matrix.py .........                    [ 90%]
+tests/integration/test_contract_validation_evidence.py ................. [ 91%]
+...                                                                      [ 91%]
+tests/integration/test_exact_sha_evidence_contract.py .                  [ 91%]
+tests/integration/test_full_product_workflow.py ........................ [ 92%]
+...........                                                              [ 92%]
+tests/integration/test_fullstack_orchestration.py ....................   [ 93%]
+tests/integration/test_generation_workspace.py ......                    [ 93%]
+tests/integration/test_git_adapter.py ......                             [ 93%]
+tests/integration/test_ingest_to_plan.py .....                           [ 93%]
+tests/integration/test_personal_runtime_demo.py .                        [ 93%]
+tests/integration/test_pmos_compilation_pipeline.py .................    [ 94%]
+tests/integration/test_quality_gates.py .....                            [ 94%]
+tests/integration/test_recorded_tool_agent_isolation.py .                [ 94%]
+tests/integration/test_repository_intelligence.py ..                     [ 94%]
+tests/integration/test_review_and_fix.py .......                         [ 94%]
+tests/integration/test_run_engine.py ................................... [ 96%]
+....                                                                     [ 96%]
+tests/integration/test_test_evidence.py ...                              [ 96%]
+tests/integration/test_worktree_isolation.py ...                         [ 96%]
+tests/e2e/test_barebones_e1.py ..                                        [ 96%]
+tests/e2e/test_barebones_evals.py ...................................... [ 97%]
+....                                                                     [ 97%]
+tests/e2e/test_cli.py .....                                              [ 98%]
+tests/e2e/test_cli_eng.py .........                                      [ 98%]
+tests/e2e/test_cli_v2.py .....                                           [ 98%]
+tests/e2e/test_failure_paths.py .......                                  [ 98%]
+tests/e2e/test_full_pipeline.py ...............                          [ 99%]
+tests/e2e/test_repository_intelligence_cli.py ...........                [ 99%]
+tests/e2e/test_v2_demo.py ..........                                     [100%]
+
+=================================== FAILURES ===================================
+________________ test_package_verification_rederives_every_port ________________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-3/test_package_verification_rede0')
+
+    def test_package_verification_rederives_every_port(tmp_path: Path) -> None:
+        bundle = tmp_path / "bundle"
+>       _assemble(tmp_path, bundle)
+
+tests/unit/test_support_package_v1.py:349: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_support_package_v1.py:149: in _assemble
+    return assemble_support_package(
+src/pmpe/support_package.py:1624: in assemble_support_package
+    verification = _run_reference_verification(staged, forbidden, files)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-root/pytest-3/test_package_verification_rede0/.bundle-745zu8d6')
+forbidden = ['autonomous_refund_payment', 'credential_collection']
+expected_files = {'Dockerfile': 'sha256:e32ed846c22831a6791c47c2e859b61cdd1f8a00a621a85d10d26c1b783b57bf', 'README.md': 'sha256:a7bc6a7...408aa098c620', 'approval-receipt.json': 'sha256:b1c832927638640c52480479da40868cb44b7bff1aa97451ad38321420f2c448', ...}
+
+    def _run_reference_verification(
+        root: Path, forbidden: list[str], expected_files: Mapping[str, str]
+    ) -> dict[str, Any]:
+        try:
+            app_source = (root / "app.py").read_bytes()
+            corpus_source = (root / "recorded-corpus.json").read_bytes()
+            policy_source = (root / "runtime-policy.json").read_bytes()
+        except OSError as exc:
+            raise PackageContractError("generated reference runtime is unreadable") from exc
+        pinned = {
+            "app.py": app_source,
+            "recorded-corpus.json": corpus_source,
+            "runtime-policy.json": policy_source,
+        }
+        if any(
+            "sha256:" + hashlib.sha256(content).hexdigest() != expected_files.get(name)
+            for name, content in pinned.items()
+        ):
+            raise PackageContractError("runtime inputs changed before immutable verification")
+        try:
+            syntax_tree = ast.parse(app_source, "app.py")
+            compile(syntax_tree, "app.py", "exec")
+            proof_input = canonical_json_bytes(
+                {
+                    "app_source": app_source.decode(),
+                    "corpus": strict_loads(corpus_source),
+                    "policy": strict_loads(policy_source),
+                    "startup_timeout_seconds": _PROOF_CHILD_STARTUP_TIMEOUT_SECONDS,
+                }
+            )
+        except (UnicodeError, ValueError, SyntaxError) as exc:
+            raise PackageContractError("generated reference runtime does not compile") from exc
+        environment = {
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+        }
+        if system_root := os.environ.get("SYSTEMROOT"):
+            environment["SYSTEMROOT"] = system_root
+        imported_roots = {
+            alias.name.partition(".")[0]
+            for node in ast.walk(syntax_tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            str(node.module).partition(".")[0]
+            for node in ast.walk(syntax_tree)
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module is not None
+        }
+        if any(name not in sys.stdlib_module_names for name in imported_roots):
+            raise PackageContractError("generated runtime imports a non-standard-library dependency")
+        unresolved_import_primitives = [
+            node
+            for node in ast.walk(syntax_tree)
+            if isinstance(node, ast.Name)
+            and node.id in {"__import__", "__builtins__", "builtins", "importlib"}
+            or isinstance(node, ast.Constant)
+            and node.value in {"__import__", "import_module"}
+            or isinstance(node, ast.Attribute)
+            and node.attr == "import_module"
+            or isinstance(node, ast.Call)
+            and (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "__import__"
+                or isinstance(node.func, ast.Attribute)
+                and node.func.attr == "import_module"
+            )
+        ]
+        if unresolved_import_primitives:
+            raise PackageContractError("generated runtime contains an unresolved dynamic import")
+        if app_source != _APP_SOURCE.encode():
+            raise PackageContractError("release candidate runtime differs from canonical v1")
+        proof_cases = [*sorted(forbidden), "ordinary_ticket", "low_confidence", "policy_draft"]
+        for capability in proof_cases:
+            proof = subprocess.Popen(  # nosec B603 - fixed interpreter and verifier-owned proof
+                [
+                    os.fspath(Path(sys.executable).resolve()),
+                    "-I",
+                    "-c",
+                    _PROOF_RUNNER,
+                    capability,
+                ],
+                env=environment,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=os.name != "nt",
+                creationflags=(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+                ),
+            )
+            try:
+                stdout, _ = proof.communicate(proof_input, timeout=_PROOF_PROCESS_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired as exc:
+                if os.name == "nt":
+                    subprocess.run(  # nosec B603 - fixed Windows process-tree terminator
+                        ["taskkill", "/PID", str(proof.pid), "/T", "/F"],
+                        capture_output=True,
+                        check=False,
+                    )
+                    if proof.poll() is None:
+                        proof.kill()
+                else:
+                    os.killpg(proof.pid, signal.SIGKILL)
+                proof.wait()
+                raise PackageContractError(
+                    f"forbidden-capability proof timed out: {capability}"
+                ) from exc
+            expected_receipt = f"PMPE_PROOF_COMPLETE:{capability}".encode()
+            if proof.returncode != 0 or stdout != expected_receipt:
+>               raise PackageContractError(f"forbidden-capability proof did not execute: {capability}")
+E               pmpe.support_package.PackageContractError: forbidden-capability proof did not execute: low_confidence
+
+src/pmpe/support_package.py:1450: PackageContractError
+=============================== warnings summary ===============================
+tests/unit/test_repository_intelligence.py::test_remote_provider_cancellation_terminates_the_isolated_process
+tests/unit/test_repository_intelligence.py::test_cancellation_during_adapter_blocks_snapshot_finalization
+  /usr/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=1203) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/unit/test_candidate_sandbox.py:443: requires the dedicated CI namespace runtime
+SKIPPED [1] tests/unit/test_candidate_sandbox.py:482: requires the dedicated CI namespace runtime
+SKIPPED [1] tests/unit/test_candidate_sandbox.py:519: requires the dedicated CI namespace runtime
+SKIPPED [1] tests/unit/test_real_behavior_drift_eval.py:391: requires the dedicated CI namespace runtime
+====== 1 failed, 2909 passed, 4 skipped, 2 warnings in 1459.21s (0:24:19) ======
+PYTEST_DONE exit=1

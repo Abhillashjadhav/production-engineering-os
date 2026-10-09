@@ -1,0 +1,62 @@
+diff -ruN a/.github/workflows/current-authoring.yml b/.github/workflows/current-authoring.yml
+--- a/.github/workflows/current-authoring.yml	2026-10-09 13:32:56.499582658 +0000
++++ b/.github/workflows/current-authoring.yml	2026-10-09 13:32:56.501625508 +0000
+@@ -17,7 +17,7 @@
+         with:
+           python-version: '3.12'
+       - name: Install the existing reviewed publisher snapshot
+-        run: python -m pip install 'git+https://github.com/Abhillashjadhav/production-engineering-os.git@297a11d79e5d1e1eda1f8f94b7bec3046c41a0d6'
++        run: python -m pip install 'git+https://github.com/Abhillashjadhav/production-engineering-os.git@e8a929df0feca124005dfc84f1b5bebdd207eab9'
+       - name: Check documented publisher provenance
+         run: python scripts/check_handoff.py
+       - name: Check documented-pin authoring and receipt-bound admission
+diff -ruN a/docs/HANDOFF.md b/docs/HANDOFF.md
+--- a/docs/HANDOFF.md	2026-10-09 13:32:56.508495787 +0000
++++ b/docs/HANDOFF.md	2026-10-09 13:32:56.536760698 +0000
+@@ -12,15 +12,17 @@
+ ```bash
+ python3.12 -m venv ../pmos-handoff-venv
+ source ../pmos-handoff-venv/bin/activate
+-python -m pip install 'git+https://github.com/Abhillashjadhav/production-engineering-os.git@297a11d79e5d1e1eda1f8f94b7bec3046c41a0d6'
++python -m pip install 'git+https://github.com/Abhillashjadhav/production-engineering-os.git@e8a929df0feca124005dfc84f1b5bebdd207eab9'
+ python scripts/check_handoff.py
+ pmpe legacy contract draft --help
+ ```
+ 
+-The commit is PMOS's reviewed compatibility snapshot. It contains work not yet
+-merged into the engineering repository's main branch; this is not a claim that
+-the latest engineering code is compatible. Keep this pin until a replacement has
+-been reviewed. PMOS's installer does not install the publisher automatically.
++The commit is the integrated task-tracker baseline (PEOS branch
++`claude/pmos-peos-completion-ds46x1`, 2026-10-09): current PEOS `main` plus the
++frozen file entry and session provider. It was validated for draft issuance, receipt
++verification, compilation and receipt-bound admission in a clean environment on the
++day of the re-freeze. Keep this pin until a replacement has been reviewed. PMOS's
++installer does not install the publisher automatically.
+ 
+ This setup pin is the one used by the `current-authoring` CI job. Its TEST-ONLY
+ health fixture exercises draft issuance, receipt verification, current acceptance
+diff -ruN a/scripts/check_handoff.py b/scripts/check_handoff.py
+--- a/scripts/check_handoff.py	2026-10-09 13:32:56.472881432 +0000
++++ b/scripts/check_handoff.py	2026-10-09 13:32:56.476949677 +0000
+@@ -9,7 +9,7 @@
+ from importlib import metadata
+ 
+ 
+-REVIEWED_REVISION = "297a11d79e5d1e1eda1f8f94b7bec3046c41a0d6"
++REVIEWED_REVISION = "e8a929df0feca124005dfc84f1b5bebdd207eab9"
+ PUBLISHER_URL = "https://github.com/Abhillashjadhav/production-engineering-os.git"
+ 
+ 
+diff -ruN a/tests/test_handoff_setup.py b/tests/test_handoff_setup.py
+--- a/tests/test_handoff_setup.py	2026-10-09 13:32:56.486963054 +0000
++++ b/tests/test_handoff_setup.py	2026-10-09 13:32:56.488469545 +0000
+@@ -14,7 +14,7 @@
+ 
+ ROOT = Path(__file__).resolve().parents[1]
+ SCRIPT = ROOT / "scripts" / "check_handoff.py"
+-REVIEWED_REVISION = "297a11d79e5d1e1eda1f8f94b7bec3046c41a0d6"
++REVIEWED_REVISION = "e8a929df0feca124005dfc84f1b5bebdd207eab9"
+ PUBLISHER_URL = "https://github.com/Abhillashjadhav/production-engineering-os.git"
+ 
+ 
