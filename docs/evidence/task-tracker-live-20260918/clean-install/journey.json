@@ -1,0 +1,234 @@
+{
+  "all_processes_sequential": true,
+  "commands": 8,
+  "new_model_generation": false,
+  "passed": true,
+  "product_sha256": "sha256:5ef500b5304cc7a5ba1a0e8498675cb01641b71c9c3e5e38bf01d5226e24ade5",
+  "real_sandbox_leg": "BLOCKED_BY_ENVIRONMENT; owner closed retries",
+  "steps": [
+    {
+      "command": [
+        "prlimit",
+        "--as=1073741824",
+        "--cpu=11",
+        "--fsize=67108864",
+        "--nofile=256",
+        "--nproc=128",
+        "--",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos/.venv/bin/python",
+        "-I",
+        "-B",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/candidate/product.py",
+        "--store",
+        "/tmp/clean-user-store-718mnu_u/tasks.json",
+        "create",
+        ""
+      ],
+      "exit_code": 2,
+      "output": {
+        "error": "INVALID_TITLE"
+      }
+    },
+    {
+      "command": [
+        "prlimit",
+        "--as=1073741824",
+        "--cpu=11",
+        "--fsize=67108864",
+        "--nofile=256",
+        "--nproc=128",
+        "--",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos/.venv/bin/python",
+        "-I",
+        "-B",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/candidate/product.py",
+        "--store",
+        "/tmp/clean-user-store-718mnu_u/tasks.json",
+        "create",
+        "Buy milk"
+      ],
+      "exit_code": 0,
+      "output": {
+        "task": {
+          "id": 1,
+          "status": "open",
+          "title": "Buy milk"
+        }
+      }
+    },
+    {
+      "command": [
+        "prlimit",
+        "--as=1073741824",
+        "--cpu=11",
+        "--fsize=67108864",
+        "--nofile=256",
+        "--nproc=128",
+        "--",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos/.venv/bin/python",
+        "-I",
+        "-B",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/candidate/product.py",
+        "--store",
+        "/tmp/clean-user-store-718mnu_u/tasks.json",
+        "create",
+        "Buy milk"
+      ],
+      "exit_code": 0,
+      "output": {
+        "task": {
+          "id": 2,
+          "status": "open",
+          "title": "Buy milk"
+        }
+      }
+    },
+    {
+      "command": [
+        "prlimit",
+        "--as=1073741824",
+        "--cpu=11",
+        "--fsize=67108864",
+        "--nofile=256",
+        "--nproc=128",
+        "--",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos/.venv/bin/python",
+        "-I",
+        "-B",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/candidate/product.py",
+        "--store",
+        "/tmp/clean-user-store-718mnu_u/tasks.json",
+        "complete",
+        "1"
+      ],
+      "exit_code": 0,
+      "output": {
+        "task": {
+          "id": 1,
+          "status": "completed",
+          "title": "Buy milk"
+        }
+      }
+    },
+    {
+      "command": [
+        "prlimit",
+        "--as=1073741824",
+        "--cpu=11",
+        "--fsize=67108864",
+        "--nofile=256",
+        "--nproc=128",
+        "--",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos/.venv/bin/python",
+        "-I",
+        "-B",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/candidate/product.py",
+        "--store",
+        "/tmp/clean-user-store-718mnu_u/tasks.json",
+        "complete",
+        "1"
+      ],
+      "exit_code": 0,
+      "output": {
+        "task": {
+          "id": 1,
+          "status": "completed",
+          "title": "Buy milk"
+        }
+      }
+    },
+    {
+      "command": [
+        "prlimit",
+        "--as=1073741824",
+        "--cpu=11",
+        "--fsize=67108864",
+        "--nofile=256",
+        "--nproc=128",
+        "--",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos/.venv/bin/python",
+        "-I",
+        "-B",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/candidate/product.py",
+        "--store",
+        "/tmp/clean-user-store-718mnu_u/tasks.json",
+        "list",
+        "--status",
+        "open"
+      ],
+      "exit_code": 0,
+      "output": {
+        "tasks": [
+          {
+            "id": 2,
+            "status": "open",
+            "title": "Buy milk"
+          }
+        ]
+      }
+    },
+    {
+      "command": [
+        "prlimit",
+        "--as=1073741824",
+        "--cpu=11",
+        "--fsize=67108864",
+        "--nofile=256",
+        "--nproc=128",
+        "--",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos/.venv/bin/python",
+        "-I",
+        "-B",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/candidate/product.py",
+        "--store",
+        "/tmp/clean-user-store-718mnu_u/tasks.json",
+        "list",
+        "--status",
+        "completed"
+      ],
+      "exit_code": 0,
+      "output": {
+        "tasks": [
+          {
+            "id": 1,
+            "status": "completed",
+            "title": "Buy milk"
+          }
+        ]
+      }
+    },
+    {
+      "command": [
+        "prlimit",
+        "--as=1073741824",
+        "--cpu=11",
+        "--fsize=67108864",
+        "--nofile=256",
+        "--nproc=128",
+        "--",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos/.venv/bin/python",
+        "-I",
+        "-B",
+        "/workspace/scratch/f9ac546f3a50/task-tracker-reproduction/candidate/product.py",
+        "--store",
+        "/tmp/clean-user-store-718mnu_u/tasks.json",
+        "list"
+      ],
+      "exit_code": 0,
+      "output": {
+        "tasks": [
+          {
+            "id": 1,
+            "status": "completed",
+            "title": "Buy milk"
+          },
+          {
+            "id": 2,
+            "status": "open",
+            "title": "Buy milk"
+          }
+        ]
+      }
+    }
+  ]
+}

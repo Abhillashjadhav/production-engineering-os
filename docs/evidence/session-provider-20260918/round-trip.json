@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "examples/barebones/session-file-provider.py",
+    "--handoff-dir",
+    "docs/evidence/session-provider-20260918/handoff"
+  ],
+  "request_digest": "sha256:54ad3e101190d075de95753911a1462a06f6a7fa618afd2fe9e8605043e0a95b",
+  "returncode": 0,
+  "elapsed_ms": 12574.136892006209,
+  "stdout": "{\"provider_metadata\": {\"model\": \"session-model-unreported\", \"prompt_version\": \"session-file-v1\", \"provider\": \"in-session-file-handoff\"}, \"request_digest\": \"sha256:54ad3e101190d075de95753911a1462a06f6a7fa618afd2fe9e8605043e0a95b\", \"summary\": \"The approved product contract defines the required software behaviour and the acceptance criteria used to verify it. SESSION-P0-769a9b0cea2d4457bdb6e63b83b3d1b4\"}\n",
+  "stderr": "",
+  "response_origin": "in-session assistant after reading the emitted request",
+  "headless_reproduction": false
+}

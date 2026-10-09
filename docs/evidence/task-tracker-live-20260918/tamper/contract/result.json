@@ -1,0 +1,6 @@
+{
+  "candidate_executed": false,
+  "error": "APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/tmp/pmos-tamper-replica-9wzdocjg/reviews/task-tracker-v1/contract.approved.json', 'expected': 'sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2', 'actual': 'sha256:cf3cc8d95ac30cc73c2a75dd7ac31b6488f4d05ea37dc06dc27dd0c73c09feeb'}]",
+  "modified_replica_sha256": "sha256:cf3cc8d95ac30cc73c2a75dd7ac31b6488f4d05ea37dc06dc27dd0c73c09feeb",
+  "rejected": true
+}

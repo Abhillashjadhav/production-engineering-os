@@ -1,0 +1,11 @@
+--- generated/product.py
++++ filtering/product.py
+@@ -125,7 +125,7 @@
+                 save_store(args.store, state)
+             return emit({"task": task})
+         tasks = sorted(state["tasks"], key=lambda item: item["id"])
+-        if args.status != "all":
++        if False:  # Deliberate mutation: ignore the requested status filter.
+             tasks = [task for task in tasks if task["status"] == args.status]
+         return emit({"tasks": tasks})
+     except StoreError as error:

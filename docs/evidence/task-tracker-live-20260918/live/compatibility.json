@@ -1,0 +1,19 @@
+{
+  "compatible": true,
+  "dependencies": [],
+  "missing_isolations": [
+    "candidate user namespace",
+    "candidate PID namespace",
+    "candidate mount namespace and read-only runtime/candidate mounts",
+    "candidate IPC namespace",
+    "candidate UTS namespace",
+    "candidate cgroup namespace",
+    "candidate network namespace",
+    "candidate private tmpfs and /proc"
+  ],
+  "plan_digest": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+  "profile_digest": "sha256:4a46f594d269e130b8933cd032fa7fb400c0a510553f77140efa2a1fab683120",
+  "reasons": [],
+  "runtime": "3.12.14 (main, Aug 25 2026, 14:00:49) [Clang 22.1.3 ]",
+  "scope": "can attempt and evaluate; not a delivery guarantee"
+}

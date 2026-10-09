@@ -1,0 +1,29 @@
+{
+  "annotation": {
+    "annotation": "Bounded task-tracker candidate completed the frozen engine checks. Creation is not idempotent; concurrent creation is out of scope. Real-sandbox execution remains environment-blocked. Complete the required persistence/filter mutation and tamper checks before claiming demonstrated feasibility. This same-session annotation is non-blocking and is not independent human review.",
+    "provider_metadata": {
+      "model": "session-model-unreported",
+      "prompt_version": "session-file-v1",
+      "provider": "in-session-file-handoff"
+    },
+    "request_digest": "sha256:0cd384264ed08de0d184d0be4756f67199e0929c04127b350abda70612797852"
+  },
+  "attempts": 1,
+  "cause": "PASS",
+  "elapsed_ms": 75131,
+  "evidence_path": "/workspace/scratch/f9ac546f3a50/peos-feature/docs/evidence/task-tracker-live-20260918/live/.pmpe/runs/task-tracker-live/events.jsonl",
+  "model_calls": 2,
+  "run_id": "task-tracker-live",
+  "state": "RELEASE_READY",
+  "telemetry": {
+    "bytes": 6133,
+    "calls": 2,
+    "elapsed_ms": 75131,
+    "estimated_cost_usd": 0.0,
+    "human_test_count": 0,
+    "provider_model_id": "session-model-unreported",
+    "structured_criteria_count": 14,
+    "tokens_in": 0,
+    "tokens_out": 0
+  }
+}

@@ -1,0 +1,41 @@
+Obtaining file:///workspace/scratch/f9ac546f3a50/task-tracker-reproduction/peos
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Collecting PyYAML==6.0.3 (from pmpe==0.2.0)
+  Using cached pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
+Collecting jsonschema==4.25.1 (from pmpe==0.2.0)
+  Using cached jsonschema-4.25.1-py3-none-any.whl.metadata (7.6 kB)
+Collecting rfc8785==0.1.4 (from pmpe==0.2.0)
+  Using cached rfc8785-0.1.4-py3-none-any.whl.metadata (3.4 kB)
+Collecting attrs>=22.2.0 (from jsonschema==4.25.1->pmpe==0.2.0)
+  Using cached attrs-26.1.0-py3-none-any.whl.metadata (8.8 kB)
+Collecting jsonschema-specifications>=2023.03.6 (from jsonschema==4.25.1->pmpe==0.2.0)
+  Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl.metadata (2.9 kB)
+Collecting referencing>=0.28.4 (from jsonschema==4.25.1->pmpe==0.2.0)
+  Using cached referencing-0.37.0-py3-none-any.whl.metadata (2.8 kB)
+Collecting rpds-py>=0.7.1 (from jsonschema==4.25.1->pmpe==0.2.0)
+  Using cached rpds_py-2026.6.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (4.1 kB)
+Collecting typing-extensions>=4.4.0 (from referencing>=0.28.4->jsonschema==4.25.1->pmpe==0.2.0)
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Using cached jsonschema-4.25.1-py3-none-any.whl (90 kB)
+Using cached pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (807 kB)
+Using cached rfc8785-0.1.4-py3-none-any.whl (9.2 kB)
+Using cached attrs-26.1.0-py3-none-any.whl (67 kB)
+Using cached jsonschema_specifications-2025.9.1-py3-none-any.whl (18 kB)
+Using cached referencing-0.37.0-py3-none-any.whl (26 kB)
+Using cached rpds_py-2026.6.3-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (366 kB)
+Using cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Building wheels for collected packages: pmpe
+  Building editable for pmpe (pyproject.toml): started
+  Building editable for pmpe (pyproject.toml): finished with status 'done'
+  Created wheel for pmpe: filename=pmpe-0.2.0-0.editable-py3-none-any.whl size=1721 sha256=ca13b1a22169f94ff3dad9efa9510db30a78518ddd85dc8ae331e87ebcf398cc
+  Stored in directory: /tmp/pip-ephem-wheel-cache-ji_wakxu/wheels/09/6e/2c/473dd85d368f5c95ca15876ec2c3cd1d9f61a15b9bf4aa011d
+Successfully built pmpe
+Installing collected packages: typing-extensions, rpds-py, rfc8785, PyYAML, attrs, referencing, jsonschema-specifications, jsonschema, pmpe
+Successfully installed PyYAML-6.0.3 attrs-26.1.0 jsonschema-4.25.1 jsonschema-specifications-2025.9.1 pmpe-0.2.0 referencing-0.37.0 rfc8785-0.1.4 rpds-py-2026.6.3 typing-extensions-4.16.0
