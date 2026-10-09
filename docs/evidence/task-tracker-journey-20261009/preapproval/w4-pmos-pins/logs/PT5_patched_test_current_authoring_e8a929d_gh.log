@@ -1,0 +1,41 @@
+### id: PT5_patched_test_current_authoring_e8a929d_gh
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos-patch-copy
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python3)
+### command (bash -e -c): python -B tests/decision-to-contract/test_current_authoring.py -v
+### start: 2026-10-09T15:01:58Z
+-----8<----- raw output -----8<-----
+test_description_only_gate_is_rejected_by_current_compiler (__main__.CurrentAuthoringTests.test_description_only_gate_is_rejected_by_current_compiler) ... FAIL
+test_documented_pin_admits_receipt_bound_current_fixture (__main__.CurrentAuthoringTests.test_documented_pin_admits_receipt_bound_current_fixture)
+A real synthetic contract follows the documented publisher seam. ... ok
+test_historical_fixture_is_unbound_at_documented_pin (__main__.CurrentAuthoringTests.test_historical_fixture_is_unbound_at_documented_pin) ... FAIL
+test_missing_product_truth_returns_questions_before_approval (__main__.CurrentAuthoringTests.test_missing_product_truth_returns_questions_before_approval) ... ok
+test_new_input_remains_draft_until_exact_test_digest_is_approved (__main__.CurrentAuthoringTests.test_new_input_remains_draft_until_exact_test_digest_is_approved) ... ok
+test_skill_example_publishes_and_compiles_with_supplied_truth (__main__.CurrentAuthoringTests.test_skill_example_publishes_and_compiles_with_supplied_truth) ... ok
+test_unregistered_action_remains_blocked_without_registry_extension (__main__.CurrentAuthoringTests.test_unregistered_action_remains_blocked_without_registry_extension) ... ok
+
+======================================================================
+FAIL: test_description_only_gate_is_rejected_by_current_compiler (__main__.CurrentAuthoringTests.test_description_only_gate_is_rejected_by_current_compiler)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos-patch-copy/tests/decision-to-contract/test_current_authoring.py", line 154, in test_description_only_gate_is_rejected_by_current_compiler
+    with self.assertRaises(AcceptanceCompileError) as failure:
+AssertionError: AcceptanceCompileError not raised
+
+======================================================================
+FAIL: test_historical_fixture_is_unbound_at_documented_pin (__main__.CurrentAuthoringTests.test_historical_fixture_is_unbound_at_documented_pin)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos-patch-copy/tests/decision-to-contract/test_current_authoring.py", line 135, in test_historical_fixture_is_unbound_at_documented_pin
+    with self.assertRaises(AcceptanceCompileError) as failure:
+AssertionError: AcceptanceCompileError not raised
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.028s
+
+FAILED (failures=2)
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T15:01:59Z
+### EXIT: 1

@@ -1,0 +1,21 @@
+== 1 PM-agent-OS .claude/skills/decision-to-contract/SKILL.md
+   frozen blob oid 91be6bc680f87d45c22b195a9f7fef9ca531562c | last frozen commit: 423e5cbe82f719e3843a29435dfad4e05a7df6bb 2026-09-26 00:26:45 +0530 docs: record independent verification evidence review
+   changed by 33ba7ecdaa 2026-09-26 00:12:27 +0530 fix: bind PMOS contract gates and preserve exact draft approval -> sha256:f14623cb4da6ecd9
+   patch: {'recomputed_sha256': '1714c7ef796044ce349f70f578a92e3a4eceb5da36d4b005284d67998f99e00d', 'evidence_patch_sha256': '1714c7ef796044ce349f70f578a92e3a4eceb5da36d4b005284d67998f99e00d', 'byte_identical': True, 'recomputed_lines': 143, 'evidence_lines': 143}
+== 2 production-engineering-os src/pmpe/barebones.py
+   frozen blob oid 85b38a3a3cc41859c1e532e352bf5f42ed4e3125 | last frozen commit: f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1 2026-09-21 10:54:45 +0530 test(evidence): retain walkthrough before and after checks with chronology
+   changed by f1ac85981d 2026-10-01 22:36:16 -0700 fix: report ordinary provider command failures -> sha256:ab3e4f4bb2222497
+   patch: {'recomputed_sha256': 'e5638c1208f3ba7c0bdafe1b1022e8b021ece2ef6b022f8317f35f251bb018c0', 'evidence_patch_sha256': 'e5638c1208f3ba7c0bdafe1b1022e8b021ece2ef6b022f8317f35f251bb018c0', 'byte_identical': True, 'recomputed_lines': 33, 'evidence_lines': 33}
+== 3 production-engineering-os src/pmpe/cli/barebones_cmd.py
+   frozen blob oid 3fb3b4b7a0a227ee149306e20678e585d3f21228 | last frozen commit: f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1 2026-09-21 10:54:45 +0530 test(evidence): retain walkthrough before and after checks with chronology
+   changed by f1ac85981d 2026-10-01 22:36:16 -0700 fix: report ordinary provider command failures -> sha256:8917eb8227fdf143
+   patch: {'recomputed_sha256': '0a849f104d38bd269468ef42468852b6609b96e7075d437823d5948dddb9c0b3', 'evidence_patch_sha256': '0a849f104d38bd269468ef42468852b6609b96e7075d437823d5948dddb9c0b3', 'byte_identical': True, 'recomputed_lines': 58, 'evidence_lines': 58}
+== 4 production-engineering-os src/pmpe/contracts/acceptance.py
+   frozen blob oid 1bbc7c6eab2528adebd16a7817da336f2afeb420 | last frozen commit: f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1 2026-09-21 10:54:45 +0530 test(evidence): retain walkthrough before and after checks with chronology
+   changed by b3f89cd52b 2026-10-01 22:40:44 -0700 fix: exclude invalid assertions from coverage -> sha256:4490079b4c36e607
+   changed by 2c6d96234f 2026-10-01 22:40:08 -0700 fix: reject malformed required acceptance criteria -> sha256:41dd420723109acd
+   patch: {'recomputed_sha256': '923e4fc1a1170d2b0a2d3825f2794dfb6f585b3018f0c09d8347dcbf4c4255c3', 'evidence_patch_sha256': '923e4fc1a1170d2b0a2d3825f2794dfb6f585b3018f0c09d8347dcbf4c4255c3', 'byte_identical': True, 'recomputed_lines': 67, 'evidence_lines': 67}
+== 5 production-engineering-os src/pmpe/evals/real_behavior_drift_eval.py
+   frozen blob oid 4ff0d87b4b5d30b81da9eb9b180287c78fa3428e | last frozen commit: f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1 2026-09-21 10:54:45 +0530 test(evidence): retain walkthrough before and after checks with chronology
+   changed by 0d49f40ddd 2026-09-25 16:30:06 +0000 fix: mount the private source snapshot with a constant bwrap argv -> sha256:093448d6ea7bc656
+   patch: {'recomputed_sha256': '83172ea03a8da94381ec51fc72574b92eeff6c780ef7d231ef90bf79f199a19d', 'evidence_patch_sha256': '83172ea03a8da94381ec51fc72574b92eeff6c780ef7d231ef90bf79f199a19d', 'byte_identical': True, 'recomputed_lines': 157, 'evidence_lines': 157}

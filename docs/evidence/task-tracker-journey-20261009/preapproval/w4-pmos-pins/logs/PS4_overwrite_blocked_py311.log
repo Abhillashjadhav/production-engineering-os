@@ -1,0 +1,67 @@
+### id: PS4_overwrite_blocked_py311
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311/python (3.11.17 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311/python3 (3.11.17 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311/python3)
+### command (bash -e -c): if python3 scripts/install.py --target "$RUNNER_TEMP/claude-home"; then
+  echo "installer unexpectedly overwrote existing entries"
+  exit 1
+fi
+### start: 2026-10-09T14:29:36Z
+-----8<----- raw output -----8<-----
+INSTALLATION BLOCKED: installation would overwrite existing Claude entries:
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/ai-feature-go-no-go
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/announcement-drafter
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/assumption-mapper
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/build-buy-partner
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/builder-validator
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/competitor-teardown
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/context-auditor
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/decision-to-contract
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/drift-monitor-designer
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/eval-engine
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/eval-vs-abtest-router
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/failure-to-eval-capture
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/feedback-pattern-miner
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/golden-dataset-builder
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/gtm-brief
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/guardrail-designer
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/interview-synthesizer
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/jtbd-framer
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/judge-calibration-auditor
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/latency-ux-tradeoff
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/launch-checklist
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/launch-retro
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/llm-as-judge-designer
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/loop-designer
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/mcp-migration-auditor
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/model-complexity-router
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/model-upgrade-evaluator
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/north-star-designer
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/opportunity-sizer
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/pm
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/pm-context-system
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/prd-first
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/prd-to-eval
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/pricing-tradeoff
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/prompt-optimizer-loop
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/prototype-first-workflow
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/rag-vs-agent-architect
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/regression-gatekeeper
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/research-brief
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/roadmap-reality-check
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/stakeholder-update
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/strategy-review
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/skills/unit-economics-stress-test
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/agents/customer-reviewer.md
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/agents/data-analyst-reviewer.md
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/agents/designer-reviewer.md
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/agents/engineer-reviewer.md
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/agents/executive-reviewer.md
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/agents/legal-reviewer.md
+  - /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home/agents/skeptic-reviewer.md
+Re-run with --force only after reviewing the conflicts.
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T14:29:36Z
+### EXIT: 0

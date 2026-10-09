@@ -1,0 +1,6 @@
+308 files already formatted
+ruff-format EXIT=0
+All checks passed!
+ruff-check EXIT=0
+Success: no issues found in 200 source files
+mypy EXIT=0

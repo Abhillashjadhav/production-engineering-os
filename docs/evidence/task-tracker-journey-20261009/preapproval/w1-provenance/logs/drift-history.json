@@ -1,0 +1,411 @@
+[
+  {
+    "n": 1,
+    "repository": "PM-agent-OS",
+    "path": ".claude/skills/decision-to-contract/SKILL.md",
+    "bound_commit": "0652843f02b5fbd5734331ffe5c00675a7b40b6b",
+    "frozen_sha256": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+    "frozen_blob_oid": "91be6bc680f87d45c22b195a9f7fef9ca531562c",
+    "bound_sha256": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26",
+    "last_commit_with_frozen_bytes_in_bound_ancestry": "423e5cbe82f719e3843a29435dfad4e05a7df6bb",
+    "last_commit_info": "423e5cbe82f719e3843a29435dfad4e05a7df6bb 2026-09-26 00:26:45 +0530 docs: record independent verification evidence review",
+    "commits_with_frozen_bytes_any_ref_count": 64,
+    "changed_after_frozen": [
+      {
+        "commit": "33ba7ecdaa05ef89667b704bdc2dccbd25f71147",
+        "date": "2026-09-26 00:12:27 +0530",
+        "author": "Abhillash Jadhav",
+        "subject": "fix: bind PMOS contract gates and preserve exact draft approval",
+        "sha256_after": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+      }
+    ],
+    "history_in_bound_ancestry": [
+      {
+        "commit": "33ba7ecdaa05ef89667b704bdc2dccbd25f71147",
+        "date": "2026-09-26 00:12:27 +0530",
+        "subject": "fix: bind PMOS contract gates and preserve exact draft approval",
+        "sha256": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26",
+        "equals_frozen": false
+      },
+      {
+        "commit": "27d0418cb258fa5e374447f88185ff1b7117f182",
+        "date": "2026-09-01 10:11:19 +0530",
+        "subject": "Make the PMOS to Engineering OS handoff executable (#55)",
+        "sha256": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+        "equals_frozen": true
+      },
+      {
+        "commit": "5fa7af8207143194eb242f2edd9f7edfca8bb969",
+        "date": "2026-08-23 18:57:37 +0530",
+        "subject": "Add digest-bound decision-to-contract handoff (#54)",
+        "sha256": "sha256:e7698540111fbd561ccad18d9f5b151f57ac77af9b3daba036bcdde9ea8e9872",
+        "equals_frozen": false
+      }
+    ],
+    "patch_check": {
+      "recomputed_sha256": "1714c7ef796044ce349f70f578a92e3a4eceb5da36d4b005284d67998f99e00d",
+      "evidence_patch_sha256": "1714c7ef796044ce349f70f578a92e3a4eceb5da36d4b005284d67998f99e00d",
+      "byte_identical": true,
+      "recomputed_lines": 143,
+      "evidence_lines": 143
+    }
+  },
+  {
+    "n": 2,
+    "repository": "production-engineering-os",
+    "path": "src/pmpe/barebones.py",
+    "bound_commit": "e8a929df0feca124005dfc84f1b5bebdd207eab9",
+    "frozen_sha256": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+    "frozen_blob_oid": "85b38a3a3cc41859c1e532e352bf5f42ed4e3125",
+    "bound_sha256": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a",
+    "last_commit_with_frozen_bytes_in_bound_ancestry": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1",
+    "last_commit_info": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1 2026-09-21 10:54:45 +0530 test(evidence): retain walkthrough before and after checks with chronology",
+    "commits_with_frozen_bytes_any_ref_count": 216,
+    "changed_after_frozen": [
+      {
+        "commit": "f1ac85981d787b6eb8c7c2285a4dcaf1815087fd",
+        "date": "2026-10-01 22:36:16 -0700",
+        "author": "Abhillash Jadhav",
+        "subject": "fix: report ordinary provider command failures",
+        "sha256_after": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+      }
+    ],
+    "history_in_bound_ancestry": [
+      {
+        "commit": "f1ac85981d787b6eb8c7c2285a4dcaf1815087fd",
+        "date": "2026-10-01 22:36:16 -0700",
+        "subject": "fix: report ordinary provider command failures",
+        "sha256": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a",
+        "equals_frozen": false
+      },
+      {
+        "commit": "29fe171039f575a6e75050e0efd6d228c11d08a8",
+        "date": "2026-08-26 23:08:20 +0530",
+        "subject": "Bind Coder evidence end to end",
+        "sha256": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+        "equals_frozen": true
+      },
+      {
+        "commit": "1f2613cfc636180766af7fc371d9db26d09e248a",
+        "date": "2026-08-26 14:54:09 +0530",
+        "subject": "Run symlinked trusted Python inside candidate sandbox (#172)",
+        "sha256": "sha256:2634348f1f03e12448842981b8845fb7474b255bc3959d319059156ca7644e9d",
+        "equals_frozen": false
+      },
+      {
+        "commit": "f0dc09e32f3fd4da5f74dfb189aa4831d187f056",
+        "date": "2026-08-25 23:52:34 +0530",
+        "subject": "Complete the frozen six-state CLI journey (#162)",
+        "sha256": "sha256:cbc8da6b187f9fbb8d5fb1a8b17efd0edb8dd2ec98ccbd4edc8413beab92c7d5",
+        "equals_frozen": false
+      },
+      {
+        "commit": "46667f3f30f32557a0a37428b37ec0dc04b2bdf1",
+        "date": "2026-08-23 20:38:58 +0530",
+        "subject": "Require PMOS approval and record provider evidence (#156)",
+        "sha256": "sha256:21bb5074b9a3401398f63fc8e52e3a82a920e0d73847e551a244993446ccc6ae",
+        "equals_frozen": false
+      },
+      {
+        "commit": "bf05d60d41555551d0b45c9980a61b12c48757e1",
+        "date": "2026-08-22 23:22:14 +0530",
+        "subject": "Bare-bones contract-to-RELEASE_READY core (#141)",
+        "sha256": "sha256:6931e9385837a7aa78450d9f7aabc8afa6aacd0e7107bbe555a915fb6d901945",
+        "equals_frozen": false
+      }
+    ],
+    "patch_check": {
+      "recomputed_sha256": "e5638c1208f3ba7c0bdafe1b1022e8b021ece2ef6b022f8317f35f251bb018c0",
+      "evidence_patch_sha256": "e5638c1208f3ba7c0bdafe1b1022e8b021ece2ef6b022f8317f35f251bb018c0",
+      "byte_identical": true,
+      "recomputed_lines": 33,
+      "evidence_lines": 33
+    }
+  },
+  {
+    "n": 3,
+    "repository": "production-engineering-os",
+    "path": "src/pmpe/cli/barebones_cmd.py",
+    "bound_commit": "e8a929df0feca124005dfc84f1b5bebdd207eab9",
+    "frozen_sha256": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+    "frozen_blob_oid": "3fb3b4b7a0a227ee149306e20678e585d3f21228",
+    "bound_sha256": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1",
+    "last_commit_with_frozen_bytes_in_bound_ancestry": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1",
+    "last_commit_info": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1 2026-09-21 10:54:45 +0530 test(evidence): retain walkthrough before and after checks with chronology",
+    "commits_with_frozen_bytes_any_ref_count": 209,
+    "changed_after_frozen": [
+      {
+        "commit": "f1ac85981d787b6eb8c7c2285a4dcaf1815087fd",
+        "date": "2026-10-01 22:36:16 -0700",
+        "author": "Abhillash Jadhav",
+        "subject": "fix: report ordinary provider command failures",
+        "sha256_after": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+      }
+    ],
+    "history_in_bound_ancestry": [
+      {
+        "commit": "f1ac85981d787b6eb8c7c2285a4dcaf1815087fd",
+        "date": "2026-10-01 22:36:16 -0700",
+        "subject": "fix: report ordinary provider command failures",
+        "sha256": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1",
+        "equals_frozen": false
+      },
+      {
+        "commit": "b81009d9160a73a5720504fdc999321c3e3ca399",
+        "date": "2026-08-27 21:39:14 +0530",
+        "subject": "Customer-support portable PACKAGE_READY v1 (#177)",
+        "sha256": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+        "equals_frozen": true
+      },
+      {
+        "commit": "29fe171039f575a6e75050e0efd6d228c11d08a8",
+        "date": "2026-08-26 23:08:20 +0530",
+        "subject": "Bind Coder evidence end to end",
+        "sha256": "sha256:2a683d8d65150da60d369e5f9cc7134f36cb8e75c34f9502ff0731475e0e284a",
+        "equals_frozen": false
+      },
+      {
+        "commit": "55b0b10b6195b12f7eb33946a1da115cd4378cd0",
+        "date": "2026-08-26 22:45:04 +0530",
+        "subject": "Anchor drift comparison to trusted inputs",
+        "sha256": "sha256:1af78793249b0aa43d98c07a9ebcad5ae6823197fabe6da3ad536963af992bc5",
+        "equals_frozen": false
+      },
+      {
+        "commit": "d127bf5573cd3847fc5c5b06564b98254621c14c",
+        "date": "2026-08-26 22:21:58 +0530",
+        "subject": "Bind drift evidence to approved contract",
+        "sha256": "sha256:fe6d36992e675c7c344e234a8d7cbbb9b318a6c393b847eb5a956f4348811fd9",
+        "equals_frozen": false
+      },
+      {
+        "commit": "da18fae616d4d32f93b1a52905445c59e00b26be",
+        "date": "2026-08-26 22:00:09 +0530",
+        "subject": "Harden drift evidence verification",
+        "sha256": "sha256:a58a3fc2d40c1a8e30dd917e78b40766e951c24333c7ecff92db91842fd14fde",
+        "equals_frozen": false
+      },
+      {
+        "commit": "20365731e7b59ab678789838f0c14390b16a5de8",
+        "date": "2026-08-26 21:48:13 +0530",
+        "subject": "Add verified real behavior-drift evaluation",
+        "sha256": "sha256:94d63f978ac7202ae92b578ec770adb291557a7c1aa1cda6bcd2bf41d4ee4043",
+        "equals_frozen": false
+      },
+      {
+        "commit": "1b4f33fb66aa075b22723acad55c249975882233",
+        "date": "2026-08-26 10:42:34 +0530",
+        "subject": "Harden the ChatGPT Codex live-provider path (#168)",
+        "sha256": "sha256:7789a2a95b663a043acbd4db8a0c24273be80c4978f741e37f2c83818d901633",
+        "equals_frozen": false
+      },
+      {
+        "commit": "f0dc09e32f3fd4da5f74dfb189aa4831d187f056",
+        "date": "2026-08-25 23:52:34 +0530",
+        "subject": "Complete the frozen six-state CLI journey (#162)",
+        "sha256": "sha256:db322c1b25e24e5c24a9bc5e6695bf1658eaf39b41bb828ad7558c6edfa96f84",
+        "equals_frozen": false
+      },
+      {
+        "commit": "46667f3f30f32557a0a37428b37ec0dc04b2bdf1",
+        "date": "2026-08-23 20:38:58 +0530",
+        "subject": "Require PMOS approval and record provider evidence (#156)",
+        "sha256": "sha256:f42659d386eba907e556f813d81955a54b6ae6aa7a81f2e0232abdbe4bee0511",
+        "equals_frozen": false
+      },
+      {
+        "commit": "bf05d60d41555551d0b45c9980a61b12c48757e1",
+        "date": "2026-08-22 23:22:14 +0530",
+        "subject": "Bare-bones contract-to-RELEASE_READY core (#141)",
+        "sha256": "sha256:e071ba3740c4d1838c860f0bfc021aa1147cc86258a82f121f49ddbb8f66083d",
+        "equals_frozen": false
+      }
+    ],
+    "patch_check": {
+      "recomputed_sha256": "0a849f104d38bd269468ef42468852b6609b96e7075d437823d5948dddb9c0b3",
+      "evidence_patch_sha256": "0a849f104d38bd269468ef42468852b6609b96e7075d437823d5948dddb9c0b3",
+      "byte_identical": true,
+      "recomputed_lines": 58,
+      "evidence_lines": 58
+    }
+  },
+  {
+    "n": 4,
+    "repository": "production-engineering-os",
+    "path": "src/pmpe/contracts/acceptance.py",
+    "bound_commit": "e8a929df0feca124005dfc84f1b5bebdd207eab9",
+    "frozen_sha256": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+    "frozen_blob_oid": "1bbc7c6eab2528adebd16a7817da336f2afeb420",
+    "bound_sha256": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02",
+    "last_commit_with_frozen_bytes_in_bound_ancestry": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1",
+    "last_commit_info": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1 2026-09-21 10:54:45 +0530 test(evidence): retain walkthrough before and after checks with chronology",
+    "commits_with_frozen_bytes_any_ref_count": 32,
+    "changed_after_frozen": [
+      {
+        "commit": "b3f89cd52bf510727f0f313bc8d6c0d0d2b369e7",
+        "date": "2026-10-01 22:40:44 -0700",
+        "author": "Abhillash Jadhav",
+        "subject": "fix: exclude invalid assertions from coverage",
+        "sha256_after": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+      },
+      {
+        "commit": "2c6d96234f59f1f132b310bdb56f6b8fa51e2ac3",
+        "date": "2026-10-01 22:40:08 -0700",
+        "author": "Abhillash Jadhav",
+        "subject": "fix: reject malformed required acceptance criteria",
+        "sha256_after": "sha256:41dd420723109acd0553b3643b2f4d082b889989bfe67263a2eaf287dafc0c59"
+      }
+    ],
+    "history_in_bound_ancestry": [
+      {
+        "commit": "b3f89cd52bf510727f0f313bc8d6c0d0d2b369e7",
+        "date": "2026-10-01 22:40:44 -0700",
+        "subject": "fix: exclude invalid assertions from coverage",
+        "sha256": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02",
+        "equals_frozen": false
+      },
+      {
+        "commit": "2c6d96234f59f1f132b310bdb56f6b8fa51e2ac3",
+        "date": "2026-10-01 22:40:08 -0700",
+        "subject": "fix: reject malformed required acceptance criteria",
+        "sha256": "sha256:41dd420723109acd0553b3643b2f4d082b889989bfe67263a2eaf287dafc0c59",
+        "equals_frozen": false
+      },
+      {
+        "commit": "5c0f9e3a8f2c66b212c5e1adfb373e4fd2681bf9",
+        "date": "2026-09-01 10:01:26 +0530",
+        "subject": "Accept canonical ProductDecisionContract arrays in compiler (#192)",
+        "sha256": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+        "equals_frozen": true
+      },
+      {
+        "commit": "bf05d60d41555551d0b45c9980a61b12c48757e1",
+        "date": "2026-08-22 23:22:14 +0530",
+        "subject": "Bare-bones contract-to-RELEASE_READY core (#141)",
+        "sha256": "sha256:41b4ebe6ccf74a37e217bed9a1d420c6e6f7ec7e7e47887df5b812c62cbe04e9",
+        "equals_frozen": false
+      }
+    ],
+    "patch_check": {
+      "recomputed_sha256": "923e4fc1a1170d2b0a2d3825f2794dfb6f585b3018f0c09d8347dcbf4c4255c3",
+      "evidence_patch_sha256": "923e4fc1a1170d2b0a2d3825f2794dfb6f585b3018f0c09d8347dcbf4c4255c3",
+      "byte_identical": true,
+      "recomputed_lines": 67,
+      "evidence_lines": 67
+    }
+  },
+  {
+    "n": 5,
+    "repository": "production-engineering-os",
+    "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+    "bound_commit": "e8a929df0feca124005dfc84f1b5bebdd207eab9",
+    "frozen_sha256": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+    "frozen_blob_oid": "4ff0d87b4b5d30b81da9eb9b180287c78fa3428e",
+    "bound_sha256": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71",
+    "last_commit_with_frozen_bytes_in_bound_ancestry": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1",
+    "last_commit_info": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1 2026-09-21 10:54:45 +0530 test(evidence): retain walkthrough before and after checks with chronology",
+    "commits_with_frozen_bytes_any_ref_count": 202,
+    "changed_after_frozen": [
+      {
+        "commit": "0d49f40ddde9946cc37f0e58b0adefa7ff2f9394",
+        "date": "2026-09-25 16:30:06 +0000",
+        "author": "Claude",
+        "subject": "fix: mount the private source snapshot with a constant bwrap argv",
+        "sha256_after": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+      }
+    ],
+    "history_in_bound_ancestry": [
+      {
+        "commit": "0d49f40ddde9946cc37f0e58b0adefa7ff2f9394",
+        "date": "2026-09-25 16:30:06 +0000",
+        "subject": "fix: mount the private source snapshot with a constant bwrap argv",
+        "sha256": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71",
+        "equals_frozen": false
+      },
+      {
+        "commit": "d335fd750ef4715306b63bd0fd2980a5269999c8",
+        "date": "2026-08-27 00:08:06 +0530",
+        "subject": "Preserve private snapshot modes",
+        "sha256": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+        "equals_frozen": true
+      },
+      {
+        "commit": "03d7d0ef9e02caea4075be4302b7672171bc01d9",
+        "date": "2026-08-26 23:56:28 +0530",
+        "subject": "Seal drift source for every child",
+        "sha256": "sha256:454ab57d9f5638e81629ec1d50a06bdb14a37049f8df26662f5e9f6862a37795",
+        "equals_frozen": false
+      },
+      {
+        "commit": "2fd6d379be55879c3e77738beb5029489753a7cc",
+        "date": "2026-08-26 23:41:04 +0530",
+        "subject": "Run drift matrix from immutable source",
+        "sha256": "sha256:b682b6fbad79318830312ceb7ff2321479ae452ab9c6930dc03f5906abc31c53",
+        "equals_frozen": false
+      },
+      {
+        "commit": "15dfd7a204ae53e7ef39961e860d1a10d7e323b2",
+        "date": "2026-08-26 22:55:03 +0530",
+        "subject": "Verify the planted drift behavior",
+        "sha256": "sha256:c9c5fdffae00c824a2d83e47a63698151b8d4220e526ee58ea54bab7e9e85805",
+        "equals_frozen": false
+      },
+      {
+        "commit": "55b0b10b6195b12f7eb33946a1da115cd4378cd0",
+        "date": "2026-08-26 22:45:04 +0530",
+        "subject": "Anchor drift comparison to trusted inputs",
+        "sha256": "sha256:c43f75258e6d9a21ac9eb31931f6c42d13524298be615d4755f94dd08bb51dd1",
+        "equals_frozen": false
+      },
+      {
+        "commit": "bd7b6cfe6a7130b1ee75473b76a02113a9c941d6",
+        "date": "2026-08-26 22:34:07 +0530",
+        "subject": "Reject confounded drift controls",
+        "sha256": "sha256:f2ac07ae72f58eceb5411058fc267fd9e048a6b356c8204cfe5bc738a01c3eb3",
+        "equals_frozen": false
+      },
+      {
+        "commit": "923ee649c2da5567acb73a28cdf522405e0dfedc",
+        "date": "2026-08-26 22:28:40 +0530",
+        "subject": "Fence real drift evaluation boundaries",
+        "sha256": "sha256:3ec4fffcdff39c1ec878695734f25a8a188db8ab1253f27dece15b31d4bb89a1",
+        "equals_frozen": false
+      },
+      {
+        "commit": "ff4b198934d049a080765c469254d052c311c47e",
+        "date": "2026-08-26 22:17:11 +0530",
+        "subject": "Fail closed on confounded drift evidence",
+        "sha256": "sha256:9aa1bb615651dfde708a88ed5e49ed1e8e5e730836196ebe20837571bffc3c5d",
+        "equals_frozen": false
+      },
+      {
+        "commit": "4359894b3806e7f6435790f941c9996b285d262c",
+        "date": "2026-08-26 22:08:40 +0530",
+        "subject": "Bind drift evidence to recorded source",
+        "sha256": "sha256:dc1f329bfba8d7368a62559f93297a3f0c56c8a28f382e320814333ec5445b9d",
+        "equals_frozen": false
+      },
+      {
+        "commit": "da18fae616d4d32f93b1a52905445c59e00b26be",
+        "date": "2026-08-26 22:00:09 +0530",
+        "subject": "Harden drift evidence verification",
+        "sha256": "sha256:06526b2a009f626842cbc40487b13f48f45c69495a6f4d729a3fa15a5225d828",
+        "equals_frozen": false
+      },
+      {
+        "commit": "20365731e7b59ab678789838f0c14390b16a5de8",
+        "date": "2026-08-26 21:48:13 +0530",
+        "subject": "Add verified real behavior-drift evaluation",
+        "sha256": "sha256:04a76f679e12180167679102e6c7e3d6ebca87ab1c1ef571b12adb668b0f8175",
+        "equals_frozen": false
+      }
+    ],
+    "patch_check": {
+      "recomputed_sha256": "83172ea03a8da94381ec51fc72574b92eeff6c780ef7d231ef90bf79f199a19d",
+      "evidence_patch_sha256": "83172ea03a8da94381ec51fc72574b92eeff6c780ef7d231ef90bf79f199a19d",
+      "byte_identical": true,
+      "recomputed_lines": 157,
+      "evidence_lines": 157
+    }
+  }
+]

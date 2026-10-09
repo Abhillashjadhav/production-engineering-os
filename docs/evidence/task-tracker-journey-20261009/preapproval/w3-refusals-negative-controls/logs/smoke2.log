@@ -1,0 +1,31 @@
+[2026-10-09T15:02:31.158606+00:00] control wrong_provider_digest
+[2026-10-09T15:02:34.582759+00:00] control wrong_freeze_digest
+[2026-10-09T15:02:34.751878+00:00] control missing_candidate
+[2026-10-09T15:02:35.021739+00:00] group cli_invalid_inputs
+[2026-10-09T15:02:35.644094+00:00] group cli_store_failures
+{
+  "summary": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/smoke2/summary.json",
+  "totals": {
+    "PASS": 12,
+    "FAIL": 2,
+    "NOT_APPLICABLE": 0,
+    "SKIPPED": 0,
+    "HARNESS_ERROR": 0
+  },
+  "verdicts": {
+    "wrong_provider_digest": "PASS",
+    "wrong_freeze_digest": "PASS",
+    "missing_candidate": "PASS",
+    "cli_empty_title": "PASS",
+    "cli_whitespace_title": "PASS",
+    "cli_invalid_id": "PASS",
+    "cli_missing_id_999": "PASS",
+    "cli_invalid_status": "PASS",
+    "cli_unknown_command": "PASS",
+    "cli_malformed_store": "PASS",
+    "cli_store_is_directory": "PASS",
+    "cli_store_parent_is_file": "PASS",
+    "cli_inaccessible_store_chmod_file": "FAIL",
+    "cli_inaccessible_store_chmod_dir": "FAIL"
+  }
+}

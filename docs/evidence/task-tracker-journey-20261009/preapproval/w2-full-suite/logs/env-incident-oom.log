@@ -1,0 +1,18 @@
+2026-10-09T14:44:45Z
+loadavg: 21.92 17.43 9.86 22/8914 2261
+memcg claude-code-bash usage=14344945664 limit=14345019392 failcnt=10812978 oom_kill_disable 0
+oom_kill 33
+/bin/bash: line 1: /proc/2234/comm: No such file or directory
+/bin/bash: line 1: /proc/2235/comm: No such file or directory
+/bin/bash: line 1: /proc/2255/comm: No such file or directory
+/bin/bash: line 1: /proc/2256/comm: No such file or directory
+/bin/bash: line 1: /proc/2257/comm: No such file or directory
+/bin/bash: line 1: /proc/2258/comm: No such file or directory
+/bin/bash: line 1: /proc/2260/comm: No such file or directory
+procs[git]=4381
+procs[sh]=2192
+procs[git-upload-pack]=2191
+procs[python3]=2
+procs[python3.12]=1
+procs[pytest]=0
+root of runaway: pid 13314 ppid=1 cwd=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos cmd=git clone --filter=blob:none --quiet file:///tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/peos /tmp/pip-req-build-49fu6wtb 

@@ -1,0 +1,17 @@
+### id: PS3_install_clean_home_py311
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311/python (3.11.17 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311/python3 (3.11.17 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/shim311/python3)
+### command (bash -e -c): python3 scripts/install.py --target "$RUNNER_TEMP/claude-home"
+test -f "$RUNNER_TEMP/claude-home/skills/pm/SKILL.md"
+test -d "$RUNNER_TEMP/claude-home/agents"
+### start: 2026-10-09T14:29:36Z
+-----8<----- raw output -----8<-----
+PASS repository audit: 40 lifecycle skills, 3 supporting skills, 7 reviewer personas
+Installed 43 skills and 7 reviewer agents into /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/runner_temp/claude-home
+Next: open Claude Code and invoke /pm, or ask for one of the starter workflows.
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T14:29:36Z
+### EXIT: 0

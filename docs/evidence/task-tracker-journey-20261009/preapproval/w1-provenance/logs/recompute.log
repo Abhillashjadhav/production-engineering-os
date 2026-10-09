@@ -1,0 +1,18 @@
+{
+ "active_count": 218,
+ "candidateB_count": 218,
+ "candidateA_count": 218,
+ "active_unique_pairs": 218,
+ "candidateB_unique_pairs": 218,
+ "same_pairs_same_order_active_vs_candidateB": true,
+ "same_pairs_same_order_active_vs_candidateA": true,
+ "only_in_active_vs_candidateB": [],
+ "only_in_candidateB_vs_active": [],
+ "only_in_active_vs_candidateA": [],
+ "only_in_candidateA_vs_active": [],
+ "by_repository_active": {
+  "PM-agent-OS": 14,
+  "production-engineering-os": 204
+ },
+ "first_order_difference_index_vs_B": null
+}

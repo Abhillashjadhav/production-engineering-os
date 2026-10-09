@@ -1,0 +1,15 @@
+### id: PT7_unpatched_check_handoff_e8a929d_gh
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python3)
+### command (bash -e -c): python scripts/check_handoff.py
+### start: 2026-10-09T15:01:59Z
+-----8<----- raw output -----8<-----
+HANDOFF_SETUP_BLOCKED: PUBLISHER_REVISION_MISMATCH: installed e8a929df0feca124005dfc84f1b5bebdd207eab9; reviewed 297a11d79e5d1e1eda1f8f94b7bec3046c41a0d6.
+Checked Python: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python
+Follow docs/HANDOFF.md using that same Python environment.
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T15:01:59Z
+### EXIT: 2

@@ -1,0 +1,2636 @@
+{
+  "label": "HARNESS DRY RUN on a disposable fixture freeze (sha256:9d51db9d...) over current bytes + the retained September candidate. NOT approval. NOT the fresh build.",
+  "started_at": "2026-10-09T15:04:46.196026+00:00",
+  "inputs": {
+    "peos": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+    "peos_head": "4b1558fd5bedd04e7beacb28ffb9f41ddaa7b577",
+    "pmos": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+    "pmos_head": "unknown",
+    "packet": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+    "freeze_digest": "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+    "manifest_canonical_digest": "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+    "manifest_status": "TEST_FIXTURE_NOT_APPROVAL",
+    "candidate": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate",
+    "candidate_product_sha256": "sha256:5ef500b5304cc7a5ba1a0e8498675cb01641b71c9c3e5e38bf01d5226e24ade5",
+    "python": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+    "stale_from": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/handoff",
+    "known_retained_products": {
+      "sha256:5ef500b5304cc7a5ba1a0e8498675cb01641b71c9c3e5e38bf01d5226e24ade5": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate/product.py",
+      "sha256:a0130398d0a4fd7e420f24bf9e1ff18dcbbca0f9a0efe201308c011946ea5f4a": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-completion-20261009/session-authored-product.py"
+    },
+    "euid": 0
+  },
+  "entry_processes_on_host_before": [],
+  "finished_at": "2026-10-09T15:13:49.672099+00:00",
+  "controls": [
+    {
+      "name": "wrong_provider_digest",
+      "layer": "engine+provider shim",
+      "expected": "scripted response with a different request_digest -> shim RESPONSE_DIGEST_MISMATCH, engine HALTED/MODEL_PROVIDER_FAILED, exit 1, no RELEASE_READY",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "build",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_provider_digest/run",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py build --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_provider_digest/run --authorized-host-fallback",
+        "exit_code": 1,
+        "timed_out": false,
+        "elapsed_s": 2.78,
+        "stdout_tail": "{\"run_id\": \"task-tracker-live\", \"state\": \"HALTED\", \"cause\": \"MODEL_PROVIDER_FAILED\", \"attempts\": 0, \"model_calls\": 1, \"elapsed_ms\": 2481, \"evidence_path\": \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_provider_digest/run/.pmpe/runs/task-tracker-live/events.jsonl\", \"annotation\": {}, \"telemetry\": {\"calls\": 1, \"bytes\": 0, \"tokens_in\": 0, \"tokens_out\": 0, \"estimated_cost_usd\": 0.0, \"provider_model_id\": \"\", \"structured_criteria_count\": 14, \"human_test_count\": 0, \"elapsed_ms\": 2481}}\n",
+        "stderr_tail": "",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_provider_digest/run",
+        "output_exists": true,
+        "output_listing": [
+          ".pmpe",
+          "candidate",
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "handoff",
+          "processes.jsonl",
+          "result.json"
+        ],
+        "result_json": {
+          "annotation": {},
+          "attempts": 0,
+          "cause": "MODEL_PROVIDER_FAILED",
+          "elapsed_ms": 2481,
+          "evidence_path": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_provider_digest/run/.pmpe/runs/task-tracker-live/events.jsonl",
+          "model_calls": 1,
+          "run_id": "task-tracker-live",
+          "state": "HALTED",
+          "telemetry": {
+            "bytes": 0,
+            "calls": 1,
+            "elapsed_ms": 2481,
+            "estimated_cost_usd": 0.0,
+            "human_test_count": 0,
+            "provider_model_id": "",
+            "structured_criteria_count": 14,
+            "tokens_in": 0,
+            "tokens_out": 0
+          }
+        },
+        "failure_json": null,
+        "compatibility": {
+          "compatible": true,
+          "reasons": []
+        },
+        "ledger_events": [
+          "contract_validated",
+          "meaningful_red_confirmed",
+          "halted"
+        ],
+        "ledger_terminal": {
+          "state": "HALTED",
+          "cause": "MODEL_PROVIDER_FAILED"
+        },
+        "status_cli": {
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/pmpe barebones status task-tracker-live --repository-root /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_provider_digest/run",
+          "exit_code": 0,
+          "stdout_json": {
+            "approval": {
+              "authority": "Abhillash Jadhav",
+              "receipt_digest": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef",
+              "status": "VERIFIED"
+            },
+            "cause": "MODEL_PROVIDER_FAILED",
+            "events": 3,
+            "head_event_digest": "sha256:c94af329176410ac60ca7dbccabc03376a32feca81fdc1021d2eee172971614d",
+            "run_id": "task-tracker-live",
+            "state": "HALTED",
+            "telemetry": {
+              "bytes": 0,
+              "calls": 1,
+              "elapsed_ms": 2481,
+              "estimated_cost_usd": 0,
+              "human_test_count": 0,
+              "provider_model_id": "",
+              "structured_criteria_count": 14,
+              "tokens_in": 0,
+              "tokens_out": 0
+            }
+          },
+          "stderr_tail": ""
+        },
+        "handoff_calls": [
+          {
+            "call": "call-814c7060fc7d462081980ee01c44b17b",
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "call_json": {
+              "elapsed_ms": 59.01071200014485,
+              "error": "RESPONSE_DIGEST_MISMATCH",
+              "headless_reproduction": false,
+              "purpose": "code",
+              "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+              "responder": "current-agent-session",
+              "started_at": "2026-10-09T15:04:48.925837+00:00",
+              "status": "failed"
+            },
+            "response_present": true,
+            "output_present": false
+          }
+        ],
+        "candidate_process_records": 14,
+        "digest_checks": {
+          "count": 30,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": "sha256:12b17651e47780b8dd2f20c6bc9b64d7ae3e49b3c3b58e728b411eba200ec378",
+        "classification": {
+          "outcome": "FAIL",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": null,
+          "exit_code": 1
+        },
+        "responder_log": [
+          {
+            "call": "call-814c7060fc7d462081980ee01c44b17b",
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "action": "wrote wrong-digest response",
+            "response_request_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "response_sha256": "sha256:e75418a555ee7d24b86e90fe5be932fc43b71a40d6ab50789454228b3149c7c3",
+            "at": "2026-10-09T15:04:48.945047+00:00"
+          }
+        ]
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "entry exit code is 1",
+          "met": true
+        },
+        {
+          "expectation": "result.json state is HALTED",
+          "met": true
+        },
+        {
+          "expectation": "result.json cause is MODEL_PROVIDER_FAILED",
+          "met": true
+        },
+        {
+          "expectation": "ledger ends with halted",
+          "met": true
+        },
+        {
+          "expectation": "no release_ready event",
+          "met": true
+        },
+        {
+          "expectation": "no coder_completed event",
+          "met": true
+        },
+        {
+          "expectation": "status CLI does not report RELEASE_READY",
+          "met": true
+        },
+        {
+          "expectation": "shim refused with RESPONSE_DIGEST_MISMATCH",
+          "met": true
+        }
+      ],
+      "wall_s": 3.43
+    },
+    {
+      "name": "stale_response_other_call",
+      "layer": "engine+provider shim",
+      "expected": "a valid-looking response retained from a previous call (different request_digest) -> refused, HALTED/MODEL_PROVIDER_FAILED, exit 1",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "build",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_other_call/run",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py build --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_other_call/run --authorized-host-fallback",
+        "exit_code": 1,
+        "timed_out": false,
+        "elapsed_s": 2.69,
+        "stdout_tail": "{\"run_id\": \"task-tracker-live\", \"state\": \"HALTED\", \"cause\": \"MODEL_PROVIDER_FAILED\", \"attempts\": 0, \"model_calls\": 1, \"elapsed_ms\": 2442, \"evidence_path\": \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_other_call/run/.pmpe/runs/task-tracker-live/events.jsonl\", \"annotation\": {}, \"telemetry\": {\"calls\": 1, \"bytes\": 0, \"tokens_in\": 0, \"tokens_out\": 0, \"estimated_cost_usd\": 0.0, \"provider_model_id\": \"\", \"structured_criteria_count\": 14, \"human_test_count\": 0, \"elapsed_ms\": 2442}}\n",
+        "stderr_tail": "",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_other_call/run",
+        "output_exists": true,
+        "output_listing": [
+          ".pmpe",
+          "candidate",
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "handoff",
+          "processes.jsonl",
+          "result.json"
+        ],
+        "result_json": {
+          "annotation": {},
+          "attempts": 0,
+          "cause": "MODEL_PROVIDER_FAILED",
+          "elapsed_ms": 2442,
+          "evidence_path": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_other_call/run/.pmpe/runs/task-tracker-live/events.jsonl",
+          "model_calls": 1,
+          "run_id": "task-tracker-live",
+          "state": "HALTED",
+          "telemetry": {
+            "bytes": 0,
+            "calls": 1,
+            "elapsed_ms": 2442,
+            "estimated_cost_usd": 0.0,
+            "human_test_count": 0,
+            "provider_model_id": "",
+            "structured_criteria_count": 14,
+            "tokens_in": 0,
+            "tokens_out": 0
+          }
+        },
+        "failure_json": null,
+        "compatibility": {
+          "compatible": true,
+          "reasons": []
+        },
+        "ledger_events": [
+          "contract_validated",
+          "meaningful_red_confirmed",
+          "halted"
+        ],
+        "ledger_terminal": {
+          "state": "HALTED",
+          "cause": "MODEL_PROVIDER_FAILED"
+        },
+        "status_cli": {
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/pmpe barebones status task-tracker-live --repository-root /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_other_call/run",
+          "exit_code": 0,
+          "stdout_json": {
+            "approval": {
+              "authority": "Abhillash Jadhav",
+              "receipt_digest": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef",
+              "status": "VERIFIED"
+            },
+            "cause": "MODEL_PROVIDER_FAILED",
+            "events": 3,
+            "head_event_digest": "sha256:d575518975deb09bf6d0c4ecad7bb5bf0b8f48e842ef0fc4ec87337006cbaa0d",
+            "run_id": "task-tracker-live",
+            "state": "HALTED",
+            "telemetry": {
+              "bytes": 0,
+              "calls": 1,
+              "elapsed_ms": 2442,
+              "estimated_cost_usd": 0,
+              "human_test_count": 0,
+              "provider_model_id": "",
+              "structured_criteria_count": 14,
+              "tokens_in": 0,
+              "tokens_out": 0
+            }
+          },
+          "stderr_tail": ""
+        },
+        "handoff_calls": [
+          {
+            "call": "call-bdbad1262320432cbdc821d4f909d785",
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "call_json": {
+              "elapsed_ms": 55.90082999970036,
+              "error": "RESPONSE_DIGEST_MISMATCH",
+              "headless_reproduction": false,
+              "purpose": "code",
+              "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+              "responder": "current-agent-session",
+              "started_at": "2026-10-09T15:04:52.286530+00:00",
+              "status": "failed"
+            },
+            "response_present": true,
+            "output_present": false
+          }
+        ],
+        "candidate_process_records": 14,
+        "digest_checks": {
+          "count": 30,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": "sha256:12b17651e47780b8dd2f20c6bc9b64d7ae3e49b3c3b58e728b411eba200ec378",
+        "classification": {
+          "outcome": "FAIL",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": null,
+          "exit_code": 1
+        },
+        "responder_log": [
+          {
+            "call": "call-bdbad1262320432cbdc821d4f909d785",
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "action": "delivered a previous call's response verbatim",
+            "source": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/handoff/call-ea783cdf0ec94af6aa9f70fd4ac7ab6a/response.json",
+            "response_request_digest": "sha256:0cd384264ed08de0d184d0be4756f67199e0929c04127b350abda70612797852",
+            "response_sha256": "sha256:48479395a9b095381a72214c7703f34ca0e6b228df2fe1c69cd8fd7aeeb61065",
+            "at": "2026-10-09T15:04:52.327993+00:00"
+          }
+        ]
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "entry exit code is 1",
+          "met": true
+        },
+        {
+          "expectation": "result.json state is HALTED",
+          "met": true
+        },
+        {
+          "expectation": "result.json cause is MODEL_PROVIDER_FAILED",
+          "met": true
+        },
+        {
+          "expectation": "ledger ends with halted",
+          "met": true
+        },
+        {
+          "expectation": "no release_ready event",
+          "met": true
+        },
+        {
+          "expectation": "no coder_completed event",
+          "met": true
+        },
+        {
+          "expectation": "status CLI does not report RELEASE_READY",
+          "met": true
+        },
+        {
+          "expectation": "a previous call's response was delivered verbatim",
+          "met": true
+        },
+        {
+          "expectation": "shim refused with RESPONSE_DIGEST_MISMATCH",
+          "met": true
+        }
+      ],
+      "wall_s": 3.28
+    },
+    {
+      "name": "stale_response_identical_request_replay",
+      "layer": "engine+provider shim+harness freshness check",
+      "expected": "replay of a previous run's response to the identical request must not be presentable as a fresh build",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "build",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_identical_request_replay/run",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py build --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_identical_request_replay/run --authorized-host-fallback",
+        "exit_code": 0,
+        "timed_out": false,
+        "elapsed_s": 6.55,
+        "stdout_tail": "{\"run_id\": \"task-tracker-live\", \"state\": \"RELEASE_READY\", \"cause\": \"PASS\", \"attempts\": 1, \"model_calls\": 2, \"elapsed_ms\": 6320, \"evidence_path\": \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_identical_request_replay/run/.pmpe/runs/task-tracker-live/events.jsonl\", \"annotation\": {\"annotation\": \"Bounded task-tracker candidate completed the frozen engine checks. Creation is not idempotent; concurrent creation is out of scope. Real-sandbox execution remains environment-blocked. Complete the required persistence/filter mutation and tamper checks before claiming demonstrated feasibility. This same-session annotation is non-blocking and is not independent human review.\", \"provider_metadata\": {\"model\": \"session-model-unreported\", \"prompt_version\": \"session-file-v1\", \"provider\": \"in-session-file-handoff\"}, \"request_digest\": \"sha256:0cd384264ed08de0d184d0be4756f67199e0929c04127b350abda70612797852\"}, \"telemetry\": {\"calls\": 2, \"bytes\": 6133, \"tokens_in\": 0, \"tokens_out\": 0, \"estimated_cost_usd\": 0.0, \"provider_model_id\": \"session-model-unreported\", \"structured_criteria_count\": 14, \"human_test_count\": 0, \"elapsed_ms\": 6320}}\n",
+        "stderr_tail": "",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_identical_request_replay/run",
+        "output_exists": true,
+        "output_listing": [
+          ".pmpe",
+          "candidate",
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "handoff",
+          "processes.jsonl",
+          "result.json"
+        ],
+        "result_json": {
+          "annotation": {
+            "annotation": "Bounded task-tracker candidate completed the frozen engine checks. Creation is not idempotent; concurrent creation is out of scope. Real-sandbox execution remains environment-blocked. Complete the required persistence/filter mutation and tamper checks before claiming demonstrated feasibility. This same-session annotation is non-blocking and is not independent human review.",
+            "provider_metadata": {
+              "model": "session-model-unreported",
+              "prompt_version": "session-file-v1",
+              "provider": "in-session-file-handoff"
+            },
+            "request_digest": "sha256:0cd384264ed08de0d184d0be4756f67199e0929c04127b350abda70612797852"
+          },
+          "attempts": 1,
+          "cause": "PASS",
+          "elapsed_ms": 6320,
+          "evidence_path": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_identical_request_replay/run/.pmpe/runs/task-tracker-live/events.jsonl",
+          "model_calls": 2,
+          "run_id": "task-tracker-live",
+          "state": "RELEASE_READY",
+          "telemetry": {
+            "bytes": 6133,
+            "calls": 2,
+            "elapsed_ms": 6320,
+            "estimated_cost_usd": 0.0,
+            "human_test_count": 0,
+            "provider_model_id": "session-model-unreported",
+            "structured_criteria_count": 14,
+            "tokens_in": 0,
+            "tokens_out": 0
+          }
+        },
+        "failure_json": null,
+        "compatibility": {
+          "compatible": true,
+          "reasons": []
+        },
+        "ledger_events": [
+          "contract_validated",
+          "meaningful_red_confirmed",
+          "coder_completed",
+          "verification_started",
+          "release_ready"
+        ],
+        "ledger_terminal": {
+          "state": "RELEASE_READY",
+          "cause": null
+        },
+        "status_cli": {
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/pmpe barebones status task-tracker-live --repository-root /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/stale_response_identical_request_replay/run",
+          "exit_code": 0,
+          "stdout_json": {
+            "approval": {
+              "authority": "Abhillash Jadhav",
+              "receipt_digest": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef",
+              "status": "VERIFIED"
+            },
+            "cause": "PASS",
+            "events": 5,
+            "head_event_digest": "sha256:3debb02bab80cc1f8b93e10b49bc3335a1af93c4c75b1647b3afcde6c88bd5d7",
+            "run_id": "task-tracker-live",
+            "state": "RELEASE_READY",
+            "telemetry": {
+              "bytes": 6133,
+              "calls": 2,
+              "elapsed_ms": 6320,
+              "estimated_cost_usd": 0,
+              "human_test_count": 0,
+              "provider_model_id": "session-model-unreported",
+              "structured_criteria_count": 14,
+              "tokens_in": 0,
+              "tokens_out": 0
+            }
+          },
+          "stderr_tail": ""
+        },
+        "handoff_calls": [
+          {
+            "call": "call-5f83be14e55848f095f431e6dc14423c",
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "call_json": {
+              "elapsed_ms": 57.11488899987671,
+              "headless_reproduction": false,
+              "purpose": "code",
+              "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+              "responder": "current-agent-session",
+              "started_at": "2026-10-09T15:04:55.467854+00:00",
+              "status": "completed"
+            },
+            "response_present": true,
+            "output_present": true
+          },
+          {
+            "call": "call-b40883e52a934578bec4c8f21b76141d",
+            "purpose": "advisory_review",
+            "request_digest": "sha256:0cd384264ed08de0d184d0be4756f67199e0929c04127b350abda70612797852",
+            "call_json": {
+              "elapsed_ms": 55.66683400002148,
+              "headless_reproduction": false,
+              "purpose": "advisory_review",
+              "request_digest": "sha256:0cd384264ed08de0d184d0be4756f67199e0929c04127b350abda70612797852",
+              "responder": "current-agent-session",
+              "started_at": "2026-10-09T15:04:59.436771+00:00",
+              "status": "completed"
+            },
+            "response_present": true,
+            "output_present": true
+          }
+        ],
+        "candidate_process_records": 28,
+        "digest_checks": {
+          "count": 58,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": "sha256:5ef500b5304cc7a5ba1a0e8498675cb01641b71c9c3e5e38bf01d5226e24ade5",
+        "classification": {
+          "outcome": "FAIL",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": null,
+          "exit_code": 0
+        },
+        "responder_log": [
+          {
+            "call": "call-5f83be14e55848f095f431e6dc14423c",
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "action": "replayed a previous run's response to the identical request",
+            "source": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/handoff/call-7b037ac523bb4bf3ab02899feaa7e937/response.json",
+            "response_request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "response_sha256": "sha256:f0325ff0f0630ff132ea25395e6ad57015b35a142d04c88f7afc79f4587076d2",
+            "at": "2026-10-09T15:04:55.495335+00:00"
+          },
+          {
+            "call": "call-b40883e52a934578bec4c8f21b76141d",
+            "purpose": "advisory_review",
+            "request_digest": "sha256:0cd384264ed08de0d184d0be4756f67199e0929c04127b350abda70612797852",
+            "action": "replayed a previous run's response to the identical request",
+            "source": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/handoff/call-ea783cdf0ec94af6aa9f70fd4ac7ab6a/response.json",
+            "response_request_digest": "sha256:0cd384264ed08de0d184d0be4756f67199e0929c04127b350abda70612797852",
+            "response_sha256": "sha256:48479395a9b095381a72214c7703f34ca0e6b228df2fe1c69cd8fd7aeeb61065",
+            "at": "2026-10-09T15:04:59.483366+00:00"
+          }
+        ],
+        "replayed_calls": 2,
+        "engine_accepted_replay": true,
+        "built_product_matches_retained": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate/product.py",
+        "harness_fresh": false
+      },
+      "finding": "ENGINE_ACCEPTS_IDENTICAL_REQUEST_REPLAY: the code request_digest is a content digest of {contract, plan, skeleton files, baseline findings}; it is deterministic across runs, so a retained response from an earlier run is accepted. Freshness of a build must be established out of band (candidate digest differs from every retained candidate).",
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "a replayed response is never counted as a fresh build (engine refuses it, or the harness flags the candidate as byte-identical to a retained one)",
+          "met": true
+        }
+      ],
+      "wall_s": 7.2
+    },
+    {
+      "name": "missing_model_response_shim_bounded",
+      "layer": "provider shim only (engine not involved)",
+      "expected": "with PMPE_PROVIDER_TIMEOUT_SECONDS=2 the shim gives up after 1.8 s: RESPONSE_TIMEOUT, exit 1",
+      "execution": {
+        "command_shell": "PMPE_PROVIDER_TIMEOUT_SECONDS=2 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/session-file-provider.py --handoff-dir /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_model_response_shim_bounded/handoff",
+        "exit_code": 1,
+        "elapsed_s": 1.85,
+        "stderr_tail": "RESPONSE_TIMEOUT\n"
+      },
+      "observed": {
+        "calls": [
+          {
+            "elapsed_ms": 1809.592522999992,
+            "error": "RESPONSE_TIMEOUT",
+            "headless_reproduction": false,
+            "purpose": "code",
+            "request_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "responder": "current-agent-session",
+            "started_at": "2026-10-09T15:05:00.213305+00:00",
+            "status": "failed"
+          }
+        ]
+      },
+      "note": "This bounds only the shim. Through contract-file.py the engine passes PMPE_PROVIDER_TIMEOUT_SECONDS=600 (hard-coded in the entry, overriding the caller), so the end-to-end timeout control is the slow one.",
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "shim exit code is 1",
+          "met": true
+        },
+        {
+          "expectation": "stderr is RESPONSE_TIMEOUT",
+          "met": true
+        },
+        {
+          "expectation": "call.json status failed/RESPONSE_TIMEOUT",
+          "met": true
+        },
+        {
+          "expectation": "bounded at 0.9 x 2 s (elapsed < 10 s)",
+          "met": true
+        },
+        {
+          "expectation": "no response/output written",
+          "met": true
+        }
+      ],
+      "wall_s": 1.86
+    },
+    {
+      "name": "interruption_and_recovery",
+      "layer": "entry+engine+shim+CLI",
+      "expected": "SIGKILL during the model wait leaves no result.json, ledger stops before the model response, status IN_PROGRESS; recovery only into a fresh output directory",
+      "execution": {
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py build --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/run --authorized-host-fallback"
+      },
+      "observed": {
+        "reached_model_call": true,
+        "seconds_to_model_call": 2.42,
+        "process_tree_at_kill": [
+          {
+            "pid": 1925,
+            "ppid": 1762,
+            "pgid": 1925,
+            "sid": 1925,
+            "cmdline": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/session-file-provider.py --handoff-dir /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/s"
+          }
+        ],
+        "entry_pgid": 1762,
+        "entry_exit_code": -9,
+        "group_gone": true,
+        "killpg_probe": "ProcessLookupError (group gone)",
+        "escaped_the_group_kill": [
+          {
+            "pid": 1925,
+            "pgid": 1925,
+            "sid": 1925,
+            "cmdline": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/session-file-provider.py --handoff-dir /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/s"
+          }
+        ],
+        "late_answer": {
+          "attempted": true,
+          "orphans_exited": true,
+          "call_json_after": {
+            "elapsed_ms": 58.26123499991809,
+            "error": "[Errno 32] Broken pipe",
+            "headless_reproduction": false,
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "responder": "current-agent-session",
+            "started_at": "2026-10-09T15:05:04.430937+00:00",
+            "status": "failed"
+          },
+          "output_json_written_by_orphan": true,
+          "result_json_after_late_answer": false,
+          "ledger_unchanged_after_late_answer": true
+        },
+        "killed_after_late_answer": [],
+        "interrupted": {
+          "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/run",
+          "output_exists": true,
+          "output_listing": [
+            ".pmpe",
+            "candidate",
+            "compatibility.json",
+            "digest-checks.jsonl",
+            "execution-source.json",
+            "handoff",
+            "processes.jsonl"
+          ],
+          "result_json": null,
+          "failure_json": null,
+          "compatibility": {
+            "compatible": true,
+            "reasons": []
+          },
+          "ledger_events": [
+            "contract_validated",
+            "meaningful_red_confirmed"
+          ],
+          "ledger_terminal": {
+            "state": "BUILDING",
+            "cause": null
+          },
+          "status_cli": {
+            "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/pmpe barebones status task-tracker-live --repository-root /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/run",
+            "exit_code": 0,
+            "stdout_json": {
+              "approval": {
+                "authority": "Abhillash Jadhav",
+                "receipt_digest": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef",
+                "status": "VERIFIED"
+              },
+              "cause": "IN_PROGRESS",
+              "events": 2,
+              "head_event_digest": "sha256:69733b17bf721dc8c3941261d29b3cab1b734c27ca62774d4c52cf8130c8d9c6",
+              "run_id": "task-tracker-live",
+              "state": "BUILDING",
+              "telemetry": {}
+            },
+            "stderr_tail": ""
+          },
+          "handoff_calls": [
+            {
+              "call": "call-8583170a126547b2b893df97315ecef3",
+              "purpose": "code",
+              "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+              "call_json": {
+                "elapsed_ms": 58.26123499991809,
+                "error": "[Errno 32] Broken pipe",
+                "headless_reproduction": false,
+                "purpose": "code",
+                "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+                "responder": "current-agent-session",
+                "started_at": "2026-10-09T15:05:04.430937+00:00",
+                "status": "failed"
+              },
+              "response_present": true,
+              "output_present": true
+            }
+          ],
+          "candidate_process_records": 14,
+          "digest_checks": {
+            "count": 29,
+            "with_mismatches": 0,
+            "first": "before:command",
+            "last": "after:AC-014",
+            "mismatches": []
+          },
+          "built_product_sha256": "sha256:12b17651e47780b8dd2f20c6bc9b64d7ae3e49b3c3b58e728b411eba200ec378",
+          "classification": {
+            "outcome": "BLOCKED",
+            "criteria": {},
+            "failed_criteria": [],
+            "finding_count": 0,
+            "blocker": {
+              "error": "NO_RESULT",
+              "detail": "the entry wrote neither result.json nor failure.json"
+            },
+            "exit_code": -9
+          }
+        },
+        "same_output_rerun": {
+          "command": [
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+            "verify",
+            "--packet",
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+            "--root",
+            "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+            "--root",
+            "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+            "--freeze-digest",
+            "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+            "--output",
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/run",
+            "--candidate",
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate",
+            "--authorized-host-fallback"
+          ],
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/run --candidate /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate --authorized-host-fallback",
+          "exit_code": 1,
+          "timed_out": false,
+          "elapsed_s": 0.17,
+          "stdout_tail": "",
+          "stderr_tail": "Traceback (most recent call last):\n  File \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py\", line 411, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py\", line 322, in main\n    args.output.mkdir(parents=True, exist_ok=False)\n  File \"/usr/lib/python3.12/pathlib.py\", line 1313, in mkdir\n    os.mkdir(self, mode)\nFileExistsError: [Errno 17] File exists: '/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/run'\n",
+          "killed_leftovers": [],
+          "listing_unchanged": true,
+          "ledger_unchanged": true
+        },
+        "fresh_output_recovery": {
+          "command": [
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+            "verify",
+            "--packet",
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+            "--root",
+            "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+            "--root",
+            "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+            "--freeze-digest",
+            "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+            "--output",
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/recovered",
+            "--candidate",
+            "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate",
+            "--authorized-host-fallback"
+          ],
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/recovered --candidate /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate --authorized-host-fallback",
+          "exit_code": 0,
+          "timed_out": false,
+          "elapsed_s": 4.2,
+          "stdout_tail": "{\"criteria\": {\"AC-001\": \"PASS\", \"AC-002\": \"PASS\", \"AC-003\": \"PASS\", \"AC-004\": \"PASS\", \"AC-005\": \"PASS\", \"AC-006\": \"PASS\", \"AC-007\": \"PASS\", \"AC-008\": \"PASS\", \"AC-009\": \"PASS\", \"AC-010\": \"PASS\", \"AC-011\": \"PASS\", \"AC-012\": \"PASS\", \"AC-013\": \"PASS\", \"AC-014\": \"PASS\"}, \"findings\": []}\n",
+          "stderr_tail": "",
+          "killed_leftovers": [],
+          "observed": {
+            "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/interruption_and_recovery/recovered",
+            "output_exists": true,
+            "output_listing": [
+              "compatibility.json",
+              "digest-checks.jsonl",
+              "execution-source.json",
+              "processes.jsonl",
+              "result.json"
+            ],
+            "result_json": {
+              "criteria": {
+                "AC-001": "PASS",
+                "AC-002": "PASS",
+                "AC-003": "PASS",
+                "AC-004": "PASS",
+                "AC-005": "PASS",
+                "AC-006": "PASS",
+                "AC-007": "PASS",
+                "AC-008": "PASS",
+                "AC-009": "PASS",
+                "AC-010": "PASS",
+                "AC-011": "PASS",
+                "AC-012": "PASS",
+                "AC-013": "PASS",
+                "AC-014": "PASS"
+              },
+              "findings": []
+            },
+            "failure_json": null,
+            "compatibility": {
+              "compatible": true,
+              "reasons": []
+            },
+            "ledger_events": null,
+            "handoff_calls": [],
+            "candidate_process_records": 14,
+            "digest_checks": {
+              "count": 30,
+              "with_mismatches": 0,
+              "first": "before:command",
+              "last": "after:command",
+              "mismatches": []
+            },
+            "built_product_sha256": null,
+            "classification": {
+              "outcome": "PASS",
+              "criteria": {
+                "AC-001": "PASS",
+                "AC-002": "PASS",
+                "AC-003": "PASS",
+                "AC-004": "PASS",
+                "AC-005": "PASS",
+                "AC-006": "PASS",
+                "AC-007": "PASS",
+                "AC-008": "PASS",
+                "AC-009": "PASS",
+                "AC-010": "PASS",
+                "AC-011": "PASS",
+                "AC-012": "PASS",
+                "AC-013": "PASS",
+                "AC-014": "PASS"
+              },
+              "failed_criteria": [],
+              "finding_count": 0,
+              "blocker": null,
+              "exit_code": 0
+            }
+          }
+        }
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "build reached the model call (after meaningful RED)",
+          "met": true
+        },
+        {
+          "expectation": "entry killed by SIGKILL (exit -9)",
+          "met": true
+        },
+        {
+          "expectation": "no process of the killed group survives",
+          "met": true
+        },
+        {
+          "expectation": "no result.json",
+          "met": true
+        },
+        {
+          "expectation": "ledger ends at meaningful_red_confirmed",
+          "met": true
+        },
+        {
+          "expectation": "status CLI: BUILDING / IN_PROGRESS, not RELEASE_READY",
+          "met": true
+        },
+        {
+          "expectation": "regression classifier labels it BLOCKED (not complete)",
+          "met": true
+        },
+        {
+          "expectation": "a late answer does not create result.json",
+          "met": true
+        },
+        {
+          "expectation": "a late answer does not change the ledger",
+          "met": true
+        },
+        {
+          "expectation": "same --output is refused (FileExistsError, nonzero)",
+          "met": true
+        },
+        {
+          "expectation": "refused re-run changed nothing",
+          "met": true
+        },
+        {
+          "expectation": "fresh --output verify succeeds 14/14",
+          "met": true
+        },
+        {
+          "expectation": "no leftover process after cleanup",
+          "met": true
+        }
+      ],
+      "wall_s": 7.46
+    },
+    {
+      "name": "wrong_freeze_digest",
+      "layer": "entry (DigestGuard constructor)",
+      "expected": "FREEZE_DIGEST_MISMATCH, nonzero, no result.json",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "verify",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_freeze_digest/run",
+          "--candidate",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:0000000000000000000000000000000000000000000000000000000000000000 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_freeze_digest/run --candidate /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate --authorized-host-fallback",
+        "exit_code": 1,
+        "timed_out": false,
+        "elapsed_s": 0.17,
+        "stdout_tail": "",
+        "stderr_tail": "Traceback (most recent call last):\n  File \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py\", line 411, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py\", line 324, in main\n    guard = DigestGuard(\n            ^^^^^^^^^^^^\n  File \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py\", line 100, in __init__\n    raise TamperDetectedError(\"FREEZE_DIGEST_MISMATCH\")\nTamperDetectedError: FREEZE_DIGEST_MISMATCH\n",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/wrong_freeze_digest/run",
+        "output_exists": true,
+        "output_listing": [],
+        "result_json": null,
+        "failure_json": null,
+        "compatibility": null,
+        "ledger_events": null,
+        "handoff_calls": [],
+        "candidate_process_records": null,
+        "digest_checks": null,
+        "built_product_sha256": null,
+        "classification": {
+          "outcome": "BLOCKED",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": {
+            "error": "NO_RESULT",
+            "detail": "the entry wrote neither result.json nor failure.json"
+          },
+          "exit_code": 1
+        }
+      },
+      "note": "The guard is constructed outside the entry's try block: the refusal is an uncaught TamperDetectedError (exit 1, traceback) and leaves NO failure.json; the regression classifier reports it as BLOCKED/NO_RESULT.",
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "nonzero exit",
+          "met": true
+        },
+        {
+          "expectation": "FREEZE_DIGEST_MISMATCH reported",
+          "met": true
+        },
+        {
+          "expectation": "no result.json",
+          "met": true
+        },
+        {
+          "expectation": "no digest check or candidate process started",
+          "met": true
+        }
+      ],
+      "wall_s": 0.17
+    },
+    {
+      "name": "missing_candidate",
+      "layer": "entry",
+      "expected": "verify without --candidate -> exit 2, failure.json '--candidate is required', no result.json",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "verify",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_candidate/run",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_candidate/run --authorized-host-fallback",
+        "exit_code": 2,
+        "timed_out": false,
+        "elapsed_s": 0.27,
+        "stdout_tail": "",
+        "stderr_tail": "ValueError: --candidate is required for verify\n",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_candidate/run",
+        "output_exists": true,
+        "output_listing": [
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "failure.json"
+        ],
+        "result_json": null,
+        "failure_json": {
+          "detail": "--candidate is required for verify",
+          "error": "ValueError"
+        },
+        "compatibility": {
+          "compatible": true,
+          "reasons": []
+        },
+        "ledger_events": null,
+        "handoff_calls": [],
+        "candidate_process_records": null,
+        "digest_checks": {
+          "count": 2,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": null,
+        "classification": {
+          "outcome": "BLOCKED",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": {
+            "detail": "--candidate is required for verify",
+            "error": "ValueError"
+          },
+          "exit_code": 2
+        }
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "exit code 2",
+          "met": true
+        },
+        {
+          "expectation": "failure.json says --candidate is required",
+          "met": true
+        },
+        {
+          "expectation": "no result.json",
+          "met": true
+        },
+        {
+          "expectation": "no candidate process ran",
+          "met": true
+        }
+      ],
+      "wall_s": 0.27
+    },
+    {
+      "name": "missing_fallback_verify",
+      "layer": "entry (compatibility)",
+      "expected": "verify without --authorized-host-fallback -> exit 2, HOST_FALLBACK_NOT_AUTHORIZED, compatible false, nothing executed",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "verify",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_fallback_verify/run",
+          "--candidate",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_fallback_verify/run --candidate /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate",
+        "exit_code": 2,
+        "timed_out": false,
+        "elapsed_s": 0.27,
+        "stdout_tail": "",
+        "stderr_tail": "ValueError: INCOMPATIBLE: HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run\n",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_fallback_verify/run",
+        "output_exists": true,
+        "output_listing": [
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "failure.json"
+        ],
+        "result_json": null,
+        "failure_json": {
+          "detail": "INCOMPATIBLE: HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run",
+          "error": "ValueError"
+        },
+        "compatibility": {
+          "compatible": false,
+          "reasons": [
+            "HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run"
+          ]
+        },
+        "ledger_events": null,
+        "handoff_calls": [],
+        "candidate_process_records": null,
+        "digest_checks": {
+          "count": 2,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": null,
+        "classification": {
+          "outcome": "BLOCKED",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": {
+            "detail": "INCOMPATIBLE: HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run",
+            "error": "ValueError"
+          },
+          "exit_code": 2
+        }
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "exit code 2",
+          "met": true
+        },
+        {
+          "expectation": "failure.json names HOST_FALLBACK_NOT_AUTHORIZED",
+          "met": true
+        },
+        {
+          "expectation": "compatibility.json compatible == false",
+          "met": true
+        },
+        {
+          "expectation": "compatibility reasons include HOST_FALLBACK_NOT_AUTHORIZED",
+          "met": true
+        },
+        {
+          "expectation": "no result.json",
+          "met": true
+        },
+        {
+          "expectation": "no handoff directory",
+          "met": true
+        },
+        {
+          "expectation": "no candidate process (processes.jsonl absent or empty)",
+          "met": true
+        }
+      ],
+      "wall_s": 0.27
+    },
+    {
+      "name": "missing_fallback_build",
+      "layer": "entry (compatibility)",
+      "expected": "build without --authorized-host-fallback -> exit 2, HOST_FALLBACK_NOT_AUTHORIZED, compatible false, nothing executed",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "build",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_fallback_build/run"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py build --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_fallback_build/run",
+        "exit_code": 2,
+        "timed_out": false,
+        "elapsed_s": 0.22,
+        "stdout_tail": "",
+        "stderr_tail": "ValueError: INCOMPATIBLE: HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run\n",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_fallback_build/run",
+        "output_exists": true,
+        "output_listing": [
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "failure.json"
+        ],
+        "result_json": null,
+        "failure_json": {
+          "detail": "INCOMPATIBLE: HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run",
+          "error": "ValueError"
+        },
+        "compatibility": {
+          "compatible": false,
+          "reasons": [
+            "HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run"
+          ]
+        },
+        "ledger_events": null,
+        "handoff_calls": [],
+        "candidate_process_records": null,
+        "digest_checks": {
+          "count": 2,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": null,
+        "classification": {
+          "outcome": "BLOCKED",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": {
+            "detail": "INCOMPATIBLE: HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run",
+            "error": "ValueError"
+          },
+          "exit_code": 2
+        }
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "exit code 2",
+          "met": true
+        },
+        {
+          "expectation": "failure.json names HOST_FALLBACK_NOT_AUTHORIZED",
+          "met": true
+        },
+        {
+          "expectation": "compatibility.json compatible == false",
+          "met": true
+        },
+        {
+          "expectation": "compatibility reasons include HOST_FALLBACK_NOT_AUTHORIZED",
+          "met": true
+        },
+        {
+          "expectation": "no result.json",
+          "met": true
+        },
+        {
+          "expectation": "no handoff directory",
+          "met": true
+        },
+        {
+          "expectation": "no candidate process (processes.jsonl absent or empty)",
+          "met": true
+        }
+      ],
+      "wall_s": 0.22
+    },
+    {
+      "name": "product_mutation_status_filter_ignored",
+      "layer": "entry+evaluator",
+      "expected": "list ignores --status -> the filter criteria FAIL, exit 1",
+      "mutation": {
+        "file": "product.py",
+        "find": "if args.status != \"all\":",
+        "replace": "if False:  # Deliberate negative-control mutation: ignore --status."
+      },
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "verify",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/product_mutation_status_filter_ignored/run",
+          "--candidate",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/product_mutation_status_filter_ignored/mutated-candidate",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/product_mutation_status_filter_ignored/run --candidate /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/product_mutation_status_filter_ignored/mutated-candidate --authorized-host-fallback",
+        "exit_code": 1,
+        "timed_out": false,
+        "elapsed_s": 4.09,
+        "stdout_tail": "{\"criteria\": {\"AC-001\": \"PASS\", \"AC-002\": \"PASS\", \"AC-003\": \"PASS\", \"AC-004\": \"FAIL\", \"AC-005\": \"FAIL\", \"AC-006\": \"PASS\", \"AC-007\": \"PASS\", \"AC-008\": \"PASS\", \"AC-009\": \"PASS\", \"AC-010\": \"PASS\", \"AC-011\": \"PASS\", \"AC-012\": \"PASS\", \"AC-013\": \"PASS\", \"AC-014\": \"PASS\"}, \"findings\": [{\"code\": \"ASSERTION_FAILED\", \"subject_id\": \"AC-004\", \"message\": \"compiled acceptance assertion failed\", \"files\": [\"tests/acceptance/task_tracker.py\"]}, {\"code\": \"ASSERTION_FAILED\", \"subject_id\": \"AC-005\", \"message\": \"compiled acceptance assertion failed\", \"files\": [\"tests/acceptance/task_tracker.py\"]}]}\n",
+        "stderr_tail": "",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/product_mutation_status_filter_ignored/run",
+        "output_exists": true,
+        "output_listing": [
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "processes.jsonl",
+          "result.json"
+        ],
+        "result_json": {
+          "criteria": {
+            "AC-001": "PASS",
+            "AC-002": "PASS",
+            "AC-003": "PASS",
+            "AC-004": "FAIL",
+            "AC-005": "FAIL",
+            "AC-006": "PASS",
+            "AC-007": "PASS",
+            "AC-008": "PASS",
+            "AC-009": "PASS",
+            "AC-010": "PASS",
+            "AC-011": "PASS",
+            "AC-012": "PASS",
+            "AC-013": "PASS",
+            "AC-014": "PASS"
+          },
+          "findings": [
+            {
+              "code": "ASSERTION_FAILED",
+              "files": [
+                "tests/acceptance/task_tracker.py"
+              ],
+              "message": "compiled acceptance assertion failed",
+              "subject_id": "AC-004"
+            },
+            {
+              "code": "ASSERTION_FAILED",
+              "files": [
+                "tests/acceptance/task_tracker.py"
+              ],
+              "message": "compiled acceptance assertion failed",
+              "subject_id": "AC-005"
+            }
+          ]
+        },
+        "failure_json": null,
+        "compatibility": {
+          "compatible": true,
+          "reasons": []
+        },
+        "ledger_events": null,
+        "handoff_calls": [],
+        "candidate_process_records": 14,
+        "digest_checks": {
+          "count": 30,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": null,
+        "classification": {
+          "outcome": "FAIL",
+          "criteria": {
+            "AC-001": "PASS",
+            "AC-002": "PASS",
+            "AC-003": "PASS",
+            "AC-004": "FAIL",
+            "AC-005": "FAIL",
+            "AC-006": "PASS",
+            "AC-007": "PASS",
+            "AC-008": "PASS",
+            "AC-009": "PASS",
+            "AC-010": "PASS",
+            "AC-011": "PASS",
+            "AC-012": "PASS",
+            "AC-013": "PASS",
+            "AC-014": "PASS"
+          },
+          "failed_criteria": [
+            "AC-004",
+            "AC-005"
+          ],
+          "finding_count": 2,
+          "blocker": null,
+          "exit_code": 1
+        },
+        "failing_criteria": [
+          "AC-004",
+          "AC-005"
+        ]
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "exit code 1",
+          "met": true
+        },
+        {
+          "expectation": "at least one criterion FAILs",
+          "met": true
+        },
+        {
+          "expectation": "AC-004 (status filters) FAILs",
+          "met": true
+        },
+        {
+          "expectation": "failing set equals the recorded known answer ['AC-004', 'AC-005']",
+          "met": true
+        }
+      ],
+      "wall_s": 4.1
+    },
+    {
+      "name": "evaluator_mutation_in_candidate",
+      "layer": "entry guard (protected tests/ files)",
+      "expected": "candidate's evaluator changed -> APPROVAL_BOUND_ARTIFACT_CHANGED before the first criterion process, exit 2",
+      "mutation": {
+        "file": "tests/acceptance/task_tracker.py",
+        "find": "\"value\": len(missing),",
+        "replace": "\"value\": 0,  # Deliberate negative-control mutation: hide missing records."
+      },
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "verify",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/run",
+          "--candidate",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/mutated-candidate",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/run --candidate /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/mutated-candidate --authorized-host-fallback",
+        "exit_code": 2,
+        "timed_out": false,
+        "elapsed_s": 0.27,
+        "stdout_tail": "",
+        "stderr_tail": "TamperDetectedError: APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/tmp/pmpe-verification-wl5xssz3/tests/acceptance/task_tracker.py', 'expected': 'sha256:7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66', 'actual': 'sha256:ef797b501b6a14ae885c6d83eab4440011225e4bda4b455f3c21648a337b1940'}]\n",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/run",
+        "output_exists": true,
+        "output_listing": [
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "failure.json"
+        ],
+        "result_json": null,
+        "failure_json": {
+          "detail": "APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/tmp/pmpe-verification-wl5xssz3/tests/acceptance/task_tracker.py', 'expected': 'sha256:7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66', 'actual': 'sha256:ef797b501b6a14ae885c6d83eab4440011225e4bda4b455f3c21648a337b1940'}]",
+          "error": "TamperDetectedError"
+        },
+        "compatibility": {
+          "compatible": true,
+          "reasons": []
+        },
+        "ledger_events": null,
+        "handoff_calls": [],
+        "candidate_process_records": null,
+        "digest_checks": {
+          "count": 3,
+          "with_mismatches": 1,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": [
+            [
+              {
+                "actual": "sha256:ef797b501b6a14ae885c6d83eab4440011225e4bda4b455f3c21648a337b1940",
+                "expected": "sha256:7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66",
+                "path": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/tmp/pmpe-verification-wl5xssz3/tests/acceptance/task_tracker.py"
+              }
+            ]
+          ]
+        },
+        "built_product_sha256": null,
+        "classification": {
+          "outcome": "BLOCKED",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": {
+            "detail": "APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/evaluator_mutation_in_candidate/tmp/pmpe-verification-wl5xssz3/tests/acceptance/task_tracker.py', 'expected': 'sha256:7a5a3064d8ec07ae1d941aaa2145330076c8acf62bbbc7cc65e158b9f9cf4d66', 'actual': 'sha256:ef797b501b6a14ae885c6d83eab4440011225e4bda4b455f3c21648a337b1940'}]",
+            "error": "TamperDetectedError"
+          },
+          "exit_code": 2
+        }
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "exit code 2",
+          "met": true
+        },
+        {
+          "expectation": "TamperDetectedError APPROVAL_BOUND_ARTIFACT_CHANGED",
+          "met": true
+        },
+        {
+          "expectation": "the mismatch names the evaluator",
+          "met": true
+        },
+        {
+          "expectation": "no criterion process executed",
+          "met": true
+        },
+        {
+          "expectation": "no result.json",
+          "met": true
+        }
+      ],
+      "wall_s": 0.27
+    },
+    {
+      "name": "contract_mutation_after_freeze",
+      "layer": "entry guard / approval binding",
+      "expected": "contract edited under the existing freeze -> APPROVAL_BOUND_ARTIFACT_CHANGED, exit 2",
+      "mutation": {
+        "criterion": "AC-001",
+        "removed_then_assertion": {
+          "operator": "eq",
+          "path": "result.process_count",
+          "value": 1
+        }
+      },
+      "freeze_digest_used": "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "verify",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/pmos-copy/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/pmos-copy",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/run",
+          "--candidate",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/pmos-copy/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/pmos-copy --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/run --candidate /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate --authorized-host-fallback",
+        "exit_code": 2,
+        "timed_out": false,
+        "elapsed_s": 0.27,
+        "stdout_tail": "",
+        "stderr_tail": "TamperDetectedError: APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/pmos-copy/reviews/task-tracker-v1/contract.approved.json', 'expected': 'sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2', 'actual': 'sha256:1079a6b1e1a528d8fef7536c0a98fd43d9696c1886b3c54fd55e6c8acc23a831'}]\n",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/run",
+        "output_exists": true,
+        "output_listing": [
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "failure.json"
+        ],
+        "result_json": null,
+        "failure_json": {
+          "detail": "APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/pmos-copy/reviews/task-tracker-v1/contract.approved.json', 'expected': 'sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2', 'actual': 'sha256:1079a6b1e1a528d8fef7536c0a98fd43d9696c1886b3c54fd55e6c8acc23a831'}]",
+          "error": "TamperDetectedError"
+        },
+        "compatibility": null,
+        "ledger_events": null,
+        "handoff_calls": [],
+        "candidate_process_records": null,
+        "digest_checks": {
+          "count": 1,
+          "with_mismatches": 1,
+          "first": "before:command",
+          "last": "before:command",
+          "mismatches": [
+            [
+              {
+                "actual": "sha256:1079a6b1e1a528d8fef7536c0a98fd43d9696c1886b3c54fd55e6c8acc23a831",
+                "expected": "sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2",
+                "path": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/pmos-copy/reviews/task-tracker-v1/contract.approved.json"
+              }
+            ]
+          ]
+        },
+        "built_product_sha256": null,
+        "classification": {
+          "outcome": "BLOCKED",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": {
+            "detail": "APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_after_freeze/pmos-copy/reviews/task-tracker-v1/contract.approved.json', 'expected': 'sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2', 'actual': 'sha256:1079a6b1e1a528d8fef7536c0a98fd43d9696c1886b3c54fd55e6c8acc23a831'}]",
+            "error": "TamperDetectedError"
+          },
+          "exit_code": 2
+        }
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "exit code 2",
+          "met": true
+        },
+        {
+          "expectation": "no criterion executed",
+          "met": true
+        },
+        {
+          "expectation": "no result.json",
+          "met": true
+        },
+        {
+          "expectation": "APPROVAL_BOUND_ARTIFACT_CHANGED names contract.approved.json",
+          "met": true
+        }
+      ],
+      "wall_s": 0.28
+    },
+    {
+      "name": "contract_mutation_refrozen",
+      "layer": "entry guard / approval binding",
+      "expected": "contract edited and freeze recomputed -> refused by the approval receipt binding, exit 2",
+      "mutation": {
+        "criterion": "AC-001",
+        "removed_then_assertion": {
+          "operator": "eq",
+          "path": "result.process_count",
+          "value": 1
+        }
+      },
+      "freeze_digest_used": "sha256:2b95eb4ac30044d3ba3256f20145c2e9cb800a70dfe0c32f9a969a80a3287f2b",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "verify",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_refrozen/pmos-copy/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_refrozen/pmos-copy",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:2b95eb4ac30044d3ba3256f20145c2e9cb800a70dfe0c32f9a969a80a3287f2b",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_refrozen/run",
+          "--candidate",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py verify --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_refrozen/pmos-copy/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_refrozen/pmos-copy --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:2b95eb4ac30044d3ba3256f20145c2e9cb800a70dfe0c32f9a969a80a3287f2b --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_refrozen/run --candidate /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/docs/evidence/task-tracker-live-20260918/live/candidate --authorized-host-fallback",
+        "exit_code": 2,
+        "timed_out": false,
+        "elapsed_s": 0.22,
+        "stdout_tail": "",
+        "stderr_tail": "ContractInvalidError: approval receipt is not bound to the approved contract\n",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/contract_mutation_refrozen/run",
+        "output_exists": true,
+        "output_listing": [
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "failure.json"
+        ],
+        "result_json": null,
+        "failure_json": {
+          "detail": "approval receipt is not bound to the approved contract",
+          "error": "ContractInvalidError"
+        },
+        "compatibility": null,
+        "ledger_events": null,
+        "handoff_calls": [],
+        "candidate_process_records": null,
+        "digest_checks": {
+          "count": 2,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": null,
+        "classification": {
+          "outcome": "BLOCKED",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": {
+            "detail": "approval receipt is not bound to the approved contract",
+            "error": "ContractInvalidError"
+          },
+          "exit_code": 2
+        }
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "exit code 2",
+          "met": true
+        },
+        {
+          "expectation": "no criterion executed",
+          "met": true
+        },
+        {
+          "expectation": "no result.json",
+          "met": true
+        },
+        {
+          "expectation": "refused by approval binding (ContractInvalidError)",
+          "met": true
+        }
+      ],
+      "wall_s": 0.23
+    },
+    {
+      "name": "cli_empty_title",
+      "layer": "product CLI",
+      "expected": "INVALID_TITLE, exit 2, no task and no store created",
+      "calls": [
+        {
+          "args": "create ''",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_empty_title/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_empty_title/tasks.json create ''",
+          "exit_code": 2,
+          "stdout_json": {
+            "error": "INVALID_TITLE"
+          },
+          "stdout_tail": "{\"error\": \"INVALID_TITLE\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "INVALID_TITLE exit 2",
+          "met": true
+        },
+        {
+          "expectation": "store not created",
+          "met": true
+        }
+      ],
+      "wall_s": 0.77
+    },
+    {
+      "name": "cli_whitespace_title",
+      "layer": "product CLI",
+      "expected": "INVALID_TITLE, exit 2, no task and no store created",
+      "calls": [
+        {
+          "args": "create '   '",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_whitespace_title/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_whitespace_title/tasks.json create '   '",
+          "exit_code": 2,
+          "stdout_json": {
+            "error": "INVALID_TITLE"
+          },
+          "stdout_tail": "{\"error\": \"INVALID_TITLE\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "INVALID_TITLE exit 2",
+          "met": true
+        },
+        {
+          "expectation": "store not created",
+          "met": true
+        }
+      ],
+      "wall_s": 0.77
+    },
+    {
+      "name": "cli_invalid_id",
+      "layer": "product CLI",
+      "expected": "INVALID_ID, exit 2, existing state unchanged",
+      "setup": [
+        {
+          "args": "create alpha",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/tasks.json create alpha",
+          "exit_code": 0,
+          "stdout_json": {
+            "task": {
+              "id": 1,
+              "status": "open",
+              "title": "alpha"
+            }
+          },
+          "stdout_tail": "{\"task\": {\"id\": 1, \"status\": \"open\", \"title\": \"alpha\"}}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "calls": [
+        {
+          "args": "complete 0",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/tasks.json complete 0",
+          "exit_code": 2,
+          "stdout_json": {
+            "error": "INVALID_ID"
+          },
+          "stdout_tail": "{\"error\": \"INVALID_ID\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "complete -1",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/tasks.json complete -1",
+          "exit_code": 2,
+          "stdout_json": {
+            "error": "INVALID_ID"
+          },
+          "stdout_tail": "{\"error\": \"INVALID_ID\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "complete abc",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/tasks.json complete abc",
+          "exit_code": 2,
+          "stdout_json": {
+            "error": "INVALID_ID"
+          },
+          "stdout_tail": "{\"error\": \"INVALID_ID\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "complete 1.5",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_id/tasks.json complete 1.5",
+          "exit_code": 2,
+          "stdout_json": {
+            "error": "INVALID_ID"
+          },
+          "stdout_tail": "{\"error\": \"INVALID_ID\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "setup create succeeded",
+          "met": true
+        },
+        {
+          "expectation": "complete 0 -> INVALID_ID exit 2",
+          "met": true
+        },
+        {
+          "expectation": "complete -1 -> INVALID_ID exit 2",
+          "met": true
+        },
+        {
+          "expectation": "complete abc -> INVALID_ID exit 2",
+          "met": true
+        },
+        {
+          "expectation": "complete 1.5 -> INVALID_ID exit 2",
+          "met": true
+        },
+        {
+          "expectation": "store bytes unchanged",
+          "met": true
+        }
+      ],
+      "wall_s": 0.77
+    },
+    {
+      "name": "cli_missing_id_999",
+      "layer": "product CLI",
+      "expected": "NOT_FOUND, exit 2, existing state unchanged",
+      "setup": [
+        {
+          "args": "create alpha",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_missing_id_999/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_missing_id_999/tasks.json create alpha",
+          "exit_code": 0,
+          "stdout_json": {
+            "task": {
+              "id": 1,
+              "status": "open",
+              "title": "alpha"
+            }
+          },
+          "stdout_tail": "{\"task\": {\"id\": 1, \"status\": \"open\", \"title\": \"alpha\"}}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "calls": [
+        {
+          "args": "complete 999",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_missing_id_999/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_missing_id_999/tasks.json complete 999",
+          "exit_code": 2,
+          "stdout_json": {
+            "error": "NOT_FOUND"
+          },
+          "stdout_tail": "{\"error\": \"NOT_FOUND\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "setup create succeeded",
+          "met": true
+        },
+        {
+          "expectation": "complete 999 -> NOT_FOUND exit 2",
+          "met": true
+        },
+        {
+          "expectation": "store bytes unchanged",
+          "met": true
+        }
+      ],
+      "wall_s": 0.77
+    },
+    {
+      "name": "cli_invalid_status",
+      "layer": "product CLI",
+      "expected": "INVALID_STATUS, exit 2, existing state unchanged",
+      "setup": [
+        {
+          "args": "create alpha",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_status/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_status/tasks.json create alpha",
+          "exit_code": 0,
+          "stdout_json": {
+            "task": {
+              "id": 1,
+              "status": "open",
+              "title": "alpha"
+            }
+          },
+          "stdout_tail": "{\"task\": {\"id\": 1, \"status\": \"open\", \"title\": \"alpha\"}}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "calls": [
+        {
+          "args": "list --status done",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_status/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_invalid_status/tasks.json list --status done",
+          "exit_code": 2,
+          "stdout_json": {
+            "error": "INVALID_STATUS"
+          },
+          "stdout_tail": "{\"error\": \"INVALID_STATUS\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "setup create succeeded",
+          "met": true
+        },
+        {
+          "expectation": "list --status done -> INVALID_STATUS exit 2",
+          "met": true
+        },
+        {
+          "expectation": "store bytes unchanged",
+          "met": true
+        }
+      ],
+      "wall_s": 0.77
+    },
+    {
+      "name": "cli_unknown_command",
+      "layer": "product CLI",
+      "expected": "exit 2 (invalid input), state unchanged",
+      "setup": [
+        {
+          "args": "create alpha",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_unknown_command/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_unknown_command/tasks.json create alpha",
+          "exit_code": 0,
+          "stdout_json": {
+            "task": {
+              "id": 1,
+              "status": "open",
+              "title": "alpha"
+            }
+          },
+          "stdout_tail": "{\"task\": {\"id\": 1, \"status\": \"open\", \"title\": \"alpha\"}}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "calls": [
+        {
+          "args": "frobnicate",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_unknown_command/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_unknown_command/tasks.json frobnicate",
+          "exit_code": 2,
+          "stdout_json": null,
+          "stdout_tail": "",
+          "stderr_tail": "usage: product.py [-h] --store STORE {create,complete,list} ...\nproduct.py: error: argument command: invalid choice: 'frobnicate' (choose from 'create', 'complete', 'list')\n"
+        }
+      ],
+      "protocol_observation": {
+        "json_error_on_stdout": false,
+        "note": "No approved criterion covers unknown commands; the protocol line says errors return {error:CODE}. Reported, not scored."
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "exit 2",
+          "met": true
+        },
+        {
+          "expectation": "store bytes unchanged",
+          "met": true
+        }
+      ],
+      "wall_s": 0.77
+    },
+    {
+      "name": "cli_malformed_store",
+      "layer": "product CLI",
+      "expected": "STORE_INVALID, exit 1 for list/create/complete; bytes preserved",
+      "calls": [
+        {
+          "args": "list",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_malformed_store/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_malformed_store/tasks.json list",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_INVALID"
+          },
+          "stdout_tail": "{\"error\": \"STORE_INVALID\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "create beta",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_malformed_store/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_malformed_store/tasks.json create beta",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_INVALID"
+          },
+          "stdout_tail": "{\"error\": \"STORE_INVALID\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "complete 1",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_malformed_store/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_malformed_store/tasks.json complete 1",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_INVALID"
+          },
+          "stdout_tail": "{\"error\": \"STORE_INVALID\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "list -> STORE_INVALID exit 1",
+          "met": true
+        },
+        {
+          "expectation": "create beta -> STORE_INVALID exit 1",
+          "met": true
+        },
+        {
+          "expectation": "complete 1 -> STORE_INVALID exit 1",
+          "met": true
+        },
+        {
+          "expectation": "store bytes preserved",
+          "met": true
+        }
+      ],
+      "wall_s": 0.68
+    },
+    {
+      "name": "cli_store_is_directory",
+      "layer": "product CLI",
+      "expected": "STORE_IO, exit 1, never acknowledges",
+      "calls": [
+        {
+          "args": "list",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_store_is_directory/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_store_is_directory/store-dir list",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_IO"
+          },
+          "stdout_tail": "{\"error\": \"STORE_IO\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "create beta",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_store_is_directory/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_store_is_directory/store-dir create beta",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_IO"
+          },
+          "stdout_tail": "{\"error\": \"STORE_IO\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "list -> STORE_IO exit 1",
+          "met": true
+        },
+        {
+          "expectation": "create beta -> STORE_IO exit 1",
+          "met": true
+        },
+        {
+          "expectation": "directory left empty",
+          "met": true
+        }
+      ],
+      "wall_s": 0.68
+    },
+    {
+      "name": "cli_store_parent_is_file",
+      "layer": "product CLI",
+      "expected": "STORE_IO, exit 1, never acknowledges success",
+      "calls": [
+        {
+          "args": "create beta",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_store_parent_is_file/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_store_parent_is_file/parent-is-a-file/tasks.json create beta",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_IO"
+          },
+          "stdout_tail": "{\"error\": \"STORE_IO\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "list",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_store_parent_is_file/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_store_parent_is_file/parent-is-a-file/tasks.json list",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_IO"
+          },
+          "stdout_tail": "{\"error\": \"STORE_IO\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "create beta -> STORE_IO exit 1",
+          "met": true
+        },
+        {
+          "expectation": "list -> STORE_IO exit 1",
+          "met": true
+        }
+      ],
+      "wall_s": 0.68
+    },
+    {
+      "name": "cli_inaccessible_store_chmod_file",
+      "layer": "product CLI",
+      "expected": "STORE_IO, exit 1, store unchanged when the store cannot be read",
+      "euid": 0,
+      "cap_dac_override_effective": true,
+      "root_bypass_observed": true,
+      "setup": [
+        {
+          "args": "create alpha",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_file/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_file/locked/tasks.json create alpha",
+          "exit_code": 0,
+          "stdout_json": {
+            "task": {
+              "id": 1,
+              "status": "open",
+              "title": "alpha"
+            }
+          },
+          "stdout_tail": "{\"task\": {\"id\": 1, \"status\": \"open\", \"title\": \"alpha\"}}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "read_only_probe_as_current_user": [
+        {
+          "args": "list",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_file/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_file/locked/tasks.json list",
+          "exit_code": 0,
+          "stdout_json": {
+            "tasks": [
+              {
+                "id": 1,
+                "status": "open",
+                "title": "alpha"
+              }
+            ]
+          },
+          "stdout_tail": "{\"tasks\": [{\"id\": 1, \"status\": \"open\", \"title\": \"alpha\"}]}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "scored_calls": [
+        {
+          "args": "list",
+          "command_shell": "/usr/bin/setpriv --bounding-set=-dac_override,-dac_read_search -- /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_file/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_file/locked/tasks.json list",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_IO"
+          },
+          "stdout_tail": "{\"error\": \"STORE_IO\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "create beta",
+          "command_shell": "/usr/bin/setpriv --bounding-set=-dac_override,-dac_read_search -- /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_file/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_file/locked/tasks.json create beta",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_IO"
+          },
+          "stdout_tail": "{\"error\": \"STORE_IO\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "scored_calls_mode": "uid 0 without CAP_DAC_OVERRIDE/CAP_DAC_READ_SEARCH (setpriv)",
+      "note": "Running as uid 0 with CAP_DAC_OVERRIDE: mode 000 is not enforced, so the plain run cannot exercise STORE_IO. The scored run drops CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH with setpriv so uid 0 is subject to the mode bits.",
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "setup create succeeded",
+          "met": true
+        },
+        {
+          "expectation": "list -> STORE_IO exit 1",
+          "met": true
+        },
+        {
+          "expectation": "create beta -> STORE_IO exit 1",
+          "met": true
+        },
+        {
+          "expectation": "store bytes unchanged by the scored calls",
+          "met": true
+        }
+      ],
+      "wall_s": 0.68
+    },
+    {
+      "name": "cli_inaccessible_store_chmod_dir",
+      "layer": "product CLI",
+      "expected": "STORE_IO, exit 1, store unchanged when the store cannot be read",
+      "euid": 0,
+      "cap_dac_override_effective": true,
+      "root_bypass_observed": true,
+      "setup": [
+        {
+          "args": "create alpha",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_dir/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_dir/locked/tasks.json create alpha",
+          "exit_code": 0,
+          "stdout_json": {
+            "task": {
+              "id": 1,
+              "status": "open",
+              "title": "alpha"
+            }
+          },
+          "stdout_tail": "{\"task\": {\"id\": 1, \"status\": \"open\", \"title\": \"alpha\"}}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "read_only_probe_as_current_user": [
+        {
+          "args": "list",
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_dir/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_dir/locked/tasks.json list",
+          "exit_code": 0,
+          "stdout_json": {
+            "tasks": [
+              {
+                "id": 1,
+                "status": "open",
+                "title": "alpha"
+              }
+            ]
+          },
+          "stdout_tail": "{\"tasks\": [{\"id\": 1, \"status\": \"open\", \"title\": \"alpha\"}]}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "scored_calls": [
+        {
+          "args": "list",
+          "command_shell": "/usr/bin/setpriv --bounding-set=-dac_override,-dac_read_search -- /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_dir/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_dir/locked/tasks.json list",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_IO"
+          },
+          "stdout_tail": "{\"error\": \"STORE_IO\"}\n",
+          "stderr_tail": ""
+        },
+        {
+          "args": "create beta",
+          "command_shell": "/usr/bin/setpriv --bounding-set=-dac_override,-dac_read_search -- /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python -I -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_dir/product.py --store /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/cli_inaccessible_store_chmod_dir/locked/tasks.json create beta",
+          "exit_code": 1,
+          "stdout_json": {
+            "error": "STORE_IO"
+          },
+          "stdout_tail": "{\"error\": \"STORE_IO\"}\n",
+          "stderr_tail": ""
+        }
+      ],
+      "scored_calls_mode": "uid 0 without CAP_DAC_OVERRIDE/CAP_DAC_READ_SEARCH (setpriv)",
+      "note": "Running as uid 0 with CAP_DAC_OVERRIDE: mode 000 is not enforced, so the plain run cannot exercise STORE_IO. The scored run drops CAP_DAC_OVERRIDE and CAP_DAC_READ_SEARCH with setpriv so uid 0 is subject to the mode bits.",
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "setup create succeeded",
+          "met": true
+        },
+        {
+          "expectation": "list -> STORE_IO exit 1",
+          "met": true
+        },
+        {
+          "expectation": "create beta -> STORE_IO exit 1",
+          "met": true
+        },
+        {
+          "expectation": "store bytes unchanged by the scored calls",
+          "met": true
+        }
+      ],
+      "wall_s": 0.68
+    },
+    {
+      "name": "missing_model_response_engine_slow",
+      "layer": "engine+provider shim (SLOW)",
+      "slow": true,
+      "expected": "no response -> shim RESPONSE_TIMEOUT at 0.9 x 600 s = 540 s (entry hard-codes 600), engine HALTED/MODEL_PROVIDER_FAILED, exit 1",
+      "execution": {
+        "command": [
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py",
+          "build",
+          "--packet",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1",
+          "--root",
+          "PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture",
+          "--root",
+          "production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos",
+          "--freeze-digest",
+          "sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290",
+          "--output",
+          "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_model_response_engine_slow/run",
+          "--authorized-host-fallback"
+        ],
+        "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/python /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/examples/barebones/contract-file.py build --packet /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture/reviews/task-tracker-v1 --root PM-agent-OS=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/fixture/pmos-fixture --root production-engineering-os=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos --freeze-digest sha256:9d51db9d0cf3a26fe37cef9fc01cb23c42f7e4acd8445af6baae39ed6c2bd290 --output /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_model_response_engine_slow/run --authorized-host-fallback",
+        "exit_code": 1,
+        "timed_out": false,
+        "elapsed_s": 542.73,
+        "stdout_tail": "{\"run_id\": \"task-tracker-live\", \"state\": \"HALTED\", \"cause\": \"MODEL_PROVIDER_FAILED\", \"attempts\": 0, \"model_calls\": 1, \"elapsed_ms\": 542509, \"evidence_path\": \"/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_model_response_engine_slow/run/.pmpe/runs/task-tracker-live/events.jsonl\", \"annotation\": {}, \"telemetry\": {\"calls\": 1, \"bytes\": 0, \"tokens_in\": 0, \"tokens_out\": 0, \"estimated_cost_usd\": 0.0, \"provider_model_id\": \"\", \"structured_criteria_count\": 14, \"human_test_count\": 0, \"elapsed_ms\": 542509}}\n",
+        "stderr_tail": "",
+        "killed_leftovers": []
+      },
+      "observed": {
+        "output_dir": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_model_response_engine_slow/run",
+        "output_exists": true,
+        "output_listing": [
+          ".pmpe",
+          "candidate",
+          "compatibility.json",
+          "digest-checks.jsonl",
+          "execution-source.json",
+          "handoff",
+          "processes.jsonl",
+          "result.json"
+        ],
+        "result_json": {
+          "annotation": {},
+          "attempts": 0,
+          "cause": "MODEL_PROVIDER_FAILED",
+          "elapsed_ms": 542509,
+          "evidence_path": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_model_response_engine_slow/run/.pmpe/runs/task-tracker-live/events.jsonl",
+          "model_calls": 1,
+          "run_id": "task-tracker-live",
+          "state": "HALTED",
+          "telemetry": {
+            "bytes": 0,
+            "calls": 1,
+            "elapsed_ms": 542509,
+            "estimated_cost_usd": 0.0,
+            "human_test_count": 0,
+            "provider_model_id": "",
+            "structured_criteria_count": 14,
+            "tokens_in": 0,
+            "tokens_out": 0
+          }
+        },
+        "failure_json": null,
+        "compatibility": {
+          "compatible": true,
+          "reasons": []
+        },
+        "ledger_events": [
+          "contract_validated",
+          "meaningful_red_confirmed",
+          "halted"
+        ],
+        "ledger_terminal": {
+          "state": "HALTED",
+          "cause": "MODEL_PROVIDER_FAILED"
+        },
+        "status_cli": {
+          "command_shell": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/peos/.venv/bin/pmpe barebones status task-tracker-live --repository-root /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/dryrun/missing_model_response_engine_slow/run",
+          "exit_code": 0,
+          "stdout_json": {
+            "approval": {
+              "authority": "Abhillash Jadhav",
+              "receipt_digest": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef",
+              "status": "VERIFIED"
+            },
+            "cause": "MODEL_PROVIDER_FAILED",
+            "events": 3,
+            "head_event_digest": "sha256:4fff59103d81d9aca99a421b991395ffe58a5274bae6d9e4a4ad705ede08be05",
+            "run_id": "task-tracker-live",
+            "state": "HALTED",
+            "telemetry": {
+              "bytes": 0,
+              "calls": 1,
+              "elapsed_ms": 542509,
+              "estimated_cost_usd": 0,
+              "human_test_count": 0,
+              "provider_model_id": "",
+              "structured_criteria_count": 14,
+              "tokens_in": 0,
+              "tokens_out": 0
+            }
+          },
+          "stderr_tail": ""
+        },
+        "handoff_calls": [
+          {
+            "call": "call-f85fea4262ef4a39a019b540144c0115",
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "call_json": {
+              "elapsed_ms": 540016.2833260001,
+              "error": "RESPONSE_TIMEOUT",
+              "headless_reproduction": false,
+              "purpose": "code",
+              "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+              "responder": "current-agent-session",
+              "started_at": "2026-10-09T15:04:48.930600+00:00",
+              "status": "failed"
+            },
+            "response_present": false,
+            "output_present": false
+          }
+        ],
+        "candidate_process_records": 14,
+        "digest_checks": {
+          "count": 30,
+          "with_mismatches": 0,
+          "first": "before:command",
+          "last": "after:command",
+          "mismatches": []
+        },
+        "built_product_sha256": "sha256:12b17651e47780b8dd2f20c6bc9b64d7ae3e49b3c3b58e728b411eba200ec378",
+        "classification": {
+          "outcome": "FAIL",
+          "criteria": {},
+          "failed_criteria": [],
+          "finding_count": 0,
+          "blocker": null,
+          "exit_code": 1
+        },
+        "responder_log": [
+          {
+            "call": "call-f85fea4262ef4a39a019b540144c0115",
+            "purpose": "code",
+            "request_digest": "sha256:2541053b313cb678ead45fbd830a8a3e43cc14e81ea3ab027f0075546ea9e9a2",
+            "action": "withheld (no response written)",
+            "at": "2026-10-09T15:04:48.948318+00:00"
+          }
+        ],
+        "shim_elapsed_ms": [
+          540016.2833260001
+        ]
+      },
+      "verdict": "PASS",
+      "checks": [
+        {
+          "expectation": "entry exit code is 1",
+          "met": true
+        },
+        {
+          "expectation": "result.json state is HALTED",
+          "met": true
+        },
+        {
+          "expectation": "result.json cause is MODEL_PROVIDER_FAILED",
+          "met": true
+        },
+        {
+          "expectation": "ledger ends with halted",
+          "met": true
+        },
+        {
+          "expectation": "no release_ready event",
+          "met": true
+        },
+        {
+          "expectation": "no coder_completed event",
+          "met": true
+        },
+        {
+          "expectation": "status CLI does not report RELEASE_READY",
+          "met": true
+        },
+        {
+          "expectation": "shim reported RESPONSE_TIMEOUT",
+          "met": true
+        },
+        {
+          "expectation": "no response.json was ever written",
+          "met": true
+        }
+      ],
+      "wall_s": 543.4
+    }
+  ],
+  "totals": {
+    "PASS": 25,
+    "FAIL": 0,
+    "NOT_APPLICABLE": 0,
+    "SKIPPED": 0,
+    "HARNESS_ERROR": 0
+  },
+  "findings": [
+    "ENGINE_ACCEPTS_IDENTICAL_REQUEST_REPLAY: the code request_digest is a content digest of {contract, plan, skeleton files, baseline findings}; it is deterministic across runs, so a retained response from an earlier run is accepted. Freshness of a build must be established out of band (candidate digest differs from every retained candidate)."
+  ],
+  "leftover_processes_under_out_killed_at_end": [],
+  "entry_processes_on_host_after": []
+}

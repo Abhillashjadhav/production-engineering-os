@@ -1,0 +1,1 @@
+{"checked": 219, "expected_inventory_digest": "sha256:85ba69e03e87a86250ba35ee30c66970d12063374f4239fa7da5f37f8566c0ef", "mismatches": [], "observed_inventory_digest": "sha256:85ba69e03e87a86250ba35ee30c66970d12063374f4239fa7da5f37f8566c0ef", "stage": "w1-readonly-probe-candidate", "subject": "bundle"}

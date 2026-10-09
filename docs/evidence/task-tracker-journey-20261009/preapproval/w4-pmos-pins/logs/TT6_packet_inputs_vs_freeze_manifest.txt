@@ -1,0 +1,6 @@
+manifest status: OWNER_CONFIRMED_FROZEN | artifacts: 218 | approved_contract_digest: sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e
+reviews/task-tracker-v1/bindings.json frozen sha256:3414ac07671405b6d69a41af91b1e96b8324d1c4455b0e262f5e04123540dac0 current==frozen
+reviews/task-tracker-v1/contract.approved.json frozen sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2 current==frozen
+reviews/task-tracker-v1/approval-receipt.json frozen sha256:856ef2b3257a54c3834c44f95d61b245be4906807db50d2f88dc63e219b1d09c current==frozen
+reviews/task-tracker-v1/compiled-plan.json frozen sha256:e729e28f5383340068073ae78fc6c2523016f642160b7c2a1d17388b655c12d1 current==frozen
+freeze-bundle.sha256: sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2

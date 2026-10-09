@@ -1,0 +1,9 @@
+$ ruff format --check --isolated --line-length 100 negative-controls.py
+1 file already formatted
+exit=0
+$ ruff check --isolated --select E,F,W,B,SIM,RET,UP,C4 --extend-ignore E501 negative-controls.py
+All checks passed!
+exit=0
+$ mypy --strict --ignore-missing-imports negative-controls.py
+Success: no issues found in 1 source file
+exit=0

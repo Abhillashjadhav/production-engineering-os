@@ -1,0 +1,20 @@
+{
+  "argv": [
+    "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos/examples/barebones/contract-file.py",
+    "check",
+    "--packet",
+    "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/runs/packet-candidate-copy",
+    "--root",
+    "PM-agent-OS=/home/user/PM-agent-OS",
+    "--root",
+    "production-engineering-os=/home/user/production-engineering-os",
+    "--freeze-digest",
+    "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42",
+    "--output",
+    "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/runs/check-candidate-copy",
+    "--authorized-host-fallback"
+  ],
+  "entry_digest": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+  "freeze_digest": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42",
+  "kind": "new engineering adapter; frozen source/evaluator not modified"
+}

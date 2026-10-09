@@ -1,0 +1,58 @@
+diff --git a/src/pmpe/cli/barebones_cmd.py b/src/pmpe/cli/barebones_cmd.py
+index 3fb3b4b..aa89f4e 100644
+--- a/src/pmpe/cli/barebones_cmd.py
++++ b/src/pmpe/cli/barebones_cmd.py
+@@ -143,7 +143,7 @@ def _run_provider_command(
+     output_limit_bytes: int = _PROVIDER_OUTPUT_LIMIT_BYTES,
+     environment: Mapping[str, str] | None = None,
+ ) -> subprocess.CompletedProcess[bytes]:
+-    with tempfile.TemporaryFile() as stdin_file:
++    with tempfile.TemporaryFile() as stdin_file, selectors.DefaultSelector() as selector:
+         stdin_file.write(payload)
+         stdin_file.seek(0)
+         process = subprocess.Popen(
+@@ -158,11 +158,10 @@ def _run_provider_command(
+             _terminate_provider(process)
+             raise RuntimeError("MODEL_PROVIDER_IO_UNAVAILABLE")
+         streams = {"stdout": bytearray(), "stderr": bytearray()}
+-        selector = selectors.DefaultSelector()
+-        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+-        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+         deadline = time.monotonic() + timeout_seconds
+         try:
++            selector.register(process.stdout, selectors.EVENT_READ, "stdout")
++            selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+             while selector.get_map():
+                 remaining = deadline - time.monotonic()
+                 if remaining <= 0:
+@@ -185,11 +184,10 @@ def _run_provider_command(
+         except subprocess.TimeoutExpired as exc:
+             _terminate_provider(process)
+             raise RuntimeError("MODEL_PROVIDER_TIMEOUT") from exc
+-        except RuntimeError:
++        except (RuntimeError, OSError):
+             _terminate_provider(process)
+             raise
+         finally:
+-            selector.close()
+             process.stdout.close()
+             process.stderr.close()
+         return subprocess.CompletedProcess(
+@@ -258,12 +256,16 @@ def _run(args: argparse.Namespace) -> int:
+             raise ContractInvalidError("cannot read approval receipt") from exc
+         receipt = strict_loads(receipt_source, "application/json")
+         _require_approved_contract(contract, receipt, args.expected_approver)
++        try:
++            provider = CommandModelProvider(args.provider_command, args.provider_timeout)
++        except ValueError as exc:
++            raise ContractInvalidError("provider command is malformed") from exc
+         result = run_to_release_ready(
+             contract=contract,
+             repository_root=Path(args.repository_root).resolve(),
+             workspace=Path(args.workspace).resolve(),
+             run_id=args.run_id,
+-            provider=CommandModelProvider(args.provider_command, args.provider_timeout),
++            provider=provider,
+             approval_receipt=receipt,
+             approval_authority=args.expected_approver,
+             approval_receipt_bytes=receipt_source,

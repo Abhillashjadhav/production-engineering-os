@@ -1,0 +1,6 @@
+b-module-x5 run=1 start=15:15:08 load1=1.16 rc=0 :: 84 passed in 67.39s (0:01:07)  :: 
+b-module-x5 run=2 start=15:16:15 load1=1.00 rc=1 :: 1 failed, 83 passed in 86.41s (0:01:26)  :: pmpe.support_package.PackageContractError: forbidden-capability proof did not execute: low_confidence
+b-module-x5 run=3 start=15:17:42 load1=0.76 rc=0 :: 84 passed in 67.08s (0:01:07)  :: 
+b-module-x5 run=4 start=15:18:49 load1=0.99 rc=0 :: 84 passed in 67.52s (0:01:07)  :: 
+b-module-x5 run=5 start=15:19:57 load1=0.90 rc=0 :: 84 passed in 67.64s (0:01:07)  :: 
+TOTAL b-module-x5: runs=5 failing_runs=1

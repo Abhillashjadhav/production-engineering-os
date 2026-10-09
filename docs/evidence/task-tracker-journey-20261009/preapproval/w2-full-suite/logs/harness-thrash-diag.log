@@ -1,0 +1,1 @@
+SUMMARY {"app": "original", "counts": {"PASS": 10}, "delay": 0.5, "iterations": 10, "parallel": 1, "runner": "diag", "startup_timeout": 25.0, "wall_s": 2.9}

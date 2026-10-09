@@ -1,0 +1,14 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w2/peos
+configfile: pyproject.toml
+plugins: platformdirs-4.12.4
+collected 1 item
+
+tests/unit/test_support_package_v1.py .                                  [100%]
+
+============================= slowest 5 durations ==============================
+1.46s call     tests/unit/test_support_package_v1.py::test_package_verification_rederives_every_port
+
+(2 durations < 0.005s hidden.  Use -vv to show these durations.)
+============================== 1 passed in 1.90s ===============================

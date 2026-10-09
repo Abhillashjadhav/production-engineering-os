@@ -1,0 +1,267 @@
+{
+  "contract_id": "PMOS-TASK-TRACKER-001",
+  "classification_key": {
+    "a": "machine-verified now by W1",
+    "b": "historical evidence only (quoted/asserted, cannot be re-derived)",
+    "c": "still manual / not verifiable here"
+  },
+  "transitions": [
+    {
+      "step": "0. original request / intent",
+      "artifacts": {
+        "PMOS reviews/task-tracker-v1/publisher-input.json": "raw sha256:37303040df5b8dc6a9d3ae8182654872e629b59e1212dca736586693ecd50c40; canonical = contract source_digest sha256:80446afd29bec2cfa984dd7a2564a74d57b39d257d9f2f093c27446854f22f75 (reproduced via build_contract_draft equality)",
+        "PMOS reviews/task-tracker-v1/ACCEPTANCE.md": "raw sha256:7788286762d679c26769e4abc05406597829cdb89da57a0425d4353d79c5e7a8 (agent-written; paraphrases owner decisions APD-001..APD-008)",
+        "contract approved_product_decisions": "APD-001 'Owner approved a local task tracker with create, complete, status filtering and persistence across restart; CLI is sufficient.' ... APD-008",
+        "external pointer": "PMOS issue #56 (commit 408ee21 'Refs #56'; reviews/pmos-workflow-20260925/RECONCILIATION.md) - NOT retrieved (outside repos)",
+        "PRD search": "no task-tracker PRD in PMOS prds/ (2 files) or PEOS prds/ (3 files); git grep PMOS-TASK-TRACKER-001 hits only the packet + PEOS evidence"
+      },
+      "verification": "b",
+      "note": "No owner-authored request record exists in either repo; intent is the agent-prepared publisher input."
+    },
+    {
+      "step": "1. publisher input -> DRAFT (contract.draft.json)",
+      "artifacts": {
+        "contract.draft.json": "raw sha256:141fce81ce3b7ff25408df72bd0d4d3a6520b3ec70aab75a5d1821cf605ead74; canonical sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89"
+      },
+      "recomputed": {
+        "e8a929d": {
+          "status": "DRAFT_READY_FOR_APPROVAL",
+          "draft_digest": "sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89",
+          "equals_contract_draft_json": true,
+          "blocking_questions": []
+        },
+        "f7669c2": {
+          "status": "DRAFT_READY_FOR_APPROVAL",
+          "draft_digest": "sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89",
+          "equals_contract_draft_json": true,
+          "blocking_questions": []
+        }
+      },
+      "verification": "a",
+      "note": "build_contract_draft(publisher-input) == contract.draft.json exactly; draft bytes identical at PMOS 00ccd29 (owner-amendment commit, README showed this draft digest) and 3fa07a8 (freeze)."
+    },
+    {
+      "step": "2. owner approval",
+      "artifacts": {
+        "freeze-manifest.json owner_approval_quote": "Confirmed — freeze the amended grid and proceed.",
+        "README.md 'Approval source'": "same quote",
+        "commit sequence (PMOS, PR #58 refs, unsigned %G?=N, author/committer 'Abhillash Jadhav')": "408ee21 proposal (review bundle sha256:4ae47ef2..., PROPOSED_NOT_APPROVED) -> 00ccd29 owner amendments (bundle sha256:4eaa1d95..., PROPOSED_NOT_APPROVED) -> 3fa07a8 freeze (bundle sha256:fbfe7363..., OWNER_CONFIRMED_FROZEN, freeze sha256:1dd281e5...) -> 9d55bf6"
+      },
+      "verification": "b",
+      "note": "Approval is a quoted conversation recorded by the agent in two files; the quote names no digest; not in the receipt; no signature anywhere (receipt has no sig/key field; commits unsigned). Any new approval (re-freeze) is manual (c)."
+    },
+    {
+      "step": "3. approved contract + approval-receipt.json",
+      "artifacts": {
+        "contract.approved.json": "raw sha256:41f93f23ca57cef1...; canonical sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+        "approval-receipt.json": "raw sha256:856ef2b3257a54c3...; receipt_digest sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef; keys approved_at, approved_by, approved_contract_digest, contract_id, contract_version, decision, draft_digest, receipt_digest, schema_version"
+      },
+      "recomputed": {
+        "reapprove_e8a929d": {
+          "contract_equals_file": true,
+          "receipt_equals_file": true,
+          "receipt_digest": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef"
+        },
+        "verify_contract_approval(expected_approver='Abhillash Jadhav')": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef",
+        "_require_approved_contract as entry calls it": "PASS (expected_approver taken from contract['approved_by'])",
+        "planted tamper (no re-hash)": "REFUSED ContractInvalidError: approval receipt is not bound to the approved contract",
+        "forgery (tamper + recomputed public hashes)": "ACCEPTED by verify_contract_approval and _require_approved_contract (forged receipt digest sha256:df1456a39b059f2a7c5d3fbb3ba37768a3d6774eabef7f5141f0838d3de9f16b)",
+        "forgery editing existing AC-001 field": "ACCEPTED sha256:fe772e839a3bc1065aeda1987fa4562b17f8b208ee5d3f60c6f84d18eb01ffc0",
+        "forgery of non-plan fields (problem, GATE-001 description)": "ACCEPTED by verify_contract_approval -> sha256:9b9e65eef5e40a40a3f322393534ab308a7c51f9807846b511ee6a01ec9247b5",
+        "entry compatibility() on forged packet copies": [
+          [
+            "PLAN_CHANGED: compiled plan differs from frozen plan"
+          ],
+          [
+            "PLAN_CHANGED: compiled plan differs from frozen plan"
+          ]
+        ]
+      },
+      "verification": "a (internal consistency) / b (authority)",
+      "note": "receipt_digest = canonical_digest(receipt minus receipt_digest): public, keyless, forgeable. contract-file.py passes expected_approver=contract['approved_by'] (self-referential). Forged contracts are caught at the entry only by PLAN_CHANGED (compiled-plan.json embeds contract_digest) and by the raw-byte freeze guard; both anchors are unsigned repo files, ultimately anchored by the operator-supplied --freeze-digest."
+    },
+    {
+      "step": "4. bindings.json / execution-profile.json",
+      "artifacts": {
+        "bindings.json": "raw sha256:3414ac07671405b6d69a41af91b1e96b8324d1c4455b0e262f5e04123540dac0 (version task-tracker-acceptance-v1)",
+        "execution-profile.json": "raw sha256:4a46f594d269e130b8933cd032fa7fb400c0a510553f77140efa2a1fab683120 (= compatibility.json profile_digest)"
+      },
+      "verification": "a",
+      "note": "Both in the 218 inventory, unchanged since 00ccd29; load_template() (contract-file.py) admits bindings.json at e8a929d and f7669c2."
+    },
+    {
+      "step": "5. compiled-plan.json",
+      "artifacts": {
+        "compiled-plan.json": "raw sha256:e729e28f53833400...; canonical sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7; plan_digest field sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28"
+      },
+      "recomputed": {
+        "e8a929d": {
+          "plan.plan_digest": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+          "canonical_digest(plan.as_dict())": "sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7",
+          "canonical_digest(compiled-plan.json)": "sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7",
+          "plan_equals_frozen_compiled_plan": false,
+          "PLAN_CHANGED_check_would_pass": true,
+          "criteria_count": 14,
+          "criteria_forms": [
+            "given_when_then",
+            "measure"
+          ],
+          "criteria_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003",
+            "AC-004",
+            "AC-005",
+            "AC-006",
+            "AC-007",
+            "AC-008",
+            "AC-009",
+            "AC-010",
+            "AC-011",
+            "AC-012",
+            "AC-013",
+            "AC-014"
+          ],
+          "frozen_compiled_plan_keys": [
+            "contract_digest",
+            "criteria",
+            "plan_digest",
+            "requirements",
+            "tasks",
+            "trusted_test_digests"
+          ],
+          "frozen_plan_digest_field": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28"
+        },
+        "f7669c2 (active-freeze-era code)": {
+          "plan.plan_digest": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+          "canonical_digest(plan.as_dict())": "sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7",
+          "canonical_digest(compiled-plan.json)": "sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7",
+          "plan_equals_frozen_compiled_plan": false,
+          "PLAN_CHANGED_check_would_pass": true,
+          "criteria_count": 14,
+          "criteria_forms": [
+            "given_when_then",
+            "measure"
+          ],
+          "criteria_ids": [
+            "AC-001",
+            "AC-002",
+            "AC-003",
+            "AC-004",
+            "AC-005",
+            "AC-006",
+            "AC-007",
+            "AC-008",
+            "AC-009",
+            "AC-010",
+            "AC-011",
+            "AC-012",
+            "AC-013",
+            "AC-014"
+          ],
+          "frozen_compiled_plan_keys": [
+            "contract_digest",
+            "criteria",
+            "plan_digest",
+            "requirements",
+            "tasks",
+            "trusted_test_digests"
+          ],
+          "frozen_plan_digest_field": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28"
+        },
+        "json_roundtrip_equal": true
+      },
+      "verification": "a",
+      "note": "Identical plan at both code eras; 14 criteria = 13 given_when_then + 1 measure (AC-013); compile raised no AcceptanceCompileError (zero diagnostics)."
+    },
+    {
+      "step": "6. freeze manifest / review bundle",
+      "artifacts": {
+        "freeze-manifest.json": "raw sha256:bb7bc83e...; canonical sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2 (= freeze-bundle.sha256)",
+        "review-manifest.json": "raw sha256:f3ad347c...; canonical sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711 (= review-bundle.sha256); peos_source_commit 1abfbd47061a947e8ce077523a60516a0b6cdcb0; pmos_policy_base_commit 5d79b20cc16703cb8fd6fa98040659db8881c579; binds 212 artifacts incl. OLD digests of the 5 drifted files"
+      },
+      "recomputed": {
+        "approved_contract_digest": [
+          "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+          "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e"
+        ],
+        "plan_digest": [
+          "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+          "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28"
+        ],
+        "review_bundle_digest": [
+          "sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711",
+          "sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711"
+        ],
+        "receipt.approved_contract_digest": [
+          "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+          "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e"
+        ],
+        "receipt.draft_digest": [
+          "sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89",
+          "sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89"
+        ]
+      },
+      "verification": "a",
+      "note": "Active manifest matches PEOS 1abfbd4..f7669c2 (204/204) and PMOS 9d55bf6/5aefeb5 (14/14); at bound/head/worktree 213/218 (5 drift)."
+    },
+    {
+      "step": "7. PEOS entry examples/barebones/contract-file.py",
+      "artifacts": {
+        "contract-file.py": "raw sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387 at f7669c2/e8a929d/4b1558f/worktree; ABSENT at PEOS main 1a431b2; OUTSIDE the 218 inventory (created 54df3c0 2026-09-18T15:32:47Z, after recorded_at 15:22:13Z; last changed 0295973)"
+      },
+      "checks_before_execution": [
+        "output dir must not exist",
+        "canonical_digest(freeze-manifest.json) == --freeze-digest else FREEZE_DIGEST_MISMATCH",
+        "all manifest artifacts + manifest file + own file (self-hash taken at start) raw-hashed before/after (220 checks)",
+        "load_template: only version/files/actions/measures/context; targets module:function inside frozen tests/ files with __init__.py",
+        "--authorized-host-fallback present",
+        "CPython 3.12",
+        "prlimit present",
+        "profile.candidate_dependencies empty",
+        "load_contract(contract.approved.json).runnable",
+        "_require_approved_contract(contract, receipt, contract['approved_by'])",
+        "compile_barebones_plan; only given_when_then/measure forms",
+        "canonical plan == compiled-plan.json else PLAN_CHANGED"
+      ],
+      "observed_runs_by_W1": {
+        "check, active packet, real trees": "exit 2 TamperDetectedError APPROVAL_BOUND_ARTIFACT_CHANGED (5 files), 220 checked",
+        "check, DISPOSABLE packet copy with candidate manifest, real trees, --freeze-digest 82f6...": "exit 0 compatible, plan sha256:1dad520e..., 220 checked before+after, 0 mismatches (dry run on a copy, NOT approval)",
+        "DigestGuard(active, wrong digest 82f6...)": "REFUSED TamperDetectedError: FREEZE_DIGEST_MISMATCH"
+      },
+      "verification": "a (checks exercised) / c (entry bytes not approval-bound)"
+    }
+  ],
+  "counts": {
+    "acceptance_criteria": 14,
+    "acceptance_criteria_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003",
+      "AC-004",
+      "AC-005",
+      "AC-006",
+      "AC-007",
+      "AC-008",
+      "AC-009",
+      "AC-010",
+      "AC-011",
+      "AC-012",
+      "AC-013",
+      "AC-014"
+    ],
+    "binary_release_gates": 5,
+    "gate_ids": [
+      "GATE-001",
+      "GATE-002",
+      "GATE-003",
+      "GATE-004",
+      "GATE-005"
+    ],
+    "gate_keys": [
+      "description",
+      "id"
+    ],
+    "gates_with_acceptance_criterion_refs": []
+  }
+}

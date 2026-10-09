@@ -1,0 +1,55 @@
+[2026-10-09T15:04:46.270243+00:00] control missing_model_response_engine_slow[2026-10-09T15:04:46.270306+00:00] control wrong_provider_digest
+
+[2026-10-09T15:04:49.698906+00:00] control stale_response_other_call
+[2026-10-09T15:04:52.980841+00:00] control stale_response_identical_request_replay
+[2026-10-09T15:05:00.180462+00:00] control missing_model_response_shim_bounded
+[2026-10-09T15:05:02.035899+00:00] control interruption_and_recovery
+[2026-10-09T15:05:09.499271+00:00] control wrong_freeze_digest
+[2026-10-09T15:05:09.671903+00:00] control missing_candidate
+[2026-10-09T15:05:09.942298+00:00] control missing_fallback_verify
+[2026-10-09T15:05:10.213844+00:00] control missing_fallback_build
+[2026-10-09T15:05:10.434961+00:00] control product_mutation_status_filter_ignored
+[2026-10-09T15:05:14.531328+00:00] control evaluator_mutation_in_candidate
+[2026-10-09T15:05:14.801893+00:00] control contract_mutation_after_freeze
+[2026-10-09T15:05:15.079356+00:00] control contract_mutation_refrozen
+[2026-10-09T15:05:15.313383+00:00] group cli_invalid_inputs
+[2026-10-09T15:05:16.085072+00:00] group cli_store_failures
+[2026-10-09T15:05:16.765830+00:00] waiting for slow controls
+{
+  "summary": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/dryrun/summary.json",
+  "totals": {
+    "PASS": 25,
+    "FAIL": 0,
+    "NOT_APPLICABLE": 0,
+    "SKIPPED": 0,
+    "HARNESS_ERROR": 0
+  },
+  "verdicts": {
+    "wrong_provider_digest": "PASS",
+    "stale_response_other_call": "PASS",
+    "stale_response_identical_request_replay": "PASS",
+    "missing_model_response_shim_bounded": "PASS",
+    "interruption_and_recovery": "PASS",
+    "wrong_freeze_digest": "PASS",
+    "missing_candidate": "PASS",
+    "missing_fallback_verify": "PASS",
+    "missing_fallback_build": "PASS",
+    "product_mutation_status_filter_ignored": "PASS",
+    "evaluator_mutation_in_candidate": "PASS",
+    "contract_mutation_after_freeze": "PASS",
+    "contract_mutation_refrozen": "PASS",
+    "cli_empty_title": "PASS",
+    "cli_whitespace_title": "PASS",
+    "cli_invalid_id": "PASS",
+    "cli_missing_id_999": "PASS",
+    "cli_invalid_status": "PASS",
+    "cli_unknown_command": "PASS",
+    "cli_malformed_store": "PASS",
+    "cli_store_is_directory": "PASS",
+    "cli_store_parent_is_file": "PASS",
+    "cli_inaccessible_store_chmod_file": "PASS",
+    "cli_inaccessible_store_chmod_dir": "PASS",
+    "missing_model_response_engine_slow": "PASS"
+  }
+}
+driver exit=0 wall=543s

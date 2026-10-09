@@ -1,0 +1,20 @@
+# condition=count-proofs-support-modules clone=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w2/peos-demo python=/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w2/venvs/demo/bin/python control={"capability": "*", "target": "none", "delay_s": 0}
+# support_package.py sha256=8dc9a2fc7b182ddb1549da7e2a08833feab2f7a1cfc4c236b7250c4140026cb6
+# start=2026-10-09T15:06:56Z loadavg=1.61 4.35 9.68 3/117 5687
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w2/peos-demo
+configfile: pyproject.toml
+plugins: platformdirs-4.12.4
+collected 87 items
+
+tests/unit/test_support_package_v1.py .................................. [ 39%]
+..................................................                       [ 96%]
+tests/unit/test_support_package_cli.py ...                               [100%]
+
+============================= slowest 3 durations ==============================
+8.16s call     tests/unit/test_support_package_v1.py::test_runtime_proofs_require_completion_and_standard_library_imports
+5.78s call     tests/unit/test_support_package_v1.py::test_bundle_verification_rederives_manifest_claims_and_approval
+5.46s call     tests/unit/test_support_package_v1.py::test_manifest_schema_version_and_unknown_fields_fail_closed
+======================== 87 passed in 73.50s (0:01:13) =========================
+# EXIT=0 end=2026-10-09T15:08:10Z

@@ -1,0 +1,7 @@
+## 2026-10-09T14:59:14Z post-incident
+$ mypy --strict tests/integration/test_contract_file_refusals.py   (note: ci.yml types job does not include tests/; run as requested)
+Success: no issues found in 1 source file
+exit=0
+$ mypy --strict <ci.yml types path list> (unchanged scope, sanity)
+Success: no issues found in 200 source files
+exit=0

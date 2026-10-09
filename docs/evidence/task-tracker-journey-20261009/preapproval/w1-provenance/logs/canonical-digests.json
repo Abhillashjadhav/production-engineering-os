@@ -1,0 +1,103 @@
+{
+  "pmpe_file": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos/src/pmpe/__init__.py",
+  "results": [
+    {
+      "label": "active freeze-manifest.json @PMOS 0652843",
+      "repo": "pmos",
+      "rev": "0652843",
+      "path": "reviews/task-tracker-v1/freeze-manifest.json",
+      "raw_sha256": "sha256:bb7bc83e5270cc29cadfc8b30608d73f85c271f77bba4c024fa3c659f3363f59",
+      "canonical_digest_strict_loads": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+      "canonical_digest_json_loads": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+    },
+    {
+      "label": "active freeze-manifest.json @PMOS cafe8b4",
+      "repo": "pmos",
+      "rev": "cafe8b4",
+      "path": "reviews/task-tracker-v1/freeze-manifest.json",
+      "raw_sha256": "sha256:bb7bc83e5270cc29cadfc8b30608d73f85c271f77bba4c024fa3c659f3363f59",
+      "canonical_digest_strict_loads": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+      "canonical_digest_json_loads": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+    },
+    {
+      "label": "active freeze-manifest.json @PMOS 2acc3fa (main)",
+      "repo": "pmos",
+      "rev": "2acc3fa",
+      "path": "reviews/task-tracker-v1/freeze-manifest.json",
+      "raw_sha256": "sha256:bb7bc83e5270cc29cadfc8b30608d73f85c271f77bba4c024fa3c659f3363f59",
+      "canonical_digest_strict_loads": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+      "canonical_digest_json_loads": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+    },
+    {
+      "label": "candidate (refreeze-candidate-20261009) @PMOS cafe8b4 [B]",
+      "repo": "pmos",
+      "rev": "cafe8b4",
+      "path": "reviews/task-tracker-v1/refreeze-candidate-20261009/freeze-manifest.candidate.json",
+      "raw_sha256": "sha256:6cc523b7355d9c89dfe10fed887ad54804ab9e5b4449b09115b7a85b1b518ef0",
+      "canonical_digest_strict_loads": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42",
+      "canonical_digest_json_loads": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42"
+    },
+    {
+      "label": "candidate (refreeze-candidate-20261009) @PMOS 0652843 [A]",
+      "repo": "pmos",
+      "rev": "0652843",
+      "path": "reviews/task-tracker-v1/refreeze-candidate-20261009/freeze-manifest.candidate.json",
+      "raw_sha256": "sha256:d27e42a17c7624be8c5c6f29f28afbb10636eb4e420d93efb01a59062293eb17",
+      "canonical_digest_strict_loads": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0",
+      "canonical_digest_json_loads": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0"
+    },
+    {
+      "label": "PEOS stage-a copy @PEOS 4b1558f",
+      "repo": "peos",
+      "rev": "4b1558f",
+      "path": "docs/evidence/task-tracker-completion-20261009/stage-a/freeze-manifest.candidate.json",
+      "raw_sha256": "sha256:6cc523b7355d9c89dfe10fed887ad54804ab9e5b4449b09115b7a85b1b518ef0",
+      "canonical_digest_strict_loads": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42",
+      "canonical_digest_json_loads": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42"
+    },
+    {
+      "label": "PEOS refreeze-candidate copy @PEOS e8a929d",
+      "repo": "peos",
+      "rev": "e8a929d",
+      "path": "docs/evidence/task-tracker-completion-20261009/refreeze-candidate/freeze-manifest.candidate.json",
+      "raw_sha256": "sha256:d27e42a17c7624be8c5c6f29f28afbb10636eb4e420d93efb01a59062293eb17",
+      "canonical_digest_strict_loads": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0",
+      "canonical_digest_json_loads": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0"
+    },
+    {
+      "label": "PEOS refreeze-candidate copy @PEOS 4b1558f",
+      "repo": "peos",
+      "rev": "4b1558f",
+      "path": "docs/evidence/task-tracker-completion-20261009/refreeze-candidate/freeze-manifest.candidate.json",
+      "raw_sha256": "sha256:d27e42a17c7624be8c5c6f29f28afbb10636eb4e420d93efb01a59062293eb17",
+      "canonical_digest_strict_loads": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0",
+      "canonical_digest_json_loads": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0"
+    },
+    {
+      "label": "worktree PMOS active",
+      "path": "/home/user/PM-agent-OS/reviews/task-tracker-v1/freeze-manifest.json",
+      "raw_sha256": "sha256:bb7bc83e5270cc29cadfc8b30608d73f85c271f77bba4c024fa3c659f3363f59",
+      "canonical_digest_strict_loads": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+    },
+    {
+      "label": "worktree PMOS candidate",
+      "path": "/home/user/PM-agent-OS/reviews/task-tracker-v1/refreeze-candidate-20261009/freeze-manifest.candidate.json",
+      "raw_sha256": "sha256:6cc523b7355d9c89dfe10fed887ad54804ab9e5b4449b09115b7a85b1b518ef0",
+      "canonical_digest_strict_loads": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42"
+    },
+    {
+      "label": "worktree PEOS stage-a copy",
+      "path": "/home/user/production-engineering-os/docs/evidence/task-tracker-completion-20261009/stage-a/freeze-manifest.candidate.json",
+      "raw_sha256": "sha256:6cc523b7355d9c89dfe10fed887ad54804ab9e5b4449b09115b7a85b1b518ef0",
+      "canonical_digest_strict_loads": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42"
+    }
+  ],
+  "claimed": {
+    "freeze-bundle.sha256 @PMOS 0652843": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+    "freeze-bundle.sha256 @PMOS cafe8b4": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+    "candidate-freeze-digest.txt @PMOS cafe8b4": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42",
+    "candidate-freeze-digest.txt @PMOS 0652843": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0",
+    "stage-a/candidate-digest.txt @PEOS 4b1558f": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42",
+    "refreeze-candidate/candidate-freeze-digest.txt @PEOS e8a929d": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0"
+  }
+}

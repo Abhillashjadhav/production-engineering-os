@@ -1,0 +1,35 @@
+### id: OS1_offline_suite_full_discover
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin/python3)
+### command (bash -e -c): python3 -B -m unittest discover -s tests -p 'test_*.py'
+### start: 2026-10-09T14:28:57Z
+-----8<----- raw output -----8<-----
+.......................F.........
+======================================================================
+FAIL: test_pmos_bound_artifacts_are_unchanged (test_task_tracker_freeze.TaskTrackerFreezeTests.test_pmos_bound_artifacts_are_unchanged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos/tests/test_task_tracker_freeze.py", line 66, in test_pmos_bound_artifacts_are_unchanged
+    self.assertEqual(
+AssertionError: Lists differ: ['.claude/skills/decision-to-contract/SKIL[164 chars]c26'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'.claude/skills/decision-to-contract/SKILL.md: frozen sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f != current sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'
+
++ []
+- ['.claude/skills/decision-to-contract/SKILL.md: frozen '
+-  'sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f != '
+-  'current '
+-  'sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'] : APPROVAL_BOUND_ARTIFACT_CHANGED. The frozen journey cannot run against this tree until the owner approves a re-freeze (see reviews/task-tracker-v1/refreeze-candidate-20261009/README.md). Do not update digests here.
+
+----------------------------------------------------------------------
+Ran 33 tests in 3.040s
+
+FAILED (failures=1)
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T14:29:01Z
+### EXIT: 1

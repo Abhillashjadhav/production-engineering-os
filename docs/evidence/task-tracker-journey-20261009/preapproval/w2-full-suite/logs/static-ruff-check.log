@@ -1,0 +1,3 @@
+$ ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/... examples/barebones/*.py  (expanded: examples/barebones/codex-cli-provider.py examples/barebones/contract-file.py examples/barebones/e1-provider.py examples/barebones/openai-responses-provider.py examples/barebones/run_real_behavior_drift_eval.py examples/barebones/session-file-provider.py examples/barebones/task-tracker-regression.py)
+All checks passed!
+EXIT=0

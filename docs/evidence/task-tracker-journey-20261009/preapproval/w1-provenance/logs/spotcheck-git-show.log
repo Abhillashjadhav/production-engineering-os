@@ -1,0 +1,25 @@
+++ sha256sum
+++ git -C /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/pmos show 0652843:.claude/skills/decision-to-contract/SKILL.md
+f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26  -
+++ sha256sum
+++ git -C /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos show e8a929d:src/pmpe/barebones.py
+ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a  -
+++ git -C /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos show e8a929d:src/pmpe/cli/barebones_cmd.py
+++ sha256sum
+8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1  -
+++ git -C /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos show e8a929d:src/pmpe/contracts/acceptance.py
+++ sha256sum
+4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02  -
+++ git -C /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos show e8a929d:src/pmpe/evals/real_behavior_drift_eval.py
+++ sha256sum
+093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71  -
+++ git -C /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos show 1a431b2:examples/barebones/session-file-provider.py
+++ sha256sum
+fatal: path 'examples/barebones/session-file-provider.py' exists on disk, but not in '1a431b2'
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  -
+++ git -C /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos show e8a929d:examples/barebones/session-file-provider.py
+++ sha256sum
+ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6  -
+++ sha256sum /home/user/PM-agent-OS/.claude/skills/decision-to-contract/SKILL.md /home/user/production-engineering-os/src/pmpe/barebones.py
+f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26  /home/user/PM-agent-OS/.claude/skills/decision-to-contract/SKILL.md
+ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a  /home/user/production-engineering-os/src/pmpe/barebones.py

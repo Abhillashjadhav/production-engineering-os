@@ -1,0 +1,117 @@
+{
+ "freeze-manifest.json (status=OWNER_CONFIRMED_FROZEN)": {
+  "f7669c2cd": {
+   "bound": 204,
+   "match": 204,
+   "mismatch": 0,
+   "missing": 0,
+   "mismatched_paths": []
+  },
+  "e8a929df0": {
+   "bound": 204,
+   "match": 200,
+   "mismatch": 4,
+   "missing": 0,
+   "mismatched_paths": [
+    "src/pmpe/barebones.py",
+    "src/pmpe/cli/barebones_cmd.py",
+    "src/pmpe/contracts/acceptance.py",
+    "src/pmpe/evals/real_behavior_drift_eval.py"
+   ]
+  },
+  "297a11d79": {
+   "bound": 204,
+   "match": 198,
+   "mismatch": 5,
+   "missing": 1,
+   "mismatched_paths": [
+    "src/pmpe/barebones.py",
+    "src/pmpe/cli/barebones_cmd.py",
+    "src/pmpe/contracts/acceptance.py",
+    "src/pmpe/schemas/pmos_contract_bundle.schema.json",
+    "src/pmpe/support_package.py",
+    "examples/barebones/session-file-provider.py"
+   ]
+  },
+  "5c0f9e3a8": {
+   "bound": 204,
+   "match": 203,
+   "mismatch": 0,
+   "missing": 1,
+   "mismatched_paths": [
+    "examples/barebones/session-file-provider.py"
+   ]
+  },
+  "1a431b23f": {
+   "bound": 204,
+   "match": 199,
+   "mismatch": 4,
+   "missing": 1,
+   "mismatched_paths": [
+    "src/pmpe/barebones.py",
+    "src/pmpe/cli/barebones_cmd.py",
+    "src/pmpe/contracts/acceptance.py",
+    "src/pmpe/evals/real_behavior_drift_eval.py",
+    "examples/barebones/session-file-provider.py"
+   ]
+  }
+ },
+ "freeze-manifest.candidate.json (status=CANDIDATE_REFREEZE_UNAPPROVED)": {
+  "f7669c2cd": {
+   "bound": 204,
+   "match": 200,
+   "mismatch": 4,
+   "missing": 0,
+   "mismatched_paths": [
+    "src/pmpe/barebones.py",
+    "src/pmpe/cli/barebones_cmd.py",
+    "src/pmpe/contracts/acceptance.py",
+    "src/pmpe/evals/real_behavior_drift_eval.py"
+   ]
+  },
+  "e8a929df0": {
+   "bound": 204,
+   "match": 204,
+   "mismatch": 0,
+   "missing": 0,
+   "mismatched_paths": []
+  },
+  "297a11d79": {
+   "bound": 204,
+   "match": 197,
+   "mismatch": 6,
+   "missing": 1,
+   "mismatched_paths": [
+    "src/pmpe/barebones.py",
+    "src/pmpe/cli/barebones_cmd.py",
+    "src/pmpe/contracts/acceptance.py",
+    "src/pmpe/evals/real_behavior_drift_eval.py",
+    "src/pmpe/schemas/pmos_contract_bundle.schema.json",
+    "src/pmpe/support_package.py",
+    "examples/barebones/session-file-provider.py"
+   ]
+  },
+  "5c0f9e3a8": {
+   "bound": 204,
+   "match": 199,
+   "mismatch": 4,
+   "missing": 1,
+   "mismatched_paths": [
+    "src/pmpe/barebones.py",
+    "src/pmpe/cli/barebones_cmd.py",
+    "src/pmpe/contracts/acceptance.py",
+    "src/pmpe/evals/real_behavior_drift_eval.py",
+    "examples/barebones/session-file-provider.py"
+   ]
+  },
+  "1a431b23f": {
+   "bound": 204,
+   "match": 203,
+   "mismatch": 0,
+   "missing": 1,
+   "mismatched_paths": [
+    "examples/barebones/session-file-provider.py"
+   ]
+  }
+ }
+}

@@ -1,0 +1,17 @@
+active freeze-manifest.json @PMOS 0652843                    raw=sha256:bb7bc83e5270cc29… canon=sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2
+active freeze-manifest.json @PMOS cafe8b4                    raw=sha256:bb7bc83e5270cc29… canon=sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2
+active freeze-manifest.json @PMOS 2acc3fa (main)             raw=sha256:bb7bc83e5270cc29… canon=sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2
+candidate (refreeze-candidate-20261009) @PMOS cafe8b4 [B]    raw=sha256:6cc523b7355d9c89… canon=sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42
+candidate (refreeze-candidate-20261009) @PMOS 0652843 [A]    raw=sha256:d27e42a17c7624be… canon=sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0
+PEOS stage-a copy @PEOS 4b1558f                              raw=sha256:6cc523b7355d9c89… canon=sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42
+PEOS refreeze-candidate copy @PEOS e8a929d                   raw=sha256:d27e42a17c7624be… canon=sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0
+PEOS refreeze-candidate copy @PEOS 4b1558f                   raw=sha256:d27e42a17c7624be… canon=sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0
+worktree PMOS active                                         raw=sha256:bb7bc83e5270cc29… canon=sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2
+worktree PMOS candidate                                      raw=sha256:6cc523b7355d9c89… canon=sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42
+worktree PEOS stage-a copy                                   raw=sha256:6cc523b7355d9c89… canon=sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42
+CLAIM freeze-bundle.sha256 @PMOS 0652843                           sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2
+CLAIM freeze-bundle.sha256 @PMOS cafe8b4                           sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2
+CLAIM candidate-freeze-digest.txt @PMOS cafe8b4                    sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42
+CLAIM candidate-freeze-digest.txt @PMOS 0652843                    sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0
+CLAIM stage-a/candidate-digest.txt @PEOS 4b1558f                   sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42
+CLAIM refreeze-candidate/candidate-freeze-digest.txt @PEOS e8a929d sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0

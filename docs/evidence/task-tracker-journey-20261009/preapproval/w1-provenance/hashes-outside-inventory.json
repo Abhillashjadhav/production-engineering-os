@@ -1,0 +1,81 @@
+{
+  "files": [
+    {
+      "repository": "production-engineering-os",
+      "path": "examples/barebones/contract-file.py",
+      "bound_e8a929d": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+      "head_4b1558f": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+      "main_1a431b2": "ABSENT",
+      "frozen_era_f7669c2": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+      "worktree": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+      "in_active_inventory": false,
+      "in_candidate_inventory": false,
+      "active_inventory_sha": null
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "examples/barebones/task-tracker-regression.py",
+      "bound_e8a929d": "sha256:2d351051706d476aba6718c58d8f035bf30832a46915fcc20c618a3dc50f3ecf",
+      "head_4b1558f": "sha256:2d351051706d476aba6718c58d8f035bf30832a46915fcc20c618a3dc50f3ecf",
+      "main_1a431b2": "ABSENT",
+      "frozen_era_f7669c2": "ABSENT",
+      "worktree": "sha256:2d351051706d476aba6718c58d8f035bf30832a46915fcc20c618a3dc50f3ecf",
+      "in_active_inventory": false,
+      "in_candidate_inventory": false,
+      "active_inventory_sha": null
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "examples/barebones/session-file-provider.py",
+      "bound_e8a929d": "sha256:ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6",
+      "head_4b1558f": "sha256:ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6",
+      "main_1a431b2": "ABSENT",
+      "frozen_era_f7669c2": "sha256:ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6",
+      "worktree": "sha256:ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6",
+      "in_active_inventory": true,
+      "in_candidate_inventory": true,
+      "active_inventory_sha": "sha256:ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "docs/evidence/task-tracker-live-20260918/clean-install/journey.py",
+      "bound_e8a929d": "sha256:6194264f3ed0f931306147668d7448d8db7c444d7a89ea81221da4e0046bf058",
+      "head_4b1558f": "sha256:6194264f3ed0f931306147668d7448d8db7c444d7a89ea81221da4e0046bf058",
+      "main_1a431b2": "ABSENT",
+      "frozen_era_f7669c2": "sha256:6194264f3ed0f931306147668d7448d8db7c444d7a89ea81221da4e0046bf058",
+      "worktree": "sha256:6194264f3ed0f931306147668d7448d8db7c444d7a89ea81221da4e0046bf058",
+      "in_active_inventory": false,
+      "in_candidate_inventory": false,
+      "active_inventory_sha": null
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "examples/barebones/contract-file.md",
+      "bound_e8a929d": "sha256:0995043b2aee83c73276a47f2f87c660cceeee9d82bad9d2e0ffa101ca74d720",
+      "head_4b1558f": "sha256:0995043b2aee83c73276a47f2f87c660cceeee9d82bad9d2e0ffa101ca74d720",
+      "main_1a431b2": "ABSENT",
+      "frozen_era_f7669c2": "sha256:71a7ab80a8e42ecbfd79eb36abc44fafd161f64b6fb597dd04c3a975473ed554",
+      "worktree": "sha256:0995043b2aee83c73276a47f2f87c660cceeee9d82bad9d2e0ffa101ca74d720",
+      "in_active_inventory": false,
+      "in_candidate_inventory": false,
+      "active_inventory_sha": null
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "docs/evidence/task-tracker-live-20260918/REPRODUCE.md",
+      "bound_e8a929d": "sha256:f42f17c8720efd2de5859d21205715f8892aa5c7a1ba2e0bd213b5466229e5cf",
+      "head_4b1558f": "sha256:f42f17c8720efd2de5859d21205715f8892aa5c7a1ba2e0bd213b5466229e5cf",
+      "main_1a431b2": "ABSENT",
+      "frozen_era_f7669c2": "sha256:28cd5450f227f4dbda8993c888efae7fd7855fd54a1be979c916e0afaf63ce32",
+      "worktree": "sha256:f42f17c8720efd2de5859d21205715f8892aa5c7a1ba2e0bd213b5466229e5cf",
+      "in_active_inventory": false,
+      "in_candidate_inventory": false,
+      "active_inventory_sha": null
+    }
+  ],
+  "non_src_PEOS_entries_in_inventory": [
+    "examples/barebones/session-file-provider.py",
+    "pyproject.toml",
+    "schemas/product_decision_contract.schema.json"
+  ]
+}

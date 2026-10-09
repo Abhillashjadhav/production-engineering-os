@@ -1,0 +1,9 @@
+$ ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/run_trusted_security_entrypoint.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py scripts/ci/verify_trusted_security_bootstrap.py examples/barebones/codex-cli-provider.py
+309 files already formatted
+EXIT=0
+$ ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/run_trusted_security_entrypoint.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py scripts/ci/verify_trusted_security_bootstrap.py examples/barebones/*.py
+All checks passed!
+EXIT=0
+$ mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/run_trusted_security_entrypoint.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py scripts/ci/verify_trusted_security_bootstrap.py examples/barebones/*.py
+Success: no issues found in 200 source files
+EXIT=0

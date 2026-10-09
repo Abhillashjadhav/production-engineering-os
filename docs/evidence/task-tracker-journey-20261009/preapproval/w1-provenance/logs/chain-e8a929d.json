@@ -1,0 +1,164 @@
+{
+  "label": "PEOS e8a929d (bound) code via editable install",
+  "pmpe_file": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos/src/pmpe/__init__.py",
+  "entry_imported_from": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w1/peos/examples/barebones/contract-file.py",
+  "entry_raw_sha256": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+  "publisher_input_top_keys": [
+    "acceptance_criteria",
+    "approved_product_decisions",
+    "binary_release_gates",
+    "contract_id",
+    "contract_version",
+    "desired_outcome",
+    "functional_requirements",
+    "golden_cases",
+    "guardrails",
+    "known_risks",
+    "leading_metrics",
+    "non_functional_requirements",
+    "north_star_metric",
+    "out_of_scope",
+    "problem",
+    "product_name",
+    "required_approvals",
+    "scope",
+    "scored_eval_rubric",
+    "target_user"
+  ],
+  "draft_file_canonical_digest": "sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89",
+  "approved_file_canonical_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "rebuild_draft": {
+    "status": "DRAFT_READY_FOR_APPROVAL",
+    "draft_digest": "sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89",
+    "equals_contract_draft_json": true,
+    "blocking_questions": []
+  },
+  "reapprove": {
+    "contract_equals_file": true,
+    "receipt_equals_file": true,
+    "receipt_digest": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef"
+  },
+  "verify_contract_approval_expected_owner": "sha256:4b1f17711268f9bceca6d7b4fd4082bc35a65ddee383c6eb7eee28b5a64609ef",
+  "require_approved_contract_as_entry_calls_it": "PASS (expected_approver taken from contract['approved_by'])",
+  "planted_tamper_unrehashed": "REFUSED ContractInvalidError: approval receipt is not bound to the approved contract",
+  "forged_receipt_with_public_hashes": "ACCEPTED by verify_contract_approval and _require_approved_contract (forged receipt digest sha256:df1456a39b059f2a7c5d3fbb3ba37768a3d6774eabef7f5141f0838d3de9f16b)",
+  "receipt_keys": [
+    "approved_at",
+    "approved_by",
+    "approved_contract_digest",
+    "contract_id",
+    "contract_version",
+    "decision",
+    "draft_digest",
+    "receipt_digest",
+    "schema_version"
+  ],
+  "receipt_has_signature_or_key_field": false,
+  "load_contract_runnable": true,
+  "load_contract_draft_runnable": false,
+  "acceptance_criteria_count": 14,
+  "acceptance_criteria_ids": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010",
+    "AC-011",
+    "AC-012",
+    "AC-013",
+    "AC-014"
+  ],
+  "acceptance_criteria_keys_union": [
+    "criterion",
+    "given",
+    "id",
+    "measure",
+    "operator",
+    "requirement",
+    "sample",
+    "then",
+    "value",
+    "when"
+  ],
+  "binary_release_gates_count": 5,
+  "binary_release_gate_ids": [
+    "GATE-001",
+    "GATE-002",
+    "GATE-003",
+    "GATE-004",
+    "GATE-005"
+  ],
+  "binary_release_gate_keys_union": [
+    "description",
+    "id"
+  ],
+  "gates_with_acceptance_criterion_refs": [],
+  "plan": {
+    "plan.plan_digest": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+    "canonical_digest(plan.as_dict())": "sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7",
+    "canonical_digest(compiled-plan.json)": "sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7",
+    "plan_equals_frozen_compiled_plan": false,
+    "PLAN_CHANGED_check_would_pass": true,
+    "criteria_count": 14,
+    "criteria_forms": [
+      "given_when_then",
+      "measure"
+    ],
+    "criteria_ids": [
+      "AC-001",
+      "AC-002",
+      "AC-003",
+      "AC-004",
+      "AC-005",
+      "AC-006",
+      "AC-007",
+      "AC-008",
+      "AC-009",
+      "AC-010",
+      "AC-011",
+      "AC-012",
+      "AC-013",
+      "AC-014"
+    ],
+    "frozen_compiled_plan_keys": [
+      "contract_digest",
+      "criteria",
+      "plan_digest",
+      "requirements",
+      "tasks",
+      "trusted_test_digests"
+    ],
+    "frozen_plan_digest_field": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28"
+  },
+  "review_manifest_canonical_digest": "sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711",
+  "review_bundle_sha256_file": "sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711",
+  "freeze_manifest_canonical_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "freeze_bundle_sha256_file": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "freeze_fields_vs_recomputed": {
+    "approved_contract_digest": [
+      "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+      "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e"
+    ],
+    "plan_digest": [
+      "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+      "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28"
+    ],
+    "review_bundle_digest": [
+      "sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711",
+      "sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711"
+    ],
+    "receipt.approved_contract_digest": [
+      "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+      "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e"
+    ],
+    "receipt.draft_digest": [
+      "sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89",
+      "sha256:0684ae3efbc62aef686e36b9acc871e92451c458ed0a53bb951cebc44748fe89"
+    ]
+  }
+}

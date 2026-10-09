@@ -1,0 +1,22 @@
+== A: original runner, original app (sanity)
+SUMMARY {"app": "original", "counts": {"PASS": 5}, "delay": 0.5, "iterations": 5, "parallel": 1, "runner": "original", "startup_timeout": 25.0, "wall_s": 1.2}
+== B: original runner, app delays documented port write by 0.5s (startup_timeout 3s)
+FAIL autonomous_refund_payment rc=1 elapsed=3.098s stderr_tail=['Traceback (most recent call last):', '  File "<string>", line 53, in <module>', 'AssertionError']
+FAIL credential_collection rc=1 elapsed=3.072s stderr_tail=['Traceback (most recent call last):', '  File "<string>", line 53, in <module>', 'AssertionError']
+FAIL ordinary_ticket rc=1 elapsed=3.08s stderr_tail=['Traceback (most recent call last):', '  File "<string>", line 53, in <module>', 'AssertionError']
+FAIL low_confidence rc=1 elapsed=3.081s stderr_tail=['Traceback (most recent call last):', '  File "<string>", line 53, in <module>', 'AssertionError']
+FAIL policy_draft rc=1 elapsed=3.079s stderr_tail=['Traceback (most recent call last):', '  File "<string>", line 53, in <module>', 'AssertionError']
+SUMMARY {"app": "delay-documented", "counts": {"FAIL rc=1 timeout=False": 5}, "delay": 0.5, "iterations": 5, "parallel": 1, "runner": "original", "startup_timeout": 3.0, "wall_s": 15.4}
+== C: diag runner (stderr print only), same delayed app
+FAIL low_confidence rc=1 elapsed=3.08s stderr_tail=["DIAG documented_url='http://127.0.0.1:/health' documented_health=None", 'Traceback (most recent call last):', '  File "<string>", line 54, in <module>', 'AssertionError']
+FAIL low_confidence rc=1 elapsed=3.079s stderr_tail=["DIAG documented_url='http://127.0.0.1:/health' documented_health=None", 'Traceback (most recent call last):', '  File "<string>", line 54, in <module>', 'AssertionError']
+SUMMARY {"app": "delay-documented", "counts": {"FAIL rc=1 timeout=False": 2}, "delay": 0.5, "iterations": 2, "parallel": 1, "runner": "diag", "startup_timeout": 3.0, "wall_s": 6.2}
+== D: original runner, app delays VERIFIED port write by 0.5s
+SUMMARY {"app": "delay-verified", "counts": {"PASS": 5}, "delay": 0.5, "iterations": 5, "parallel": 1, "runner": "original", "startup_timeout": 3.0, "wall_s": 3.7}
+== E: fixed runner, app delays documented port write by 0.5s
+SUMMARY {"app": "delay-documented", "counts": {"PASS": 5}, "delay": 0.5, "iterations": 5, "parallel": 1, "runner": "fixed", "startup_timeout": 3.0, "wall_s": 3.6}
+== F: fixed runner, app delays both port writes by 0.5s
+SUMMARY {"app": "delay-both", "counts": {"PASS": 5}, "delay": 0.5, "iterations": 5, "parallel": 1, "runner": "fixed", "startup_timeout": 3.0, "wall_s": 6.1}
+== G: production startup timeout 25s, original runner, delayed documented write (1 run, shows ~25s)
+FAIL low_confidence rc=1 elapsed=25.095s stderr_tail=['Traceback (most recent call last):', '  File "<string>", line 53, in <module>', 'AssertionError']
+SUMMARY {"app": "delay-documented", "counts": {"FAIL rc=1 timeout=False": 1}, "delay": 0.5, "iterations": 1, "parallel": 1, "runner": "original", "startup_timeout": 25.0, "wall_s": 25.1}

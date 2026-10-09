@@ -1,0 +1,26 @@
+### id: RA4_validation_regressions
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin/python3)
+### command (bash -e -c): python -m unittest discover -s tests -p test_validation_regressions.py -v
+### start: 2026-10-09T14:27:42Z
+-----8<----- raw output -----8<-----
+test_boolean_description_cannot_bypass_lint (test_validation_regressions.ValidationRegressions.test_boolean_description_cannot_bypass_lint) ... ok
+test_collection_description_cannot_bypass_string_requirement (test_validation_regressions.ValidationRegressions.test_collection_description_cannot_bypass_string_requirement) ... ok
+test_duplicate_inventory_cannot_replace_a_missing_skill (test_validation_regressions.ValidationRegressions.test_duplicate_inventory_cannot_replace_a_missing_skill) ... ok
+test_inventory_cannot_substitute_another_file_for_skill (test_validation_regressions.ValidationRegressions.test_inventory_cannot_substitute_another_file_for_skill) ... ok
+test_lifecycle_metadata_name_must_match_inventory (test_validation_regressions.ValidationRegressions.test_lifecycle_metadata_name_must_match_inventory) ... ok
+test_quoted_collection_text_is_a_valid_description (test_validation_regressions.ValidationRegressions.test_quoted_collection_text_is_a_valid_description) ... ok
+test_unlisted_skill_is_not_silently_installed (test_validation_regressions.ValidationRegressions.test_unlisted_skill_is_not_silently_installed) ... ok
+test_unquoted_mapping_in_description_is_rejected (test_validation_regressions.ValidationRegressions.test_unquoted_mapping_in_description_is_rejected) ... ok
+test_valid_inline_comment_preserves_description (test_validation_regressions.ValidationRegressions.test_valid_inline_comment_preserves_description) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.943s
+
+OK
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T14:27:43Z
+### EXIT: 0

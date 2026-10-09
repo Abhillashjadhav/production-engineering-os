@@ -1,0 +1,21 @@
+a-single-isolated-x20 run=1 start=15:14:19 load1=1.01 rc=0 :: 1 passed in 1.70s  :: 
+a-single-isolated-x20 run=2 start=15:14:21 load1=1.01 rc=0 :: 1 passed in 1.88s  :: 
+a-single-isolated-x20 run=3 start=15:14:23 load1=1.01 rc=0 :: 1 passed in 2.41s  :: 
+a-single-isolated-x20 run=4 start=15:14:26 load1=1.09 rc=0 :: 1 passed in 1.84s  :: 
+a-single-isolated-x20 run=5 start=15:14:28 load1=1.09 rc=0 :: 1 passed in 1.90s  :: 
+a-single-isolated-x20 run=6 start=15:14:30 load1=1.09 rc=0 :: 1 passed in 1.88s  :: 
+a-single-isolated-x20 run=7 start=15:14:33 load1=1.16 rc=0 :: 1 passed in 1.89s  :: 
+a-single-isolated-x20 run=8 start=15:14:35 load1=1.16 rc=0 :: 1 passed in 1.77s  :: 
+a-single-isolated-x20 run=9 start=15:14:37 load1=1.31 rc=0 :: 1 passed in 1.73s  :: 
+a-single-isolated-x20 run=10 start=15:14:39 load1=1.31 rc=0 :: 1 passed in 1.80s  :: 
+a-single-isolated-x20 run=11 start=15:14:41 load1=1.37 rc=0 :: 1 passed in 1.75s  :: 
+a-single-isolated-x20 run=12 start=15:14:43 load1=1.37 rc=0 :: 1 passed in 1.71s  :: 
+a-single-isolated-x20 run=13 start=15:14:45 load1=1.37 rc=0 :: 1 passed in 1.87s  :: 
+a-single-isolated-x20 run=14 start=15:14:47 load1=1.34 rc=0 :: 1 passed in 1.95s  :: 
+a-single-isolated-x20 run=15 start=15:14:50 load1=1.34 rc=0 :: 1 passed in 1.98s  :: 
+a-single-isolated-x20 run=16 start=15:14:52 load1=1.31 rc=0 :: 1 passed in 2.09s  :: 
+a-single-isolated-x20 run=17 start=15:14:54 load1=1.31 rc=0 :: 1 passed in 2.29s  :: 
+a-single-isolated-x20 run=18 start=15:14:57 load1=1.28 rc=0 :: 1 passed in 1.93s  :: 
+a-single-isolated-x20 run=19 start=15:14:59 load1=1.28 rc=0 :: 1 passed in 2.40s  :: 
+a-single-isolated-x20 run=20 start=15:15:02 load1=1.26 rc=0 :: 1 passed in 1.74s  :: 
+TOTAL a-single-isolated-x20: runs=20 failing_runs=0

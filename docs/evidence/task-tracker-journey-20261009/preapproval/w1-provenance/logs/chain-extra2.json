@@ -1,0 +1,12 @@
+{
+  "nonplan_forgery_verify_contract_approval": "sha256:9b9e65eef5e40a40a3f322393534ab308a7c51f9807846b511ee6a01ec9247b5",
+  "nonplan_forgery_entry_compatibility": {
+    "compatible": false,
+    "reasons": [
+      "PLAN_CHANGED: compiled plan differs from frozen plan"
+    ],
+    "plan_digest": "sha256:9d667cc1fa8e508f3e331f289a0685467dd22bd46d1f8f623fd8153e917af1a3"
+  },
+  "note": "guard constructed (check needs a full PMOS root; contract file byte change would be reported as mismatch)",
+  "digestguard_candidate_vs_real_worktrees": "PASS (219 entries incl. manifest anchor)"
+}

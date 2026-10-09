@@ -1,0 +1,24 @@
+### id: RA3_beacon_tests
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/audit312/bin/python3)
+### command (bash -e -c): python -B -m unittest discover -s tests -p 'test_beacon_*.py' -v
+### start: 2026-10-09T14:27:42Z
+-----8<----- raw output -----8<-----
+test_metadata_only_and_session_correlation (test_beacon_hook.HookTests.test_metadata_only_and_session_correlation) ... ok
+test_missing_adapter_and_invalid_input_do_not_block (test_beacon_hook.HookTests.test_missing_adapter_and_invalid_input_do_not_block) ... ok
+test_adapter_preserves_nonexecutable_status (test_beacon_runner.RunnerTests.test_adapter_preserves_nonexecutable_status) ... ok
+test_adapter_receives_only_existing_workflow_arguments (test_beacon_runner.RunnerTests.test_adapter_receives_only_existing_workflow_arguments) ... ok
+test_missing_adapter_preserves_command_io_and_status (test_beacon_runner.RunnerTests.test_missing_adapter_preserves_command_io_and_status) ... ok
+test_missing_adapter_preserves_startup_error_codes (test_beacon_runner.RunnerTests.test_missing_adapter_preserves_startup_error_codes) ... ok
+test_no_command_reports_usage (test_beacon_runner.RunnerTests.test_no_command_reports_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 0.265s
+
+OK
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T14:27:42Z
+### EXIT: 0

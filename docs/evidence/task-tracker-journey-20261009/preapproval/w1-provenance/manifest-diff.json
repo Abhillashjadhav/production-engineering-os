@@ -1,0 +1,469 @@
+{
+  "sources": {
+    "active": "PMOS 0652843 (identical bytes at cafe8b4 and 2acc3fa) reviews/task-tracker-v1/freeze-manifest.json",
+    "candidate": "PMOS cafe8b4 reviews/task-tracker-v1/refreeze-candidate-20261009/freeze-manifest.candidate.json (byte-identical to PEOS 4b1558f docs/evidence/task-tracker-completion-20261009/stage-a/freeze-manifest.candidate.json)",
+    "candidateA": "PMOS 0652843 reviews/task-tracker-v1/refreeze-candidate-20261009/freeze-manifest.candidate.json (byte-identical to PEOS e8a929d/4b1558f docs/evidence/task-tracker-completion-20261009/refreeze-candidate/freeze-manifest.candidate.json)"
+  },
+  "expected_may_differ": [
+    "approval_context",
+    "owner_approval_quote",
+    "recorded_at",
+    "refreeze_basis",
+    "status"
+  ],
+  "active_vs_candidate": {
+    "compare": "active -> candidate",
+    "top_level_differing": {
+      "approval_context": {
+        "active": "Owner also requested whole-document regeneration from the amended grid and agreement before digest recording. No criterion or evaluator meaning changed.",
+        "candidate": "UNAPPROVED CANDIDATE recomputed 2026-10-09 (Stage A) over PEOS e8a929d and PMOS 0652843 from git object bytes. Not approval."
+      },
+      "owner_approval_quote": {
+        "active": "Confirmed — freeze the amended grid and proceed.",
+        "candidate": "NONE — awaiting owner approval"
+      },
+      "previous_review_bundle_digest": {
+        "active": "sha256:4eaa1d95828f3e1fbf2a9646eb25ec3185c5b4669e5ac98c4668756b958468b6",
+        "candidate": "sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711"
+      },
+      "status": {
+        "active": "OWNER_CONFIRMED_FROZEN",
+        "candidate": "CANDIDATE_REFREEZE_UNAPPROVED"
+      }
+    },
+    "keys_only_in_active": {},
+    "keys_only_in_candidate": {
+      "refreeze_basis": {
+        "baseline": {
+          "PM-agent-OS": "0652843",
+          "production-engineering-os": "e8a929d"
+        },
+        "changed_entries": [
+          {
+            "baseline": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26",
+            "frozen": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+            "path": ".claude/skills/decision-to-contract/SKILL.md",
+            "repository": "PM-agent-OS"
+          },
+          {
+            "baseline": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a",
+            "frozen": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+            "path": "src/pmpe/barebones.py",
+            "repository": "production-engineering-os"
+          },
+          {
+            "baseline": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1",
+            "frozen": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+            "path": "src/pmpe/cli/barebones_cmd.py",
+            "repository": "production-engineering-os"
+          },
+          {
+            "baseline": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02",
+            "frozen": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+            "path": "src/pmpe/contracts/acceptance.py",
+            "repository": "production-engineering-os"
+          },
+          {
+            "baseline": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71",
+            "frozen": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+            "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+            "repository": "production-engineering-os"
+          }
+        ],
+        "previous_freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+      }
+    },
+    "artifact_records_differing": [
+      {
+        "index": 7,
+        "active": {
+          "path": ".claude/skills/decision-to-contract/SKILL.md",
+          "repository": "PM-agent-OS",
+          "sha256": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f"
+        },
+        "candidate": {
+          "path": ".claude/skills/decision-to-contract/SKILL.md",
+          "repository": "PM-agent-OS",
+          "sha256": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      },
+      {
+        "index": 32,
+        "active": {
+          "path": "src/pmpe/barebones.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7"
+        },
+        "candidate": {
+          "path": "src/pmpe/barebones.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      },
+      {
+        "index": 35,
+        "active": {
+          "path": "src/pmpe/cli/barebones_cmd.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb"
+        },
+        "candidate": {
+          "path": "src/pmpe/cli/barebones_cmd.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      },
+      {
+        "index": 50,
+        "active": {
+          "path": "src/pmpe/contracts/acceptance.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c"
+        },
+        "candidate": {
+          "path": "src/pmpe/contracts/acceptance.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      },
+      {
+        "index": 86,
+        "active": {
+          "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c"
+        },
+        "candidate": {
+          "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      }
+    ],
+    "artifact_records_differing_count": 5,
+    "identical_top_level_fields": [
+      "agreement_before_recording",
+      "approved_contract_digest",
+      "authority_limit",
+      "owner",
+      "plan_digest",
+      "recorded_at",
+      "review_bundle_digest"
+    ],
+    "unexpected_protected_top_level_differences": [
+      "previous_review_bundle_digest"
+    ],
+    "unexpected_artifact_field_differences": []
+  },
+  "active_vs_candidateA": {
+    "compare": "active -> candidateA",
+    "top_level_differing": {
+      "approval_context": {
+        "active": "Owner also requested whole-document regeneration from the amended grid and agreement before digest recording. No criterion or evaluator meaning changed.",
+        "candidateA": "UNAPPROVED DRY-RUN CANDIDATE generated 2026-10-09 over PEOS branch claude/pmos-peos-completion-ds46x1 and PMOS main. Supersedes nothing until the owner approves this exact digest."
+      },
+      "owner_approval_quote": {
+        "active": "Confirmed — freeze the amended grid and proceed.",
+        "candidateA": "NONE — awaiting owner approval"
+      },
+      "previous_review_bundle_digest": {
+        "active": "sha256:4eaa1d95828f3e1fbf2a9646eb25ec3185c5b4669e5ac98c4668756b958468b6",
+        "candidateA": "sha256:fbfe73637ec326330d3107aac1d43b023fc7c5473fe3ef7dfcede7e4d07af711"
+      },
+      "status": {
+        "active": "OWNER_CONFIRMED_FROZEN",
+        "candidateA": "CANDIDATE_REFREEZE_UNAPPROVED"
+      }
+    },
+    "keys_only_in_active": {},
+    "keys_only_in_candidateA": {
+      "refreeze_basis": {
+        "changed_entries": [
+          {
+            "current": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26",
+            "frozen": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+            "path": ".claude/skills/decision-to-contract/SKILL.md",
+            "repository": "PM-agent-OS"
+          },
+          {
+            "current": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a",
+            "frozen": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+            "path": "src/pmpe/barebones.py",
+            "repository": "production-engineering-os"
+          },
+          {
+            "current": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1",
+            "frozen": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+            "path": "src/pmpe/cli/barebones_cmd.py",
+            "repository": "production-engineering-os"
+          },
+          {
+            "current": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02",
+            "frozen": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+            "path": "src/pmpe/contracts/acceptance.py",
+            "repository": "production-engineering-os"
+          },
+          {
+            "current": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71",
+            "frozen": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+            "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+            "repository": "production-engineering-os"
+          }
+        ],
+        "previous_freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+      }
+    },
+    "artifact_records_differing": [
+      {
+        "index": 7,
+        "active": {
+          "path": ".claude/skills/decision-to-contract/SKILL.md",
+          "repository": "PM-agent-OS",
+          "sha256": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f"
+        },
+        "candidateA": {
+          "path": ".claude/skills/decision-to-contract/SKILL.md",
+          "repository": "PM-agent-OS",
+          "sha256": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      },
+      {
+        "index": 32,
+        "active": {
+          "path": "src/pmpe/barebones.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7"
+        },
+        "candidateA": {
+          "path": "src/pmpe/barebones.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      },
+      {
+        "index": 35,
+        "active": {
+          "path": "src/pmpe/cli/barebones_cmd.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb"
+        },
+        "candidateA": {
+          "path": "src/pmpe/cli/barebones_cmd.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      },
+      {
+        "index": 50,
+        "active": {
+          "path": "src/pmpe/contracts/acceptance.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c"
+        },
+        "candidateA": {
+          "path": "src/pmpe/contracts/acceptance.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      },
+      {
+        "index": 86,
+        "active": {
+          "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c"
+        },
+        "candidateA": {
+          "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+          "repository": "production-engineering-os",
+          "sha256": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+        },
+        "fields_differing": [
+          "sha256"
+        ]
+      }
+    ],
+    "artifact_records_differing_count": 5,
+    "identical_top_level_fields": [
+      "agreement_before_recording",
+      "approved_contract_digest",
+      "authority_limit",
+      "owner",
+      "plan_digest",
+      "recorded_at",
+      "review_bundle_digest"
+    ],
+    "unexpected_protected_top_level_differences": [
+      "previous_review_bundle_digest"
+    ],
+    "unexpected_artifact_field_differences": []
+  },
+  "candidateA_vs_candidate": {
+    "compare": "candidateA -> candidate",
+    "top_level_differing": {
+      "approval_context": {
+        "candidateA": "UNAPPROVED DRY-RUN CANDIDATE generated 2026-10-09 over PEOS branch claude/pmos-peos-completion-ds46x1 and PMOS main. Supersedes nothing until the owner approves this exact digest.",
+        "candidate": "UNAPPROVED CANDIDATE recomputed 2026-10-09 (Stage A) over PEOS e8a929d and PMOS 0652843 from git object bytes. Not approval."
+      },
+      "refreeze_basis": {
+        "candidateA": {
+          "changed_entries": [
+            {
+              "current": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26",
+              "frozen": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+              "path": ".claude/skills/decision-to-contract/SKILL.md",
+              "repository": "PM-agent-OS"
+            },
+            {
+              "current": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a",
+              "frozen": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+              "path": "src/pmpe/barebones.py",
+              "repository": "production-engineering-os"
+            },
+            {
+              "current": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1",
+              "frozen": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+              "path": "src/pmpe/cli/barebones_cmd.py",
+              "repository": "production-engineering-os"
+            },
+            {
+              "current": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02",
+              "frozen": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+              "path": "src/pmpe/contracts/acceptance.py",
+              "repository": "production-engineering-os"
+            },
+            {
+              "current": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71",
+              "frozen": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+              "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+              "repository": "production-engineering-os"
+            }
+          ],
+          "previous_freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+        },
+        "candidate": {
+          "baseline": {
+            "PM-agent-OS": "0652843",
+            "production-engineering-os": "e8a929d"
+          },
+          "changed_entries": [
+            {
+              "baseline": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26",
+              "frozen": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+              "path": ".claude/skills/decision-to-contract/SKILL.md",
+              "repository": "PM-agent-OS"
+            },
+            {
+              "baseline": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a",
+              "frozen": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+              "path": "src/pmpe/barebones.py",
+              "repository": "production-engineering-os"
+            },
+            {
+              "baseline": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1",
+              "frozen": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+              "path": "src/pmpe/cli/barebones_cmd.py",
+              "repository": "production-engineering-os"
+            },
+            {
+              "baseline": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02",
+              "frozen": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+              "path": "src/pmpe/contracts/acceptance.py",
+              "repository": "production-engineering-os"
+            },
+            {
+              "baseline": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71",
+              "frozen": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+              "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+              "repository": "production-engineering-os"
+            }
+          ],
+          "previous_freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+        }
+      }
+    },
+    "keys_only_in_candidateA": {},
+    "keys_only_in_candidate": {},
+    "artifact_records_differing": [],
+    "artifact_records_differing_count": 0,
+    "identical_top_level_fields": [
+      "agreement_before_recording",
+      "approved_contract_digest",
+      "authority_limit",
+      "owner",
+      "owner_approval_quote",
+      "plan_digest",
+      "previous_review_bundle_digest",
+      "recorded_at",
+      "review_bundle_digest",
+      "status"
+    ],
+    "unexpected_protected_top_level_differences": [],
+    "unexpected_artifact_field_differences": []
+  },
+  "digests": {
+    "active": {
+      "raw": "sha256:bb7bc83e5270cc29cadfc8b30608d73f85c271f77bba4c024fa3c659f3363f59",
+      "canonical": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+      "newlines": 1
+    },
+    "candidate (B)": {
+      "raw": "sha256:6cc523b7355d9c89dfe10fed887ad54804ab9e5b4449b09115b7a85b1b518ef0",
+      "canonical": "sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42",
+      "lines": 1150,
+      "present_at": [
+        "PMOS cafe8b4 reviews/task-tracker-v1/refreeze-candidate-20261009/freeze-manifest.candidate.json",
+        "PEOS 4b1558f docs/evidence/task-tracker-completion-20261009/stage-a/freeze-manifest.candidate.json",
+        "both real working trees"
+      ],
+      "absent_at": [
+        "PMOS 0652843 (same path holds candidate A)",
+        "PEOS e8a929d (stage-a/ does not exist)"
+      ]
+    },
+    "candidateA (earlier)": {
+      "raw": "sha256:d27e42a17c7624be8c5c6f29f28afbb10636eb4e420d93efb01a59062293eb17",
+      "canonical": "sha256:20e67cca5a1745cf5d7244019a1ccdebf3b9d4e29cc69fbaf016f2f469f6a4c0",
+      "lines": 1146,
+      "trailing_newline": false,
+      "present_at": [
+        "PMOS 0652843 reviews/task-tracker-v1/refreeze-candidate-20261009/freeze-manifest.candidate.json",
+        "PEOS e8a929d and 4b1558f docs/evidence/task-tracker-completion-20261009/refreeze-candidate/freeze-manifest.candidate.json"
+      ]
+    }
+  },
+  "observations": [
+    "PROTECTED-FIELD DIFFERENCE: previous_review_bundle_digest active sha256:4eaa1d95... (= PMOS 00ccd29 review-bundle.sha256, the amended PROPOSED_NOT_APPROVED bundle that preceded the owner's confirmation) -> candidate sha256:fbfe7363... (= review_bundle_digest itself, so previous == current). Not listed among the changes in refreeze-candidate-20261009/README.md or stage-a/APPROVAL-REQUEST.md.",
+    "review_bundle_digest is unchanged (fbfe7363...) in the candidate, but the review-manifest.json it names (bound artifact, raw sha256:f3ad347c...) still lists the OLD frozen digests of the five drifted files; the candidate's artifact list carries the new ones. The review manifest's own future_source_rule says to regenerate it when bound source changes.",
+    "recorded_at is identical (2026-09-18T15:22:13.171142+00:00) in the candidate; agreement_before_recording, approved_contract_digest, authority_limit, owner, plan_digest, review_bundle_digest identical.",
+    "Artifact list: same 218 (repository, path) pairs in the same order; 213 records identical; 5 records differ only in sha256 (indices 7, 32, 35, 50, 86).",
+    "Candidate A vs candidate B: identical artifact records; differ only in approval_context text and refreeze_basis shape ('current' -> 'baseline' keys, added baseline commit map)."
+  ]
+}

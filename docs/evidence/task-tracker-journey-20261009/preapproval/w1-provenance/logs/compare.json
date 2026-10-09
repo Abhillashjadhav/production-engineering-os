@@ -1,0 +1,286 @@
+{
+  "active_sha vs bound_commit_sha": {
+    "match": 213,
+    "mismatch": 5,
+    "mismatches": [
+      {
+        "repository": "PM-agent-OS",
+        "path": ".claude/skills/decision-to-contract/SKILL.md",
+        "expected": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+        "actual": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/barebones.py",
+        "expected": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+        "actual": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/cli/barebones_cmd.py",
+        "expected": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+        "actual": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/contracts/acceptance.py",
+        "expected": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+        "actual": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+        "expected": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+        "actual": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+      }
+    ]
+  },
+  "active_sha vs head_sha": {
+    "match": 213,
+    "mismatch": 5,
+    "mismatches": [
+      {
+        "repository": "PM-agent-OS",
+        "path": ".claude/skills/decision-to-contract/SKILL.md",
+        "expected": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+        "actual": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/barebones.py",
+        "expected": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+        "actual": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/cli/barebones_cmd.py",
+        "expected": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+        "actual": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/contracts/acceptance.py",
+        "expected": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+        "actual": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+        "expected": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+        "actual": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+      }
+    ]
+  },
+  "active_sha vs main_sha": {
+    "match": 212,
+    "mismatch": 6,
+    "mismatches": [
+      {
+        "repository": "PM-agent-OS",
+        "path": ".claude/skills/decision-to-contract/SKILL.md",
+        "expected": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+        "actual": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/barebones.py",
+        "expected": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+        "actual": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/cli/barebones_cmd.py",
+        "expected": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+        "actual": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/contracts/acceptance.py",
+        "expected": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+        "actual": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+        "expected": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+        "actual": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "examples/barebones/session-file-provider.py",
+        "expected": "sha256:ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6",
+        "actual": "ABSENT"
+      }
+    ]
+  },
+  "active_sha vs worktree_sha": {
+    "match": 213,
+    "mismatch": 5,
+    "mismatches": [
+      {
+        "repository": "PM-agent-OS",
+        "path": ".claude/skills/decision-to-contract/SKILL.md",
+        "expected": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+        "actual": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/barebones.py",
+        "expected": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+        "actual": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/cli/barebones_cmd.py",
+        "expected": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+        "actual": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/contracts/acceptance.py",
+        "expected": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+        "actual": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+      },
+      {
+        "repository": "production-engineering-os",
+        "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+        "expected": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+        "actual": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+      }
+    ]
+  },
+  "candidate_sha vs bound_commit_sha": {
+    "match": 218,
+    "mismatch": 0,
+    "mismatches": []
+  },
+  "candidate_sha vs head_sha": {
+    "match": 218,
+    "mismatch": 0,
+    "mismatches": []
+  },
+  "candidate_sha vs main_sha": {
+    "match": 217,
+    "mismatch": 1,
+    "mismatches": [
+      {
+        "repository": "production-engineering-os",
+        "path": "examples/barebones/session-file-provider.py",
+        "expected": "sha256:ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6",
+        "actual": "ABSENT"
+      }
+    ]
+  },
+  "candidate_sha vs worktree_sha": {
+    "match": 218,
+    "mismatch": 0,
+    "mismatches": []
+  },
+  "candidateA_sha_pmos_0652843 vs bound_commit_sha": {
+    "match": 218,
+    "mismatch": 0,
+    "mismatches": []
+  },
+  "candidateA_sha_pmos_0652843 vs head_sha": {
+    "match": 218,
+    "mismatch": 0,
+    "mismatches": []
+  },
+  "candidateA_sha_pmos_0652843 vs main_sha": {
+    "match": 217,
+    "mismatch": 1,
+    "mismatches": [
+      {
+        "repository": "production-engineering-os",
+        "path": "examples/barebones/session-file-provider.py",
+        "expected": "sha256:ed265e03278532d736629a4b07719b5bbd3426b4a549a9d8c2ff7a3b072755d6",
+        "actual": "ABSENT"
+      }
+    ]
+  },
+  "candidateA_sha_pmos_0652843 vs worktree_sha": {
+    "match": 218,
+    "mismatch": 0,
+    "mismatches": []
+  },
+  "active_vs_candidateB_records": [
+    {
+      "repository": "PM-agent-OS",
+      "path": ".claude/skills/decision-to-contract/SKILL.md",
+      "active": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+      "candidate": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "src/pmpe/barebones.py",
+      "active": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+      "candidate": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "src/pmpe/cli/barebones_cmd.py",
+      "active": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+      "candidate": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "src/pmpe/contracts/acceptance.py",
+      "active": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+      "candidate": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+      "active": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+      "candidate": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+    }
+  ],
+  "active_vs_candidateA_records": [
+    {
+      "repository": "PM-agent-OS",
+      "path": ".claude/skills/decision-to-contract/SKILL.md",
+      "active": "sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f",
+      "candidateA": "sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "src/pmpe/barebones.py",
+      "active": "sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7",
+      "candidateA": "sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "src/pmpe/cli/barebones_cmd.py",
+      "active": "sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb",
+      "candidateA": "sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "src/pmpe/contracts/acceptance.py",
+      "active": "sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c",
+      "candidateA": "sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02"
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": "src/pmpe/evals/real_behavior_drift_eval.py",
+      "active": "sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c",
+      "candidateA": "sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71"
+    }
+  ],
+  "candidateB_vs_candidateA_records": [],
+  "modes": {
+    "('100644', '100644', '100644')": 217,
+    "('100644', '100644', None)": 1
+  },
+  "absent": {
+    "bound_commit_sha": [],
+    "head_sha": [],
+    "main_sha": [
+      [
+        "production-engineering-os",
+        "examples/barebones/session-file-provider.py"
+      ]
+    ],
+    "worktree_sha": []
+  }
+}

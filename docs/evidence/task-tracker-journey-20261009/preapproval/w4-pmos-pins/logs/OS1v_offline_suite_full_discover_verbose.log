@@ -1,0 +1,69 @@
+### id: OS1v_offline_suite_full_discover_verbose
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/offline312/bin/python3)
+### command (bash -e -c): python3 -B -m unittest discover -s tests -p 'test_*.py' -v
+### start: 2026-10-09T14:29:01Z
+-----8<----- raw output -----8<-----
+test_metadata_only_and_session_correlation (test_beacon_hook.HookTests.test_metadata_only_and_session_correlation) ... ok
+test_missing_adapter_and_invalid_input_do_not_block (test_beacon_hook.HookTests.test_missing_adapter_and_invalid_input_do_not_block) ... ok
+test_adapter_preserves_nonexecutable_status (test_beacon_runner.RunnerTests.test_adapter_preserves_nonexecutable_status) ... ok
+test_adapter_receives_only_existing_workflow_arguments (test_beacon_runner.RunnerTests.test_adapter_receives_only_existing_workflow_arguments) ... ok
+test_missing_adapter_preserves_command_io_and_status (test_beacon_runner.RunnerTests.test_missing_adapter_preserves_command_io_and_status) ... ok
+test_missing_adapter_preserves_startup_error_codes (test_beacon_runner.RunnerTests.test_missing_adapter_preserves_startup_error_codes) ... ok
+test_no_command_reports_usage (test_beacon_runner.RunnerTests.test_no_command_reports_usage) ... ok
+test_malformed_install_metadata_has_actionable_diagnostic (test_handoff_setup.HandoffSetupTests.test_malformed_install_metadata_has_actionable_diagnostic) ... ok
+test_missing_console_entry_point_is_not_accepted (test_handoff_setup.HandoffSetupTests.test_missing_console_entry_point_is_not_accepted) ... ok
+test_missing_publisher_explains_handoff_setup (test_handoff_setup.HandoffSetupTests.test_missing_publisher_explains_handoff_setup) ... ok
+test_reviewed_metadata_passes_without_loading_package_or_writing (test_handoff_setup.HandoffSetupTests.test_reviewed_metadata_passes_without_loading_package_or_writing) ... ok
+test_same_package_version_at_other_commit_is_not_accepted (test_handoff_setup.HandoffSetupTests.test_same_package_version_at_other_commit_is_not_accepted) ... ok
+test_unknown_install_provenance_is_not_accepted (test_handoff_setup.HandoffSetupTests.test_unknown_install_provenance_is_not_accepted) ... ok
+test_clean_install_refuses_overwrite_and_force_replaces (test_install.InstallerSafetyTests.test_clean_install_refuses_overwrite_and_force_replaces) ... ok
+test_dangling_reviewer_link_requires_force (test_install.InstallerSafetyTests.test_dangling_reviewer_link_requires_force) ... ok
+test_force_can_replace_leaf_link_to_source (test_install.InstallerSafetyTests.test_force_can_replace_leaf_link_to_source) ... ok
+test_force_replaces_dangling_reviewer_link_without_writing_referent (test_install.InstallerSafetyTests.test_force_replaces_dangling_reviewer_link_without_writing_referent) ... ok
+test_force_replaces_directory_link_without_changing_referent (test_install.InstallerSafetyTests.test_force_replaces_directory_link_without_changing_referent) ... ok
+test_source_target_is_rejected_before_modification (test_install.InstallerSafetyTests.test_source_target_is_rejected_before_modification) ... ok
+test_symlinked_group_into_source_is_rejected_before_modification (test_install.InstallerSafetyTests.test_symlinked_group_into_source_is_rejected_before_modification) ... ok
+test_a_changed_bound_byte_is_reported_on_a_copy (test_task_tracker_freeze.TaskTrackerFreezeTests.test_a_changed_bound_byte_is_reported_on_a_copy)
+Negative control: drift detection itself works, independent of the live tree. ... ok
+test_approved_contract_matches_recorded_contract_digest (test_task_tracker_freeze.TaskTrackerFreezeTests.test_approved_contract_matches_recorded_contract_digest) ... ok
+test_manifest_matches_recorded_freeze_digest (test_task_tracker_freeze.TaskTrackerFreezeTests.test_manifest_matches_recorded_freeze_digest) ... ok
+test_pmos_bound_artifacts_are_unchanged (test_task_tracker_freeze.TaskTrackerFreezeTests.test_pmos_bound_artifacts_are_unchanged) ... FAIL
+test_boolean_description_cannot_bypass_lint (test_validation_regressions.ValidationRegressions.test_boolean_description_cannot_bypass_lint) ... ok
+test_collection_description_cannot_bypass_string_requirement (test_validation_regressions.ValidationRegressions.test_collection_description_cannot_bypass_string_requirement) ... ok
+test_duplicate_inventory_cannot_replace_a_missing_skill (test_validation_regressions.ValidationRegressions.test_duplicate_inventory_cannot_replace_a_missing_skill) ... ok
+test_inventory_cannot_substitute_another_file_for_skill (test_validation_regressions.ValidationRegressions.test_inventory_cannot_substitute_another_file_for_skill) ... ok
+test_lifecycle_metadata_name_must_match_inventory (test_validation_regressions.ValidationRegressions.test_lifecycle_metadata_name_must_match_inventory) ... ok
+test_quoted_collection_text_is_a_valid_description (test_validation_regressions.ValidationRegressions.test_quoted_collection_text_is_a_valid_description) ... ok
+test_unlisted_skill_is_not_silently_installed (test_validation_regressions.ValidationRegressions.test_unlisted_skill_is_not_silently_installed) ... ok
+test_unquoted_mapping_in_description_is_rejected (test_validation_regressions.ValidationRegressions.test_unquoted_mapping_in_description_is_rejected) ... ok
+test_valid_inline_comment_preserves_description (test_validation_regressions.ValidationRegressions.test_valid_inline_comment_preserves_description) ... ok
+
+======================================================================
+FAIL: test_pmos_bound_artifacts_are_unchanged (test_task_tracker_freeze.TaskTrackerFreezeTests.test_pmos_bound_artifacts_are_unchanged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos/tests/test_task_tracker_freeze.py", line 66, in test_pmos_bound_artifacts_are_unchanged
+    self.assertEqual(
+AssertionError: Lists differ: ['.claude/skills/decision-to-contract/SKIL[164 chars]c26'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'.claude/skills/decision-to-contract/SKILL.md: frozen sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f != current sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'
+
++ []
+- ['.claude/skills/decision-to-contract/SKILL.md: frozen '
+-  'sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f != '
+-  'current '
+-  'sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'] : APPROVAL_BOUND_ARTIFACT_CHANGED. The frozen journey cannot run against this tree until the owner approves a re-freeze (see reviews/task-tracker-v1/refreeze-candidate-20261009/README.md). Do not update digests here.
+
+----------------------------------------------------------------------
+Ran 33 tests in 3.416s
+
+FAILED (failures=1)
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T14:29:04Z
+### EXIT: 1

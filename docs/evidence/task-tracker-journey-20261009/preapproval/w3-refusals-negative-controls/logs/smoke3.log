@@ -1,0 +1,39 @@
+[2026-10-09T15:03:39.698921+00:00] control stale_response_other_call
+[2026-10-09T15:03:42.854744+00:00] control stale_response_identical_request_replay
+[2026-10-09T15:03:50.109195+00:00] control missing_model_response_shim_bounded
+[2026-10-09T15:03:52.003511+00:00] control interruption_and_recovery
+[2026-10-09T15:04:00.155054+00:00] control missing_fallback_verify
+[2026-10-09T15:04:00.375494+00:00] control missing_fallback_build
+[2026-10-09T15:04:00.699635+00:00] control product_mutation_status_filter_ignored
+[2026-10-09T15:04:04.889357+00:00] control evaluator_mutation_in_candidate
+[2026-10-09T15:04:05.211365+00:00] control contract_mutation_after_freeze
+[2026-10-09T15:04:05.436266+00:00] control contract_mutation_refrozen
+[2026-10-09T15:04:05.670757+00:00] group cli_store_failures
+{
+  "summary": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w3/runs/smoke3/summary.json",
+  "totals": {
+    "PASS": 15,
+    "FAIL": 0,
+    "NOT_APPLICABLE": 0,
+    "SKIPPED": 1,
+    "HARNESS_ERROR": 0
+  },
+  "verdicts": {
+    "stale_response_other_call": "PASS",
+    "stale_response_identical_request_replay": "PASS",
+    "missing_model_response_shim_bounded": "PASS",
+    "interruption_and_recovery": "PASS",
+    "missing_fallback_verify": "PASS",
+    "missing_fallback_build": "PASS",
+    "product_mutation_status_filter_ignored": "PASS",
+    "evaluator_mutation_in_candidate": "PASS",
+    "contract_mutation_after_freeze": "PASS",
+    "contract_mutation_refrozen": "PASS",
+    "cli_malformed_store": "PASS",
+    "cli_store_is_directory": "PASS",
+    "cli_store_parent_is_file": "PASS",
+    "cli_inaccessible_store_chmod_file": "PASS",
+    "cli_inaccessible_store_chmod_dir": "PASS",
+    "missing_model_response_engine_slow": "SKIPPED"
+  }
+}

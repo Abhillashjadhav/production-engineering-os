@@ -1,0 +1,5 @@
+[2026-10-09T15:01:24.331405+00:00] control wrong_provider_digest
+[2026-10-09T15:01:27.592463+00:00] control wrong_freeze_digest
+[2026-10-09T15:01:27.762828+00:00] control missing_candidate
+[2026-10-09T15:01:28.032841+00:00] group cli_invalid_inputs
+[2026-10-09T15:01:28.595095+00:00] group cli_store_failures

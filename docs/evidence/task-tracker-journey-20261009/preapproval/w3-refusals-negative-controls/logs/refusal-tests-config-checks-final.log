@@ -1,0 +1,8 @@
+## A (final file): no sibling PMOS checkout, PMOS_ROOT unset
+=========================== short test summary info ============================
+SKIPPED [1] tests/integration/test_contract_file_refusals.py:388: needs the PMOS task-tracker packet: set PMOS_ROOT or check out ../PM-agent-OS
+SKIPPED [1] tests/integration/test_contract_file_refusals.py:478: needs the PMOS task-tracker packet: set PMOS_ROOT or check out ../PM-agent-OS
+SKIPPED [2] tests/integration/test_contract_file_refusals.py:495: needs the PMOS task-tracker packet: set PMOS_ROOT or check out ../PM-agent-OS
+4 skipped in 0.09s
+## C (final file): real packet + active drifted digest
+4 errors in 0.17s

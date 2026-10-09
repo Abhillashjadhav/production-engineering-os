@@ -1,0 +1,23 @@
+### id: PT4_patched_test_handoff_setup
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos-patch-copy
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-gh/bin/python3)
+### command (bash -e -c): python -B tests/test_handoff_setup.py -v
+### start: 2026-10-09T15:01:58Z
+-----8<----- raw output -----8<-----
+test_malformed_install_metadata_has_actionable_diagnostic (__main__.HandoffSetupTests.test_malformed_install_metadata_has_actionable_diagnostic) ... ok
+test_missing_console_entry_point_is_not_accepted (__main__.HandoffSetupTests.test_missing_console_entry_point_is_not_accepted) ... ok
+test_missing_publisher_explains_handoff_setup (__main__.HandoffSetupTests.test_missing_publisher_explains_handoff_setup) ... ok
+test_reviewed_metadata_passes_without_loading_package_or_writing (__main__.HandoffSetupTests.test_reviewed_metadata_passes_without_loading_package_or_writing) ... ok
+test_same_package_version_at_other_commit_is_not_accepted (__main__.HandoffSetupTests.test_same_package_version_at_other_commit_is_not_accepted) ... ok
+test_unknown_install_provenance_is_not_accepted (__main__.HandoffSetupTests.test_unknown_install_provenance_is_not_accepted) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.426s
+
+OK
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T15:01:58Z
+### EXIT: 0

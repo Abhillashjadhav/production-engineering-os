@@ -1,0 +1,31 @@
+## A: no sibling PMOS checkout, PMOS_ROOT unset
+ssss                                                                     [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/integration/test_contract_file_refusals.py:376: needs the PMOS task-tracker packet: set PMOS_ROOT or check out ../PM-agent-OS
+SKIPPED [1] tests/integration/test_contract_file_refusals.py:466: needs the PMOS task-tracker packet: set PMOS_ROOT or check out ../PM-agent-OS
+SKIPPED [2] tests/integration/test_contract_file_refusals.py:483: needs the PMOS task-tracker packet: set PMOS_ROOT or check out ../PM-agent-OS
+4 skipped in 0.12s
+exit=0
+
+## B: PMOS_ROOT set to a path without the packet
+ERROR tests/integration/test_contract_file_refusals.py::test_interrupted_build_is_never_complete_and_recovers_only_into_a_fresh_output
+ERROR tests/integration/test_contract_file_refusals.py::test_verify_without_candidate_is_refused
+ERROR tests/integration/test_contract_file_refusals.py::test_missing_host_fallback_authorization_is_refused[verify]
+ERROR tests/integration/test_contract_file_refusals.py::test_missing_host_fallback_authorization_is_refused[build]
+4 errors in 0.15s
+
+## C: real packet, read-only, with the ACTIVE (drifted) freeze digest 1dd281e5
+E               Failed: real packet would refuse (APPROVAL_BOUND_ARTIFACT_CHANGED): ['PM-agent-OS:.claude/skills/decision-to-contract/SKILL.md', 'production-engineering-os:src/pmpe/barebones.py', 'production-engineering-os:src/pmpe/cli/barebones_cmd.py', 'production-engineering-os:src/pmpe/contracts/acceptance.py', 'production-engineering-os:src/pmpe/evals/real_behavior_drift_eval.py']
+E               Failed: real packet would refuse (APPROVAL_BOUND_ARTIFACT_CHANGED): ['PM-agent-OS:.claude/skills/decision-to-contract/SKILL.md', 'production-engineering-os:src/pmpe/barebones.py', 'production-engineering-os:src/pmpe/cli/barebones_cmd.py', 'production-engineering-os:src/pmpe/contracts/acceptance.py', 'production-engineering-os:src/pmpe/evals/real_behavior_drift_eval.py']
+E               Failed: real packet would refuse (APPROVAL_BOUND_ARTIFACT_CHANGED): ['PM-agent-OS:.claude/skills/decision-to-contract/SKILL.md', 'production-engineering-os:src/pmpe/barebones.py', 'production-engineering-os:src/pmpe/cli/barebones_cmd.py', 'production-engineering-os:src/pmpe/contracts/acceptance.py', 'production-engineering-os:src/pmpe/evals/real_behavior_drift_eval.py']
+ERROR tests/integration/test_contract_file_refusals.py::test_interrupted_build_is_never_complete_and_recovers_only_into_a_fresh_output
+ERROR tests/integration/test_contract_file_refusals.py::test_verify_without_candidate_is_refused
+ERROR tests/integration/test_contract_file_refusals.py::test_missing_host_fallback_authorization_is_refused[verify]
+ERROR tests/integration/test_contract_file_refusals.py::test_missing_host_fallback_authorization_is_refused[build]
+4 errors in 0.13s
+
+## D: real packet with the UNAPPROVED candidate digest 82f6365c (manifest not in place)
+E               Failed: PMPE_TEST_TASK_TRACKER_FREEZE_DIGEST does not match the real manifest
+E               Failed: PMPE_TEST_TASK_TRACKER_FREEZE_DIGEST does not match the real manifest
+E               Failed: PMPE_TEST_TASK_TRACKER_FREEZE_DIGEST does not match the real manifest
+4 errors in 0.13s

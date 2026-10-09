@@ -1,0 +1,9 @@
+attrs==26.1.0
+jsonschema==4.25.1
+jsonschema-specifications==2025.9.1
+pmpe @ file:///tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/peos-e8a929d
+PyYAML==6.0.3
+referencing==0.37.0
+rfc8785==0.1.4
+rpds-py==2026.9.1
+typing_extensions==4.16.0

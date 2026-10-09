@@ -1,0 +1,17 @@
+# per-commit match of ACTIVE manifest entries (script scripts/match_at.py; '-' = repository skipped)
+['f7669c2','-'] match 204 mismatch 0   (run in foreground)
+['dd4271b','-'] match 203 mismatch 1 (session-file-provider.py ABSENT)   (run in foreground)
+['-','5aefeb5'] match 14 mismatch 0   (run in foreground)
+['-','27d0418'] match 1 mismatch 13 (packet files ABSENT)   (run in foreground)
+['-','9d55bf6'] match 14 mismatch 0   (run in foreground; 9d55bf6 fetched from GitHub PR #58 refs into W1 clone)
+# batch run (background; e67ec19/d800d42 lines not emitted under OOM/load; d800d42 covered by empty 'git diff --name-only 1abfbd4 f7669c2 -- <204 bound PEOS paths>'):
+['640c8f7', '-'] match 203 mismatch 1
+    ('production-engineering-os', 'examples/barebones/session-file-provider.py', 'sha256:ed265e03278532d7', 'ABSENT')
+['8f58def', '-'] match 203 mismatch 1
+    ('production-engineering-os', 'examples/barebones/session-file-provider.py', 'sha256:ed265e03278532d7', 'ABSENT')
+['1abfbd4', '-'] match 204 mismatch 0
+['54df3c0', '-'] match 204 mismatch 0
+['90c1bd1', '-'] match 204 mismatch 0
+['0295973', '-'] match 204 mismatch 0
+
+[exited with code 0]

@@ -1,0 +1,8 @@
+$ mypy --strict src/pmpe scripts/ci/... examples/barebones/*.py  (expanded: examples/barebones/codex-cli-provider.py examples/barebones/contract-file.py examples/barebones/e1-provider.py examples/barebones/openai-responses-provider.py examples/barebones/run_real_behavior_drift_eval.py examples/barebones/session-file-provider.py examples/barebones/task-tracker-regression.py)
+mypy 2.3.1 (compiled: yes)
+Success: no issues found in 200 source files
+
+real	0m6.176s
+user	0m5.778s
+sys	0m0.255s
+EXIT=0

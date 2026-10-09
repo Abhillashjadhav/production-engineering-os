@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "<stdin>", line 11, in <module>
+AssertionError
+1 file reformatted
+All checks passed!
+1 file already formatted
+
+[exited with code 0]

@@ -1,0 +1,46 @@
+### id: TT4_compile_frozen_contract_e8a929d
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/tmp
+### git HEAD: 
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python3)
+### command (bash -e -c): python -B /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/scripts/compile_frozen.py /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/peos-e8a929d/examples/barebones/contract-file.py /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos/reviews/task-tracker-v1 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/tmp/compile-root-e8a929d e8a929d-worktree-install
+### start: 2026-10-09T15:00:42Z
+-----8<----- raw output -----8<-----
+{
+  "canonical_digest_equal_to_frozen_plan": true,
+  "computed_plan_canonical_digest": "sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7",
+  "computed_plan_digest": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+  "contract_canonical_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "criteria_count": 14,
+  "criteria_forms": [
+    "given_when_then",
+    "measure"
+  ],
+  "entry_script": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/peos-e8a929d/examples/barebones/contract-file.py",
+  "entry_script_sha256": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+  "executable": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python",
+  "expected_plan_digest": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+  "frozen_plan_canonical_digest": "sha256:4d552932f8907d770ecb01827d6b2a218b62fcd2002abb808ecd83d430072ab7",
+  "frozen_plan_recorded_plan_digest": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+  "inputs": {
+    "approval-receipt.json": "sha256:856ef2b3257a54c3834c44f95d61b245be4906807db50d2f88dc63e219b1d09c",
+    "bindings.json": "sha256:3414ac07671405b6d69a41af91b1e96b8324d1c4455b0e262f5e04123540dac0",
+    "compiled-plan.json": "sha256:e729e28f5383340068073ae78fc6c2523016f642160b7c2a1d17388b655c12d1",
+    "contract.approved.json": "sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2"
+  },
+  "label": "e8a929d-worktree-install",
+  "plan_digest_equal_expected": true,
+  "pmpe_direct_url": {
+    "dir_info": {},
+    "url": "file:///tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/peos-e8a929d"
+  },
+  "python": "3.12.3",
+  "receipt_check": "None",
+  "repository_root": "/tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/tmp/compile-root-e8a929d",
+  "status": "COMPILES",
+  "template_version": "task-tracker-acceptance-v1"
+}
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T15:00:43Z
+### EXIT: 0

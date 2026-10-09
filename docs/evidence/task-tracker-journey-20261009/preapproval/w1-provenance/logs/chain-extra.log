@@ -1,0 +1,16 @@
+{
+ "plan_json_roundtrip_equals_frozen": true,
+ "AC-001_then_before": "[{\"operator\": \"eq\", \"path\": \"result.observations\", \"value\": [{\"exit_code\": 0, \"output\": {\"tasks\": []}}]}, {\"operator\": \"eq\", \"path\": \"result.setup_observations\", \"value\": []}, {\"operator\": \"eq\", \"path\": \"result.process_count\", \"value\": 1}]",
+ "forgery_existing_field_verify_contract_approval": "ACCEPTED sha256:fe772e839a3bc1065aeda1987fa4562b17f8b208ee5d3f60c6f84d18eb01ffc0",
+ "forged_load_contract_runnable": true,
+ "forged_entry_compatibility_reasons": [
+  "PLAN_CHANGED: compiled plan differs from frozen plan"
+ ],
+ "forged_entry_compatibility_plan_digest": "sha256:4878b7cb103cc5008cecdead7f69ce82e5ba8ee3bae58accf6e1217a3da3b2c6",
+ "original_entry_compatibility_reasons": [],
+ "original_entry_compatible": true,
+ "original_entry_plan_digest": "sha256:1dad520ebc6ac6973aeb23d80fe5c98d67e3d8a5fa20d902f56d45a180777b28",
+ "digestguard_active_vs_real_worktrees": "TamperDetectedError: APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/home/user/PM-agent-OS/.claude/skills/decision-to-contract/SKILL.md', 'expected': 'sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f', 'actual': 'sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'}, {'path': '/home/user/production-engineering-os/src/pmpe/barebones.py', 'expected': 'sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7', 'actual': 'sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a'}, {'path': '/home/user/production-engineering-os/src/pmpe/cli/barebones",
+ "digestguard_wrong_digest": "REFUSED TamperDetectedError: FREEZE_DIGEST_MISMATCH"
+}
+exit=0

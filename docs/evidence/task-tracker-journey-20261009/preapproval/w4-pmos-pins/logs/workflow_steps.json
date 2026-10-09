@@ -1,0 +1,321 @@
+{
+ "current-authoring.yml": {
+  "on": {
+   "pull_request": null,
+   "push": {
+    "branches": [
+     "main"
+    ]
+   }
+  },
+  "jobs": {
+   "current-authoring": {
+    "runs-on": "ubuntu-latest"
+   }
+  },
+  "steps": [
+   {
+    "job": "current-authoring",
+    "index": 0,
+    "name": null,
+    "uses": "actions/checkout@v4",
+    "with": null,
+    "run": null,
+    "shell": null
+   },
+   {
+    "job": "current-authoring",
+    "index": 1,
+    "name": null,
+    "uses": "actions/setup-python@v5",
+    "with": {
+     "python-version": "3.12"
+    },
+    "run": null,
+    "shell": null
+   },
+   {
+    "job": "current-authoring",
+    "index": 2,
+    "name": "Install the existing reviewed publisher snapshot",
+    "uses": null,
+    "with": null,
+    "run": "python -m pip install 'git+https://github.com/Abhillashjadhav/production-engineering-os.git@297a11d79e5d1e1eda1f8f94b7bec3046c41a0d6'",
+    "shell": null
+   },
+   {
+    "job": "current-authoring",
+    "index": 3,
+    "name": "Check documented publisher provenance",
+    "uses": null,
+    "with": null,
+    "run": "python scripts/check_handoff.py",
+    "shell": null
+   },
+   {
+    "job": "current-authoring",
+    "index": 4,
+    "name": "Check documented-pin authoring and receipt-bound admission",
+    "uses": null,
+    "with": null,
+    "run": "python -B tests/decision-to-contract/test_current_authoring.py -v",
+    "shell": null
+   }
+  ]
+ },
+ "pr-review.yml": {
+  "on": {
+   "pull_request": {
+    "types": [
+     "opened",
+     "synchronize",
+     "reopened",
+     "ready_for_review"
+    ]
+   }
+  },
+  "jobs": {
+   "review": {
+    "name": "Deterministic PR quality gate",
+    "if": "github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository",
+    "runs-on": "ubuntu-latest",
+    "timeout-minutes": 10
+   }
+  },
+  "steps": [
+   {
+    "job": "review",
+    "index": 0,
+    "name": "Checkout PR branch",
+    "uses": "actions/checkout@v4",
+    "with": {
+     "fetch-depth": 0
+    },
+    "run": null,
+    "shell": null
+   },
+   {
+    "job": "review",
+    "index": 1,
+    "name": "Set up Python",
+    "uses": "actions/setup-python@v5",
+    "with": {
+     "python-version": "3.x"
+    },
+    "run": null,
+    "shell": null
+   },
+   {
+    "job": "review",
+    "index": 2,
+    "name": "Run deterministic PR quality gate",
+    "uses": null,
+    "with": null,
+    "run": "python tests/pr_quality_gate.py --base-ref \"origin/${{ github.base_ref }}\"",
+    "shell": null
+   }
+  ]
+ },
+ "public-smoke.yml": {
+  "on": {
+   "push": {
+    "branches": [
+     "main"
+    ]
+   },
+   "pull_request": null,
+   "workflow_dispatch": null
+  },
+  "jobs": {
+   "public-quickstart": {
+    "runs-on": "ubuntu-latest",
+    "timeout-minutes": 10
+   }
+  },
+  "steps": [
+   {
+    "job": "public-quickstart",
+    "index": 0,
+    "name": null,
+    "uses": "actions/checkout@v4",
+    "with": null,
+    "run": null,
+    "shell": null
+   },
+   {
+    "job": "public-quickstart",
+    "index": 1,
+    "name": null,
+    "uses": "actions/setup-python@v5",
+    "with": {
+     "python-version": "3.11"
+    },
+    "run": null,
+    "shell": null
+   },
+   {
+    "job": "public-quickstart",
+    "index": 2,
+    "name": "Run documented repository audit",
+    "uses": null,
+    "with": null,
+    "run": "python3 tests/audit_repository.py",
+    "shell": null
+   },
+   {
+    "job": "public-quickstart",
+    "index": 3,
+    "name": "Run installer safety regressions",
+    "uses": null,
+    "with": null,
+    "run": "python3 tests/test_install.py",
+    "shell": null
+   },
+   {
+    "job": "public-quickstart",
+    "index": 4,
+    "name": "Install into a clean Claude home",
+    "uses": null,
+    "with": null,
+    "run": "python3 scripts/install.py --target \"$RUNNER_TEMP/claude-home\"\ntest -f \"$RUNNER_TEMP/claude-home/skills/pm/SKILL.md\"\ntest -d \"$RUNNER_TEMP/claude-home/agents\"\n",
+    "shell": null
+   },
+   {
+    "job": "public-quickstart",
+    "index": 5,
+    "name": "Prove silent overwrite is blocked",
+    "uses": null,
+    "with": null,
+    "run": "if python3 scripts/install.py --target \"$RUNNER_TEMP/claude-home\"; then\n  echo \"installer unexpectedly overwrote existing entries\"\n  exit 1\nfi\n",
+    "shell": null
+   },
+   {
+    "job": "public-quickstart",
+    "index": 6,
+    "name": "Prove explicit replacement works",
+    "uses": null,
+    "with": null,
+    "run": "python3 scripts/install.py --target \"$RUNNER_TEMP/claude-home\" --force\ntest -f \"$RUNNER_TEMP/claude-home/skills/pm/SKILL.md\"\n",
+    "shell": null
+   }
+  ]
+ },
+ "repository-audit.yml": {
+  "on": {
+   "pull_request": null,
+   "push": {
+    "branches": [
+     "main"
+    ]
+   }
+  },
+  "jobs": {
+   "audit": {
+    "runs-on": "ubuntu-latest"
+   }
+  },
+  "steps": [
+   {
+    "job": "audit",
+    "index": 0,
+    "name": null,
+    "uses": "actions/checkout@v4",
+    "with": null,
+    "run": null,
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 1,
+    "name": null,
+    "uses": "actions/setup-python@v5",
+    "with": {
+     "python-version": "3.12"
+    },
+    "run": null,
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 2,
+    "name": "Run offline repository audit",
+    "uses": null,
+    "with": null,
+    "run": "python tests/audit_repository.py",
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 3,
+    "name": "Check offline handoff prerequisite diagnostics",
+    "uses": null,
+    "with": null,
+    "run": "python -B tests/test_handoff_setup.py -v",
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 4,
+    "name": "Run offline Beacon hook and runner tests",
+    "uses": null,
+    "with": null,
+    "run": "python -B -m unittest discover -s tests -p 'test_beacon_*.py' -v",
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 5,
+    "name": "Reject planted validation failures",
+    "uses": null,
+    "with": null,
+    "run": "python -m unittest discover -s tests -p test_validation_regressions.py -v",
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 6,
+    "name": "Check the frozen task-tracker packet for approval-bound drift",
+    "uses": null,
+    "with": null,
+    "run": "python -B tests/test_task_tracker_freeze.py -v",
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 7,
+    "name": "Lint all skills",
+    "uses": null,
+    "with": null,
+    "run": "while IFS= read -r skill; do\n  python tests/lint_skill.py \"$skill\"\ndone < <(find . -name SKILL.md -not -path './.git/*' -print)\n",
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 8,
+    "name": "Install pinned Production Engineering OS compiler",
+    "uses": null,
+    "with": null,
+    "run": "python -m pip install \"git+https://github.com/Abhillashjadhav/production-engineering-os.git@5c0f9e3a8f2c66b212c5e1adfb373e4fd2681bf9\"",
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 9,
+    "name": "Execute PMOS to PEOS contract compatibility",
+    "uses": null,
+    "with": null,
+    "run": "python tests/decision-to-contract/validate_contract.py",
+    "shell": null
+   },
+   {
+    "job": "audit",
+    "index": 10,
+    "name": "Compile Python checks",
+    "uses": null,
+    "with": null,
+    "run": "python -m py_compile tests/audit_repository.py tests/lint_skill.py tests/pr_quality_gate.py tests/yaml.py tests/decision-to-contract/validate_contract.py",
+    "shell": null
+   }
+  ]
+ }
+}

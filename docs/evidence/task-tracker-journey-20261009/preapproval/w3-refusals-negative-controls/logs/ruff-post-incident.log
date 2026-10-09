@@ -1,0 +1,13 @@
+## 2026-10-09T14:59:08Z post-incident (MemAvailable 15459284 kB)
+$ ruff check tests/integration/test_contract_file_refusals.py
+All checks passed!
+exit=0
+$ ruff format --check tests/integration/test_contract_file_refusals.py
+1 file already formatted
+exit=0
+$ ruff format --check <ci.yml path list>
+309 files already formatted
+exit=0
+$ ruff check <ci.yml path list>
+All checks passed!
+exit=0

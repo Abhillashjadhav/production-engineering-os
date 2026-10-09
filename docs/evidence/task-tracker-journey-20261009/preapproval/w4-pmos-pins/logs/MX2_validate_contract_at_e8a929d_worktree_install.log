@@ -1,0 +1,13 @@
+### id: MX2_validate_contract_at_e8a929d_worktree_install
+### cwd: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/pmos
+### git HEAD: cafe8b4011d35653cc343175e0acd43d0b65e416
+### PATH-prefix: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin
+### python -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python)
+### python3 -> /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python3 (3.12.3 /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w4/venvs/tt-e8a929d-wt/bin/python3)
+### command (bash -e -c): python tests/decision-to-contract/validate_contract.py
+### start: 2026-10-09T15:02:58Z
+-----8<----- raw output -----8<-----
+PASS answers publish an exact approved contract, engineering handoff starts, and planted failures are rejected
+-----8<----- end raw output -----8<-----
+### end: 2026-10-09T15:02:58Z
+### EXIT: 0

@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: /tmp/claude-0/-home-user/fe31551b-cc2b-5bfa-8931-d484034d32b5/scratchpad/w2/peos
+configfile: pyproject.toml
+plugins: platformdirs-4.12.4
+collected 84 items
+
+tests/unit/test_support_package_v1.py .................................. [ 40%]
+..................................................                       [100%]
+
+============================= slowest 5 durations ==============================
+8.30s call     tests/unit/test_support_package_v1.py::test_runtime_proofs_require_completion_and_standard_library_imports
+5.73s call     tests/unit/test_support_package_v1.py::test_manifest_schema_version_and_unknown_fields_fail_closed
+5.49s call     tests/unit/test_support_package_v1.py::test_bundle_verification_rederives_manifest_claims_and_approval
+4.65s call     tests/unit/test_support_package_v1.py::test_runtime_enforces_approved_request_deadline
+4.37s call     tests/unit/test_support_package_v1.py::test_bundle_verification_fails_closed_on_source_or_corpus_tampering
+======================== 84 passed in 67.64s (0:01:07) =========================

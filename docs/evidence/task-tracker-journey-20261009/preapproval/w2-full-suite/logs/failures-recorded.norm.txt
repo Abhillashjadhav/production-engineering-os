@@ -1,0 +1,136 @@
+=================================== FAILURES ===================================
+________________ test_package_verification_rederives_every_port ________________
+
+tmp_path = PosixPath('/tmp/PYTEST/test_package_verification_rede0')
+
+    def test_package_verification_rederives_every_port(tmp_path: Path) -> None:
+        bundle = tmp_path / "bundle"
+>       _assemble(tmp_path, bundle)
+
+tests/unit/test_support_package_v1.py:349: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_support_package_v1.py:149: in _assemble
+    return assemble_support_package(
+src/pmpe/support_package.py:1624: in assemble_support_package
+    verification = _run_reference_verification(staged, forbidden, files)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/PYTEST/test_package_verification_rede0/.bundle-XXXX')
+forbidden = ['autonomous_refund_payment', 'credential_collection']
+expected_files = {'Dockerfile': 'sha256:H', 'README.md': 'sha256:H', 'approval-receipt.json': 'sha256:H', ...}
+
+    def _run_reference_verification(
+        root: Path, forbidden: list[str], expected_files: Mapping[str, str]
+    ) -> dict[str, Any]:
+        try:
+            app_source = (root / "app.py").read_bytes()
+            corpus_source = (root / "recorded-corpus.json").read_bytes()
+            policy_source = (root / "runtime-policy.json").read_bytes()
+        except OSError as exc:
+            raise PackageContractError("generated reference runtime is unreadable") from exc
+        pinned = {
+            "app.py": app_source,
+            "recorded-corpus.json": corpus_source,
+            "runtime-policy.json": policy_source,
+        }
+        if any(
+            "sha256:" + hashlib.sha256(content).hexdigest() != expected_files.get(name)
+            for name, content in pinned.items()
+        ):
+            raise PackageContractError("runtime inputs changed before immutable verification")
+        try:
+            syntax_tree = ast.parse(app_source, "app.py")
+            compile(syntax_tree, "app.py", "exec")
+            proof_input = canonical_json_bytes(
+                {
+                    "app_source": app_source.decode(),
+                    "corpus": strict_loads(corpus_source),
+                    "policy": strict_loads(policy_source),
+                    "startup_timeout_seconds": _PROOF_CHILD_STARTUP_TIMEOUT_SECONDS,
+                }
+            )
+        except (UnicodeError, ValueError, SyntaxError) as exc:
+            raise PackageContractError("generated reference runtime does not compile") from exc
+        environment = {
+            "PATH": os.environ.get("PATH", ""),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONIOENCODING": "utf-8",
+        }
+        if system_root := os.environ.get("SYSTEMROOT"):
+            environment["SYSTEMROOT"] = system_root
+        imported_roots = {
+            alias.name.partition(".")[0]
+            for node in ast.walk(syntax_tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            str(node.module).partition(".")[0]
+            for node in ast.walk(syntax_tree)
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module is not None
+        }
+        if any(name not in sys.stdlib_module_names for name in imported_roots):
+            raise PackageContractError("generated runtime imports a non-standard-library dependency")
+        unresolved_import_primitives = [
+            node
+            for node in ast.walk(syntax_tree)
+            if isinstance(node, ast.Name)
+            and node.id in {"__import__", "__builtins__", "builtins", "importlib"}
+            or isinstance(node, ast.Constant)
+            and node.value in {"__import__", "import_module"}
+            or isinstance(node, ast.Attribute)
+            and node.attr == "import_module"
+            or isinstance(node, ast.Call)
+            and (
+                isinstance(node.func, ast.Name)
+                and node.func.id == "__import__"
+                or isinstance(node.func, ast.Attribute)
+                and node.func.attr == "import_module"
+            )
+        ]
+        if unresolved_import_primitives:
+            raise PackageContractError("generated runtime contains an unresolved dynamic import")
+        if app_source != _APP_SOURCE.encode():
+            raise PackageContractError("release candidate runtime differs from canonical v1")
+        proof_cases = [*sorted(forbidden), "ordinary_ticket", "low_confidence", "policy_draft"]
+        for capability in proof_cases:
+            proof = subprocess.Popen(  # nosec B603 - fixed interpreter and verifier-owned proof
+                [
+                    os.fspath(Path(sys.executable).resolve()),
+                    "-I",
+                    "-c",
+                    _PROOF_RUNNER,
+                    capability,
+                ],
+                env=environment,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=os.name != "nt",
+                creationflags=(
+                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+                ),
+            )
+            try:
+                stdout, _ = proof.communicate(proof_input, timeout=_PROOF_PROCESS_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired as exc:
+                if os.name == "nt":
+                    subprocess.run(  # nosec B603 - fixed Windows process-tree terminator
+                        ["taskkill", "/PID", str(proof.pid), "/T", "/F"],
+                        capture_output=True,
+                        check=False,
+                    )
+                    if proof.poll() is None:
+                        proof.kill()
+                else:
+                    os.killpg(proof.pid, signal.SIGKILL)
+                proof.wait()
+                raise PackageContractError(
+                    f"forbidden-capability proof timed out: {capability}"
+                ) from exc
+            expected_receipt = f"PMPE_PROOF_COMPLETE:{capability}".encode()
+            if proof.returncode != 0 or stdout != expected_receipt:
+>               raise PackageContractError(f"forbidden-capability proof did not execute: {capability}")
+E               pmpe.support_package.PackageContractError: forbidden-capability proof did not execute: low_confidence
+
+src/pmpe/support_package.py:1450: PackageContractError

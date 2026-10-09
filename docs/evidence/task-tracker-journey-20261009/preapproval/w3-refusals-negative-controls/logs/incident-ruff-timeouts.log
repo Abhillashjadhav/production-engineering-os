@@ -1,0 +1,4 @@
+ruff check exit=124
+format check exit=124
+
+[exited with code 0]

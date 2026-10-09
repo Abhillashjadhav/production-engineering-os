@@ -1,0 +1,5 @@
+candidate status: CANDIDATE_REFREEZE_UNAPPROVED artifacts: 218
+candidate canonical digest (test canonical_json): sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42
+recorded candidate digest file: sha256:82f6365cd895892c4cb9fadd279f82e2755cc62bed2c60d95f49233d4c1c7f42
+PMOS drift vs ACTIVE manifest: ['.claude/skills/decision-to-contract/SKILL.md: frozen sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f != current sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26']
+PMOS drift vs CANDIDATE manifest: []

@@ -1,0 +1,15 @@
+....                                                                     [100%]
+=============================== warnings summary ===============================
+tests/integration/test_contract_file_refusals.py::test_interrupted_build_is_never_complete_and_recovers_only_into_a_fresh_output
+  /home/user/production-engineering-os/tests/integration/test_contract_file_refusals.py:431: UserWarning: left the killed process group: [_Proc(pid=1843, ppid=1615, pgid=1843, sid=1843, state='S', cmdline='/home/user/production-engineering-os/.venv/bin/python /home/user/production-engineering-os/examples/barebones/session-file-provider.py --handoff-dir /tmp/pytest-of-root/pytest-32/test_interrupted_build_is_neve0/interrupted/handoff')]
+    warnings.warn(f"left the killed process group: {escaped}", stacklevel=1)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/integration/test_contract_file_refusals.py::test_interrupted_build_is_never_complete_and_recovers_only_into_a_fresh_output
+PASSED tests/integration/test_contract_file_refusals.py::test_verify_without_candidate_is_refused
+PASSED tests/integration/test_contract_file_refusals.py::test_missing_host_fallback_authorization_is_refused[verify]
+PASSED tests/integration/test_contract_file_refusals.py::test_missing_host_fallback_authorization_is_refused[build]
+4 passed, 1 warning in 8.11s
+EXIT=0
