@@ -1,0 +1,92 @@
+{
+  "blocker": {
+    "detail": "APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/home/user/PM-agent-OS/.claude/skills/decision-to-contract/SKILL.md', 'expected': 'sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f', 'actual': 'sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'}, {'path': '/home/user/production-engineering-os/src/pmpe/barebones.py', 'expected': 'sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7', 'actual': 'sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a'}, {'path': '/home/user/production-engineering-os/src/pmpe/cli/barebones_cmd.py', 'expected': 'sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb', 'actual': 'sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1'}, {'path': '/home/user/production-engineering-os/src/pmpe/contracts/acceptance.py', 'expected': 'sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c', 'actual': 'sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02'}, {'path': '/home/user/production-engineering-os/src/pmpe/evals/real_behavior_drift_eval.py', 'expected': 'sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c', 'actual': 'sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71'}]",
+    "error": "TamperDetectedError"
+  },
+  "candidate": "/home/user/production-engineering-os/docs/evidence/task-tracker-live-20260918/live/candidate",
+  "criteria": {},
+  "entry": "/home/user/production-engineering-os/examples/barebones/contract-file.py",
+  "exit_code": 2,
+  "failed_criteria": [],
+  "finding_count": 0,
+  "freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "mode": "retained-candidate replay; no model call; host fallback",
+  "outcome": "BLOCKED",
+  "output": "/tmp/claude-0/-home-user/7921f78e-13c9-54cd-bb55-cb413fcf6daf/scratchpad/runs/09b-regression-current",
+  "roots": {
+    "PM-agent-OS": {
+      "head": "2acc3fa0c81f1237f8ab7b5681b478630c530931",
+      "path": "/home/user/PM-agent-OS"
+    },
+    "production-engineering-os": {
+      "head": "86017f884fa0c43164463489c680d872247a5607",
+      "path": "/home/user/production-engineering-os"
+    }
+  },
+  "run_at": "2026-10-09T12:54:00.966348+00:00",
+  "since_previous": {
+    "blocker_changed": true,
+    "criteria_changed": {
+      "AC-001": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-002": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-003": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-004": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-005": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-006": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-007": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-008": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-009": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-010": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-011": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-012": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-013": {
+        "after": null,
+        "before": "PASS"
+      },
+      "AC-014": {
+        "after": null,
+        "before": "PASS"
+      }
+    },
+    "outcome_changed": true,
+    "previous_outcome": "PASS",
+    "previous_report": "2026-10-09T12:54:00.742000+00:00"
+  },
+  "stderr_tail": "TamperDetectedError: APPROVAL_BOUND_ARTIFACT_CHANGED: [{'path': '/home/user/PM-agent-OS/.claude/skills/decision-to-contract/SKILL.md', 'expected': 'sha256:ad0978c8e3780f11ec40d06395653d2c45ce100449ca8c7edea56bac6593ee1f', 'actual': 'sha256:f14623cb4da6ecd9efe67324c2475d96715d12049e470bfe333e4dd953c21c26'}, {'path': '/home/user/production-engineering-os/src/pmpe/barebones.py', 'expected': 'sha256:9895b6cc792ab960a34761e9fda545d52be62772aa7a327dc8cf9da6768ac0b7', 'actual': 'sha256:ab3e4f4bb2222497adf4a4d966b85054a4e90ec3aacde96f5189febd856b870a'}, {'path': '/home/user/production-engineering-os/src/pmpe/cli/barebones_cmd.py', 'expected': 'sha256:09116350f8a69cd053688e4ac6c42ff8514b173d3c69c1af86cc1903f04739cb', 'actual': 'sha256:8917eb8227fdf143fe89c750232a53518fa0739f92516b9058c3f62f17cf1fe1'}, {'path': '/home/user/production-engineering-os/src/pmpe/contracts/acceptance.py', 'expected': 'sha256:07204c0021fb2c5ea7e8ade41533979e5fbb259d0d65621fda1fe7247edc8e1c', 'actual': 'sha256:4490079b4c36e607ceb0200dcbfc18145cf4cf36f7b3497046a8612bc693fd02'}, {'path': '/home/user/production-engineering-os/src/pmpe/evals/real_behavior_drift_eval.py', 'expected': 'sha256:27c1d087abc02b6136fcebbe3552b7b4cc7c8522f276d2709c22f2b584fdc14c', 'actual': 'sha256:093448d6ea7bc656ce5720c8bea3cb0638523a8d758763df7eaeb593261f6d71'}]\n"
+}

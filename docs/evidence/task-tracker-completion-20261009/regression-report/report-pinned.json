@@ -1,0 +1,45 @@
+{
+  "blocker": null,
+  "candidate": "/home/user/peos-pinned/docs/evidence/task-tracker-live-20260918/live/candidate",
+  "criteria": {
+    "AC-001": "PASS",
+    "AC-002": "PASS",
+    "AC-003": "PASS",
+    "AC-004": "PASS",
+    "AC-005": "PASS",
+    "AC-006": "PASS",
+    "AC-007": "PASS",
+    "AC-008": "PASS",
+    "AC-009": "PASS",
+    "AC-010": "PASS",
+    "AC-011": "PASS",
+    "AC-012": "PASS",
+    "AC-013": "PASS",
+    "AC-014": "PASS"
+  },
+  "entry": "/home/user/production-engineering-os/examples/barebones/contract-file.py",
+  "exit_code": 0,
+  "failed_criteria": [],
+  "finding_count": 0,
+  "freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "mode": "retained-candidate replay; no model call; host fallback",
+  "outcome": "PASS",
+  "output": "/tmp/claude-0/-home-user/7921f78e-13c9-54cd-bb55-cb413fcf6daf/scratchpad/runs/09a-regression-pinned",
+  "roots": {
+    "PM-agent-OS": {
+      "head": "9d55bf650d6586d90a0028241b468559349487c3",
+      "path": "/home/user/pmos-pinned"
+    },
+    "production-engineering-os": {
+      "head": "f7669c2cd1bb9600b0fe7bd26e621b95a3402fb1",
+      "path": "/home/user/peos-pinned"
+    }
+  },
+  "run_at": "2026-10-09T12:54:00.742000+00:00",
+  "since_previous": {
+    "criteria_changed": {},
+    "outcome_changed": null,
+    "previous_report": null
+  },
+  "stderr_tail": ""
+}

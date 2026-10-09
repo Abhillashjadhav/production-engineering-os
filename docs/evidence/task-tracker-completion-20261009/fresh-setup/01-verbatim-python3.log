@@ -1,0 +1,14 @@
+++ git clone -q --single-branch --branch feat/contract-file-run --no-tags https://github.com/Abhillashjadhav/production-engineering-os.git peos
+++ git -C peos checkout -q --detach 02959731e06d977e9ed61cfd15c962e5ebb85ee5
+++ git clone -q --single-branch --branch docs/task-tracker-acceptance --no-tags https://github.com/Abhillashjadhav/PM-agent-OS.git pmos
+++ git -C pmos checkout -q --detach 9d55bf650d6586d90a0028241b468559349487c3
+++ cd peos
+++ python3 --version
+Python 3.13.16
+++ command -v prlimit
+/usr/bin/prlimit
+++ python3 -m venv .venv
+++ .venv/bin/python -m pip install -q -e .
+ERROR: Package 'pmpe' requires a different Python: 3.13.16 not in '<3.13,>=3.11'
+++ echo 'VERBATIM_INSTALL_EXIT 1'
+VERBATIM_INSTALL_EXIT 1

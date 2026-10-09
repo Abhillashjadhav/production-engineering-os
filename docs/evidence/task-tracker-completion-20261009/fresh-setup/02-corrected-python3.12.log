@@ -1,0 +1,14 @@
+++ python3.12 --version
+Python 3.12.3
+++ python3.12 -m venv .venv
+++ .venv/bin/python -m pip install -q -e .
+++ .venv/bin/python examples/barebones/contract-file.py verify --packet ../pmos/reviews/task-tracker-v1 --root PM-agent-OS=../pmos --root production-engineering-os=. --freeze-digest sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2 --candidate docs/evidence/task-tracker-live-20260918/live/candidate --output ../verification --authorized-host-fallback
+{"criteria": {"AC-001": "PASS", "AC-002": "PASS", "AC-003": "PASS", "AC-004": "PASS", "AC-005": "PASS", "AC-006": "PASS", "AC-007": "PASS", "AC-008": "PASS", "AC-009": "PASS", "AC-010": "PASS", "AC-011": "PASS", "AC-012": "PASS", "AC-013": "PASS", "AC-014": "PASS"}, "findings": []}
+++ cd ..
+++ cp -R peos/docs/evidence/task-tracker-live-20260918/live/candidate candidate
+++ mkdir journey
+++ cp peos/docs/evidence/task-tracker-live-20260918/clean-install/journey.py journey/journey.py
+++ peos/.venv/bin/python journey/journey.py /home/user/fresh-setup/task-tracker-reproduction
+PASS: eight sequential user commands from a clean venv; rejection preserves ID 1, duplicate create allocates ID 2, completion retry and status filters persist across process restarts.
+++ echo 'CORRECTED_SEQUENCE_EXIT 0'
+CORRECTED_SEQUENCE_EXIT 0
