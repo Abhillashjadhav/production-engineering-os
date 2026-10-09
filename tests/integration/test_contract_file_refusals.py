@@ -1,0 +1,515 @@
+"""Real-process refusal checks for the frozen task-tracker file entry.
+
+Each test runs ``examples/barebones/contract-file.py`` as a subprocess (no mocks)
+against the PMOS task-tracker packet, automating three cases that were previously
+exercised by hand (docs/evidence/task-tracker-completion-20261009/REPORT.md runs
+06b/06c, 08b and 08c):
+
+1. a ``build`` SIGKILLed while it waits for the model never reads as complete, and
+   recovery is only possible into a fresh output directory;
+2. ``verify`` without ``--candidate`` is refused;
+3. ``verify`` and ``build`` without ``--authorized-host-fallback`` are refused before
+   any candidate process or model handoff exists.
+
+Packet location: ``PMOS_ROOT`` (a PM-agent-OS checkout), otherwise a sibling
+``../PM-agent-OS`` or ``../pmos``. Without one the module is skipped with a reason;
+a skip is not a pass.
+
+Freeze: by default the tests copy the PMOS-bound files into a disposable root and
+regenerate a self-consistent freeze manifest over the copies and this checkout's
+bytes. That fixture freeze is a test device, NOT an approval; the real packet is
+never written. Set ``PMPE_TEST_TASK_TRACKER_FREEZE_DIGEST`` to an owner-approved
+digest to run read-only against the real packet instead. Set
+``PMPE_TEST_TASK_TRACKER_CANDIDATE`` to verify a different candidate on recovery.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import hashlib
+import importlib.util
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import warnings
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from pmpe.contracts.canonical import canonical_digest
+
+_REPOSITORY = Path(__file__).resolve().parents[2]
+_ENTRY = _REPOSITORY / "examples" / "barebones" / "contract-file.py"
+_REGRESSION = _REPOSITORY / "examples" / "barebones" / "task-tracker-regression.py"
+_PACKET = Path("reviews") / "task-tracker-v1"
+_DEFAULT_CANDIDATE = (
+    _REPOSITORY / "docs" / "evidence" / "task-tracker-live-20260918" / "live" / "candidate"
+)
+_PMOS = "PM-agent-OS"
+_PEOS = "production-engineering-os"
+_RUN_ID = "task-tracker-live"
+_FALLBACK_REASON = "HOST_FALLBACK_NOT_AUTHORIZED: supply --authorized-host-fallback for this run"
+_DEAD = frozenset({"Z", "X"})
+
+
+def _discover_pmos_root() -> tuple[Path | None, bool]:
+    """Return (root, explicitly configured)."""
+    configured = os.environ.get("PMOS_ROOT")
+    if configured:
+        return Path(configured).resolve(), True
+    for name in ("PM-agent-OS", "pmos"):
+        sibling = _REPOSITORY.parent / name
+        if (sibling / _PACKET / "freeze-manifest.json").is_file():
+            return sibling.resolve(), False
+    return None, False
+
+
+_PMOS_ROOT, _PMOS_ROOT_CONFIGURED = _discover_pmos_root()
+_COMPATIBLE_HOST = sys.version_info[:2] == (3, 12) and shutil.which("prlimit") is not None
+
+pytestmark = pytest.mark.skipif(
+    _PMOS_ROOT is None,
+    reason="needs the PMOS task-tracker packet: set PMOS_ROOT or check out ../PM-agent-OS",
+)
+_needs_compatible_host = pytest.mark.skipif(
+    not _COMPATIBLE_HOST,
+    reason="the approved execution profile admits only CPython 3.12 with prlimit",
+)
+_needs_proc = pytest.mark.skipif(
+    not Path("/proc/self/stat").is_file(), reason="process-tree checks need Linux /proc"
+)
+
+
+@dataclass(frozen=True)
+class _Packet:
+    pmos_root: Path
+    directory: Path
+    freeze_digest: str
+    mode: str
+
+
+@dataclass(frozen=True)
+class _Proc:
+    pid: int
+    ppid: int
+    pgid: int
+    sid: int
+    state: str
+    cmdline: str
+
+
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _sha256(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _drift(manifest: dict[str, Any], roots: dict[str, Path]) -> list[str]:
+    drifted = []
+    for item in manifest["artifacts"]:
+        path = roots[item["repository"]] / item["path"]
+        actual = _sha256(path) if path.is_file() else "MISSING"
+        if actual != item["sha256"]:
+            drifted.append(f"{item['repository']}:{item['path']}")
+    return drifted
+
+
+@pytest.fixture(scope="module")
+def packet(tmp_path_factory: pytest.TempPathFactory) -> _Packet:
+    assert _PMOS_ROOT is not None
+    if not (_PMOS_ROOT / _PACKET / "freeze-manifest.json").is_file():
+        message = f"no task-tracker packet under {_PMOS_ROOT}"
+        if _PMOS_ROOT_CONFIGURED:
+            pytest.fail("PMOS_ROOT is set but has " + message)
+        pytest.skip(message)
+    active = _read_json(_PMOS_ROOT / _PACKET / "freeze-manifest.json")
+    approved = os.environ.get("PMPE_TEST_TASK_TRACKER_FREEZE_DIGEST")
+    if approved:
+        # Read-only use of the real packet with the owner-approved freeze digest.
+        roots = {_PMOS: _PMOS_ROOT, _PEOS: _REPOSITORY}
+        if canonical_digest(active) != approved:
+            pytest.fail("PMPE_TEST_TASK_TRACKER_FREEZE_DIGEST does not match the real manifest")
+        drifted = _drift(active, roots)
+        if drifted:
+            pytest.fail(f"real packet would refuse (APPROVAL_BOUND_ARTIFACT_CHANGED): {drifted}")
+        return _Packet(_PMOS_ROOT, _PMOS_ROOT / _PACKET, approved, "real-approved-packet")
+    # Disposable copy plus a regenerated, self-consistent freeze: a test fixture only.
+    root = tmp_path_factory.mktemp("pmos-fixture")
+    for item in active["artifacts"]:
+        if item["repository"] == _PMOS:
+            target = root / item["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(_PMOS_ROOT / item["path"], target)
+    roots = {_PMOS: root, _PEOS: _REPOSITORY}
+    fixture = {
+        key: value
+        for key, value in active.items()
+        if key not in {"artifacts", "owner_approval_quote", "status"}
+    }
+    fixture["status"] = "TEST_FIXTURE_NOT_APPROVAL"
+    fixture["artifacts"] = [
+        {
+            "path": item["path"],
+            "repository": item["repository"],
+            "sha256": _sha256(roots[item["repository"]] / item["path"]),
+        }
+        for item in active["artifacts"]
+    ]
+    (root / _PACKET / "freeze-manifest.json").write_text(
+        json.dumps(fixture, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    assert _drift(fixture, roots) == []
+    return _Packet(root, root / _PACKET, canonical_digest(fixture), "disposable-fixture-freeze")
+
+
+@pytest.fixture()
+def candidate() -> Path:
+    configured = os.environ.get("PMPE_TEST_TASK_TRACKER_CANDIDATE")
+    path = Path(configured).resolve() if configured else _DEFAULT_CANDIDATE
+    if not (path / "product.py").is_file():
+        pytest.fail(f"candidate has no product.py: {path}")
+    return path
+
+
+def _entry(
+    packet: _Packet,
+    mode: str,
+    output: Path,
+    *,
+    candidate: Path | None = None,
+    fallback: bool = True,
+) -> list[str]:
+    command = [
+        sys.executable,
+        str(_ENTRY),
+        mode,
+        "--packet",
+        str(packet.directory),
+        "--root",
+        f"{_PMOS}={packet.pmos_root}",
+        "--root",
+        f"{_PEOS}={_REPOSITORY}",
+        "--freeze-digest",
+        packet.freeze_digest,
+        "--output",
+        str(output),
+    ]
+    if candidate is not None:
+        command += ["--candidate", str(candidate)]
+    if fallback:
+        command.append("--authorized-host-fallback")
+    return command
+
+
+def _environment(tmp_path: Path) -> dict[str, str]:
+    """Keep the entry's own temporary files inside this test's directory."""
+    scratch = tmp_path / "entry-tmp"
+    scratch.mkdir(exist_ok=True)
+    return {**os.environ, "TMPDIR": str(scratch)}
+
+
+def _run(
+    command: list[str], tmp_path: Path, timeout: float = 120
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        command,
+        cwd=_REPOSITORY,
+        env=_environment(tmp_path),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        pytest.fail(f"command exceeded {timeout}s: {command}")
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _proc(pid: int) -> _Proc | None:
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return None
+    fields = stat[stat.rindex(")") + 2 :].split()
+    cmdline = raw.replace(b"\0", b" ").decode(errors="replace").strip()
+    return _Proc(pid, int(fields[1]), int(fields[2]), int(fields[3]), fields[0], cmdline)
+
+
+def _processes() -> list[_Proc]:
+    found = (_proc(int(entry.name)) for entry in Path("/proc").iterdir() if entry.name.isdigit())
+    return [item for item in found if item is not None]
+
+
+def _descendants(root: int) -> list[_Proc]:
+    table = _processes()
+    found: list[_Proc] = []
+    frontier = [root]
+    while frontier:
+        parent = frontier.pop()
+        children = [item for item in table if item.ppid == parent]
+        found += children
+        frontier += [item.pid for item in children]
+    return found
+
+
+def _running(pid: int) -> bool:
+    item = _proc(pid)
+    return item is not None and item.state not in _DEAD
+
+
+def _self_and_ancestors() -> set[int]:
+    """Never targeted by cleanup, even if a --basetemp in their argv matches a marker."""
+    protected = {os.getpid()}
+    current = _proc(os.getpid())
+    while current is not None and current.ppid > 1:
+        protected.add(current.ppid)
+        current = _proc(current.ppid)
+    return protected
+
+
+def _group_members(group: int) -> list[_Proc]:
+    return [item for item in _processes() if item.pgid == group and item.state not in _DEAD]
+
+
+def _wait_until(condition: Callable[[], bool], timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.05)
+    return condition()
+
+
+@dataclass
+class _Reaper:
+    """Kill every process a test started, including ones that left its group."""
+
+    markers: list[str]
+    groups: list[int] = field(default_factory=list)
+    pids: list[int] = field(default_factory=list)
+
+    def survivors(self) -> list[_Proc]:
+        protected = _self_and_ancestors()
+        return [
+            item
+            for item in _processes()
+            if item.state not in _DEAD
+            and item.pid not in protected
+            and (
+                item.pgid in self.groups
+                or item.pid in self.pids
+                or any(marker in item.cmdline for marker in self.markers)
+            )
+        ]
+
+    def cleanup(self) -> list[_Proc]:
+        for group in self.groups:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(group, signal.SIGKILL)
+        for item in self.survivors():
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(item.pid, signal.SIGKILL)
+        _wait_until(lambda: not self.survivors(), 10)
+        return self.survivors()
+
+
+@pytest.fixture()
+def reaper(tmp_path: Path) -> Iterator[_Reaper]:
+    tracked = _Reaper(markers=[str(tmp_path)])
+    yield tracked
+    survivors = tracked.cleanup()
+    assert survivors == [], f"processes survived cleanup: {survivors}"
+
+
+def _events(output: Path) -> list[dict[str, Any]]:
+    ledger = output / ".pmpe" / "runs" / _RUN_ID / "events.jsonl"
+    return [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+
+
+def _assert_guard_clean(output: Path) -> list[dict[str, Any]]:
+    checks = [
+        json.loads(line)
+        for line in (output / "digest-checks.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert checks, "the digest guard recorded no check"
+    assert [row for row in checks if row["mismatches"]] == []
+    return checks
+
+
+def _assert_no_execution(output: Path) -> None:
+    assert not (output / "result.json").exists()
+    assert not (output / "handoff").exists(), "no model handoff may exist"
+    assert not (output / "candidate").exists(), "no candidate workspace may exist"
+    assert not (output / ".pmpe").exists(), "no run ledger may exist"
+    processes = output / "processes.jsonl"
+    assert not processes.exists() or not processes.read_text().strip(), "a process ran"
+
+
+def _status(output: Path) -> subprocess.CompletedProcess[str]:
+    console = Path(sys.executable).with_name("pmpe")
+    prefix = (
+        [str(console)]
+        if console.is_file()
+        else [sys.executable, "-c", "import sys; from pmpe.cli import main; sys.exit(main())"]
+    )
+    return subprocess.run(
+        [*prefix, "barebones", "status", _RUN_ID, "--repository-root", str(output)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+def _classify(output: Path, exit_code: int | None) -> dict[str, Any]:
+    spec = importlib.util.spec_from_file_location("task_tracker_regression", _REGRESSION)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    outcome: dict[str, Any] = module.classify(output, exit_code)
+    return outcome
+
+
+@_needs_compatible_host
+@_needs_proc
+def test_interrupted_build_is_never_complete_and_recovers_only_into_a_fresh_output(
+    packet: _Packet, candidate: Path, tmp_path: Path, reaper: _Reaper
+) -> None:
+    output = tmp_path / "interrupted"
+    with (
+        (tmp_path / "build.stdout").open("wb") as out,
+        (tmp_path / "build.stderr").open("wb") as err,
+    ):
+        build = subprocess.Popen(
+            _entry(packet, "build", output),
+            cwd=_REPOSITORY,
+            env=_environment(tmp_path),
+            stdout=out,
+            stderr=err,
+            start_new_session=True,
+        )
+    reaper.groups.append(build.pid)
+    requests: list[Path] = []
+
+    def model_called() -> bool:
+        requests[:] = sorted(output.glob("handoff/call-*/request.json"))
+        return bool(requests) or build.poll() is not None
+
+    assert _wait_until(model_called, 120), "build never reached the model call"
+    assert requests, (
+        f"build exited {build.returncode} before the model call: "
+        + (tmp_path / "build.stderr").read_text(errors="replace")[-2000:]
+    )
+    tree = _descendants(build.pid)
+    reaper.pids += [item.pid for item in tree]
+
+    os.killpg(build.pid, signal.SIGKILL)
+    assert build.wait(timeout=30) == -signal.SIGKILL
+
+    assert _wait_until(lambda: not _group_members(build.pid), 10)
+    with pytest.raises(ProcessLookupError):
+        os.killpg(build.pid, 0)
+    escaped = [item for item in tree if item.pgid != build.pid and _running(item.pid)]
+    if escaped:
+        # Observed today: the provider shim runs in its own session and outlives the
+        # group kill, waiting for a response until its deadline. The reaper kills it.
+        warnings.warn(f"left the killed process group: {escaped}", stacklevel=1)
+    assert reaper.cleanup() == []
+
+    assert not (output / "result.json").exists(), "an interrupted run must not have a result"
+    assert not (output / "failure.json").exists(), "SIGKILL leaves no failure record"
+    events = _events(output)
+    assert [event["event_type"] for event in events] == [
+        "contract_validated",
+        "meaningful_red_confirmed",
+    ]
+    assert events[-1]["state"] == "BUILDING"
+    request = _read_json(requests[0])
+    assert request["purpose"] == "code"
+    assert not (requests[0].parent / "response.json").exists()
+    _assert_guard_clean(output)
+
+    status = _status(output)
+    assert status.returncode == 0, status.stderr
+    reported = json.loads(status.stdout)
+    assert reported["state"] == "BUILDING"
+    assert reported["cause"] == "IN_PROGRESS"
+    assert reported["state"] != "RELEASE_READY"
+    assert reported["events"] == 2
+    classified = _classify(output, build.returncode)
+    assert classified["outcome"] == "BLOCKED"
+    assert classified["blocker"]["error"] == "NO_RESULT"
+
+    ledger = output / ".pmpe" / "runs" / _RUN_ID / "events.jsonl"
+    ledger_before = ledger.read_bytes()
+    listing_before = sorted(str(path.relative_to(output)) for path in output.rglob("*"))
+    reused = _run(_entry(packet, "verify", output, candidate=candidate), tmp_path)
+    assert reused.returncode != 0
+    assert "FileExistsError" in reused.stderr
+    assert not (output / "result.json").exists()
+    assert ledger.read_bytes() == ledger_before
+    assert sorted(str(path.relative_to(output)) for path in output.rglob("*")) == listing_before
+
+    fresh = tmp_path / "recovered"
+    recovered = _run(_entry(packet, "verify", fresh, candidate=candidate), tmp_path)
+    assert recovered.returncode == 0, recovered.stderr
+    result = _read_json(fresh / "result.json")
+    assert len(result["criteria"]) == 14
+    assert set(result["criteria"].values()) == {"PASS"}
+    assert result["findings"] == []
+    _assert_guard_clean(fresh)
+
+
+@_needs_compatible_host
+def test_verify_without_candidate_is_refused(
+    packet: _Packet, tmp_path: Path, reaper: _Reaper
+) -> None:
+    output = tmp_path / "verify-without-candidate"
+    completed = _run(_entry(packet, "verify", output), tmp_path)
+    assert completed.returncode == 2, completed.stderr
+    assert "ValueError: --candidate is required for verify" in completed.stderr
+    assert _read_json(output / "failure.json") == {
+        "error": "ValueError",
+        "detail": "--candidate is required for verify",
+    }
+    assert _read_json(output / "compatibility.json")["compatible"] is True
+    _assert_no_execution(output)
+    assert [row["stage"] for row in _assert_guard_clean(output)] == ["before", "after"]
+
+
+@pytest.mark.parametrize("mode", ["verify", "build"])
+def test_missing_host_fallback_authorization_is_refused(
+    packet: _Packet, candidate: Path, tmp_path: Path, reaper: _Reaper, mode: str
+) -> None:
+    output = tmp_path / f"{mode}-without-fallback"
+    command = _entry(
+        packet, mode, output, candidate=candidate if mode == "verify" else None, fallback=False
+    )
+    completed = _run(command, tmp_path)
+    assert completed.returncode == 2, completed.stderr
+    failure = _read_json(output / "failure.json")
+    assert failure["error"] == "ValueError"
+    assert failure["detail"].startswith("INCOMPATIBLE: ")
+    assert "HOST_FALLBACK_NOT_AUTHORIZED" in failure["detail"]
+    compatibility = _read_json(output / "compatibility.json")
+    assert compatibility["compatible"] is False
+    assert _FALLBACK_REASON in compatibility["reasons"]
+    if _COMPATIBLE_HOST:
+        assert compatibility["reasons"] == [_FALLBACK_REASON]
+    _assert_no_execution(output)
+    assert [row["stage"] for row in _assert_guard_clean(output)] == ["before", "after"]
