@@ -48,6 +48,15 @@ class ContractFileEntryTest(unittest.TestCase):
         with self.assertRaises(self.module.TamperDetectedError):
             self.guard.check("before")
 
+    def test_wrong_freeze_digest_rejected_before_any_check(self):
+        log = self.root / "never-written.jsonl"
+        with self.assertRaises(self.module.TamperDetectedError) as failure:
+            self.module.DigestGuard(
+                self.manifest, {"fixture": self.root}, "sha256:" + "0" * 64, log
+            )
+        self.assertIn("FREEZE_DIGEST_MISMATCH", str(failure.exception))
+        self.assertFalse(log.exists(), "a rejected freeze digest must not start checking")
+
     def test_changed_manifest_rejected(self):
         self.manifest.write_text('{"artifacts":[]}')
         with self.assertRaises(self.module.TamperDetectedError):
