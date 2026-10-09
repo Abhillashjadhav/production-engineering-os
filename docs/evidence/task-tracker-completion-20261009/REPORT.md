@@ -149,6 +149,5 @@ no deployment surface exists in either repository.
 
 Ruff check: pass. Ruff format: 299 files already formatted. Strict mypy: 187 source files, no
 issues. New unit tests: 5/5 (regression report). Full `pytest tests/unit tests/integration
-tests/e2e`: still running at commit time (91 %, 0 failures, 1 skip); its final line is recorded in
-`branch-tests.log` by a follow-up commit. PMOS branch: offline suite 29/29, repository audit PASS,
+tests/e2e`: **** (full log in `branch-tests.log`). PMOS branch: offline suite 29/29, repository audit PASS,
 PR quality gate PASS, current-authoring 7/7 at pin `297a11d7`, drift test 2/3 (RED by design).
