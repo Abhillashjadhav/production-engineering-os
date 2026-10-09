@@ -7,7 +7,7 @@ are data. Engine source and the contract schema do not change.
 Install with Python 3.12 using the documented standard flow:
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/python -m pip install -e .
 ```
 

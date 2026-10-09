@@ -4,7 +4,8 @@ This reproduces the retained, model-generated product and its approved user
 journey. Live generation was demonstrated separately in `live/`; this replay
 does not invoke a model. The original Phase 5 does not require a second build.
 
-Prerequisites: Linux, Git, Python 3.12 with `venv`/pip, `prlimit` from util-linux,
+Prerequisites: Linux, Git, a `python3.12` interpreter with `venv`/pip (the package refuses
+3.13 and newer, so a bare `python3` may not work), `prlimit` from util-linux,
 and access to GitHub and the configured Python package index. This run uses the
 owner-approved container fallback. It is not a real-sandbox or headless-generation
 claim. No new account, paid API key or service is required.
@@ -21,9 +22,9 @@ git -C peos checkout --detach 02959731e06d977e9ed61cfd15c962e5ebb85ee5
 git clone --single-branch --branch docs/task-tracker-acceptance --no-tags https://github.com/Abhillashjadhav/PM-agent-OS.git pmos
 git -C pmos checkout --detach 9d55bf650d6586d90a0028241b468559349487c3
 cd peos
-python3 --version
+python3.12 --version
 command -v prlimit
-python3 -m venv .venv
+python3.12 -m venv .venv
 .venv/bin/python -m pip install -e .
 .venv/bin/python examples/barebones/contract-file.py verify \
   --packet ../pmos/reviews/task-tracker-v1 \
