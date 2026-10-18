@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -501,6 +502,37 @@ def test_proof_runner_gives_each_child_its_own_startup_deadline() -> None:
         timeout=5,
     )
     assert completed.returncode == 0
+    assert completed.stdout == b"PMPE_PROOF_COMPLETE:ordinary_ticket"
+
+
+def test_proof_retries_a_port_file_that_is_still_empty(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    _assemble(tmp_path, bundle)
+    source = support_package_module._APP_SOURCE
+    port_write = 'Path(args.port_file).write_text(str(server.server_address[1]), encoding="utf-8")'
+    assert source.count(port_write) == 1
+    # Hold open the window in which the port file exists but is still empty.
+    slow_writer = source.replace(
+        port_write,
+        'Path(args.port_file).write_text("", encoding="utf-8")\n'
+        '        __import__("time").sleep(0.5)\n'
+        "        " + port_write,
+    )
+    payload = {
+        "app_source": slow_writer,
+        "corpus": json.loads((bundle / "recorded-corpus.json").read_text()),
+        "policy": json.loads((bundle / "runtime-policy.json").read_text()),
+        "startup_timeout_seconds": 10.0,
+    }
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", support_package_module._PROOF_RUNNER, "ordinary_ticket"],
+        input=json.dumps(payload).encode(),
+        capture_output=True,
+        timeout=60,
+        check=False,
+        env={"PATH": os.environ.get("PATH", ""), "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert completed.returncode == 0, completed.stderr.decode(errors="replace")[-2000:]
     assert completed.stdout == b"PMPE_PROOF_COMPLETE:ordinary_ticket"
 
 
