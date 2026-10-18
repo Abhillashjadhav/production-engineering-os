@@ -32,6 +32,11 @@ from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
+from pmpe.quality.generated_python import (
+    check_python_candidate,
+    generation_policy,
+    missing_quality_tools,
+)
 
 
 class RunState(StrEnum):
@@ -912,6 +917,7 @@ def _model_request(
     plan: AcceptanceBuildPlan,
     workspace: Path,
     findings: Sequence[Finding],
+    enforce_quality: bool = False,
 ) -> dict[str, Any]:
     body = {
         "contract": contract,
@@ -925,6 +931,8 @@ def _model_request(
         },
         "findings": [asdict(item) for item in findings],
     }
+    if enforce_quality:
+        body["generation_policy"] = generation_policy()
     return {**body, "request_digest": canonical_digest(body)}
 
 
@@ -1002,6 +1010,7 @@ def run_to_release_ready(
     approval_receipt: Mapping[str, Any] | None = None,
     approval_authority: str | None = None,
     approval_receipt_bytes: bytes | None = None,
+    enforce_quality: bool = False,
 ) -> RunResult:
     """Run the frozen core. It never deploys and stops at RELEASE_READY."""
 
@@ -1009,6 +1018,8 @@ def run_to_release_ready(
     active_template = template or default_template()
     active_budget = budget or BudgetCaps()
     active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
+    if enforce_quality and (missing_tools := missing_quality_tools()):
+        raise ContractInvalidError("GENERATION_CHECKER_UNAVAILABLE: " + ", ".join(missing_tools))
     counters: dict[str, Any] = {
         "calls": 0,
         "bytes": 0,
@@ -1108,6 +1119,7 @@ def run_to_release_ready(
             "approval": approval_payload,
             "contract_digest": contract_blob,
             "plan_digest": plan.plan_digest,
+            "generation_policy": generation_policy() if enforce_quality else None,
         },
     )
     if stop_requested():
@@ -1187,6 +1199,7 @@ def run_to_release_ready(
             plan=plan,
             workspace=workspace,
             findings=findings,
+            enforce_quality=enforce_quality,
         )
         try:
             response = _invoke_bound(
@@ -1326,7 +1339,36 @@ def run_to_release_ready(
                 payload={"attempt": attempt, "changed": list(changed)},
             )
             try:
-                findings = _verify_snapshot(
+                quality: dict[str, Any] = {"status": "NOT_REQUESTED", "passed": False}
+                quality_findings: tuple[Finding, ...] = ()
+                if enforce_quality:
+                    report = check_python_candidate(
+                        verification_snapshot,
+                        trusted_paths=frozenset(
+                            path.relative_to(workspace).as_posix() for path in protected_tests
+                        ),
+                    )
+                    quality = report.as_dict()
+                    quality_blob = ledger.put_blob(json.dumps(quality, sort_keys=True).encode())
+                    ledger.append(
+                        event_type="generated_quality_checked",
+                        state=RunState.VERIFYING,
+                        subject_digest=subject_digest,
+                        blob_digests=(quality_blob,),
+                        payload={"attempt": attempt, **quality},
+                    )
+                    source_files = tuple(p for p in verification_snapshot if p.endswith(".py"))
+                    quality_findings = tuple(
+                        Finding(
+                            "GENERATED_QUALITY_FAILED",
+                            f"quality:{check.name}",
+                            check.details,
+                            source_files,
+                        )
+                        for check in report.checks
+                        if check.status != "PASS"
+                    )
+                findings = quality_findings or _verify_snapshot(
                     plan,
                     verification_snapshot,
                     active_template,
@@ -1358,17 +1400,30 @@ def run_to_release_ready(
                     "coverage": "complete",
                     "security": [asdict(item) for item in security],
                     "attempt": attempt,
+                    "quality": quality,
                 }
                 blob = ledger.put_blob(json.dumps(evidence, sort_keys=True).encode())
                 candidate_blob, candidate_file_blobs = _candidate_manifest(
                     verification_snapshot, ledger
                 )
-                review_body = {
+                review_body: dict[str, Any] = {
                     "contract_digest": subject_digest,
                     "plan_digest": plan.plan_digest,
                     "evidence_digest": blob,
                     "instruction": "Return one non-blocking advisory annotation.",
                 }
+                if enforce_quality:
+                    review_body.update(
+                        {
+                            "contract": dict(contract),
+                            "files": {
+                                path: data.decode("utf-8", errors="replace")
+                                for path, data in verification_snapshot.items()
+                            },
+                            "generation_policy": generation_policy(),
+                            "quality": quality,
+                        }
+                    )
                 review_request = {
                     **review_body,
                     "request_digest": canonical_digest(review_body),
@@ -1387,6 +1442,7 @@ def run_to_release_ready(
                     "annotation": dict(annotation),
                     "candidate_digest": candidate_blob,
                     "telemetry": _terminal_telemetry(),
+                    "quality": quality,
                 }
                 advisory_behavior = _provider_behavior_payload("advisory_review", annotation)
                 if advisory_behavior is not None:

@@ -30,6 +30,7 @@ from pmpe.evals.barebones_drift import (
     observe_provider_behavior,
 )
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.quality.generated_python import generation_policy
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -269,6 +270,7 @@ def _run(args: argparse.Namespace) -> int:
             approval_receipt=receipt,
             approval_authority=args.expected_approver,
             approval_receipt_bytes=receipt_source,
+            enforce_quality=True,
         )
     except CanonicalInputError as exc:
         _json(
@@ -548,6 +550,13 @@ def _comparison_observation(
     if not isinstance(request, Mapping) or not isinstance(response, Mapping):
         raise EvidenceIntegrityError("Coder request or response evidence is malformed")
     request_fields = {"contract", "plan", "files", "findings", "request_digest"}
+    if validation_payload.get("generation_policy") is not None:
+        request_fields.add("generation_policy")
+        if (
+            validation_payload["generation_policy"] != generation_policy()
+            or request.get("generation_policy") != generation_policy()
+        ):
+            raise EvidenceIntegrityError("Coder request generation policy is inconsistent")
     if set(request) != request_fields:
         raise EvidenceIntegrityError("Coder request evidence has an unexpected shape")
     request_body = {key: value for key, value in request.items() if key != "request_digest"}
