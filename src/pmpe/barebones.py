@@ -2082,6 +2082,7 @@ def run_to_release_ready(
                 security_findings=tuple(item.code for item in security),
                 attempt=attempt,
                 observation_evidence_digest=observation_evidence_digest,
+                telemetry=counters,
             ):
                 findings += (
                     Finding(

@@ -89,6 +89,7 @@ def record_required_checks(
     security_findings: Sequence[str],
     attempt: int,
     observation_evidence_digest: str,
+    telemetry: dict[str, Any] | None = None,
 ) -> bool:
     """Only the supervisor calls this after executing checks on its frozen snapshot."""
     from pmpe.product_checks import evaluate_required_checks
@@ -105,6 +106,16 @@ def record_required_checks(
         security_findings=security_findings,
     )
     body = report.as_dict()
+    if telemetry is not None:
+        telemetry["required_checks"] = [
+            {
+                "check_id": item.check_id,
+                "stage": item.stage,
+                "status": item.status,
+                "reason": item.reason,
+            }
+            for item in report.results
+        ]
     body["binding"]["plan_digest"] = plan.plan_digest
     body["binding"]["task_graph_digest"] = bindings.graph.graph_digest
     body["binding_digest"] = canonical_digest(body["binding"])

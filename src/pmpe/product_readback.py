@@ -14,7 +14,12 @@ from pmpe.barebones import (
     compile_barebones_plan,
     default_template,
 )
-from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
+from pmpe.contracts.canonical import (
+    CanonicalInputError,
+    canonical_digest,
+    strict_json_value_loads,
+    strict_loads,
+)
 from pmpe.contracts.task_graph import TaskGraphError, compile_task_graph
 from pmpe.core_harness import CoreHarnessInvalidError, compile_required_harness
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
@@ -163,7 +168,7 @@ def _observations(
                 "trace unreferenced",
             )
             try:
-                trace = strict_loads(ledger.read_blob(trace_digest), "application/json")
+                trace = strict_json_value_loads(ledger.read_blob(trace_digest))
             except CanonicalInputError as exc:
                 raise EvidenceIntegrityError(
                     "product build evidence invalid: malformed trace"
