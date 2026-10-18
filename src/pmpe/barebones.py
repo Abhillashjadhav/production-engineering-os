@@ -5,7 +5,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import math
 import operator as comparison
 import os
 import re
@@ -46,6 +45,13 @@ from pmpe.model_provider import (
     ModelProvider,
 )
 from pmpe.release_gates import release_gate_results
+from pmpe.resource_budget import (
+    ResourceBudgetError,
+    capture_provider_usage,
+    check_wall_time,
+    reserve_provider_call,
+    validate_resource_caps,
+)
 from pmpe.task_tracker_harness import ACTION_TARGET, MEASURE_TARGET, REGISTRY_NAME, runner_source
 
 
@@ -80,6 +86,9 @@ class BudgetCaps:
     max_attempts: int = 3
     max_model_calls: int = 8
     max_model_output_bytes: int = 1_000_000
+    max_wall_time_seconds: float = 1800.0
+    max_input_tokens: int | None = None
+    max_output_tokens: int | None = None
 
 
 @dataclass(frozen=True)
@@ -147,7 +156,6 @@ _SANDBOX_RESERVED_ALIAS_ROOTS = tuple(
 _PYTEST_RESULT_PREFIX = "__PMPE_PYTEST_RESULT__:"
 
 _PROVIDER_ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
-_MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
 _VERIFICATION_PROTOCOL = "external-json-response-v1"
 _MAX_TOTAL_VERIFICATION_BYTES = 8_000_000
 _MAX_TOTAL_VERIFICATION_SECONDS = 120.0
@@ -1286,48 +1294,36 @@ def _invoke_bound(
     request: Mapping[str, Any],
     budget: BudgetCaps,
     counters: dict[str, Any],
+    started: float | None = None,
 ) -> Mapping[str, Any]:
+    if started is not None:
+        check_wall_time(started, budget.max_wall_time_seconds)
     if counters["calls"] >= budget.max_model_calls:
         raise RuntimeError("MODEL_CALL_BUDGET_EXHAUSTED")
+    reserve_provider_call(
+        counters,
+        max_input_tokens=budget.max_input_tokens,
+        max_output_tokens=budget.max_output_tokens,
+    )
     counters["calls"] += 1
     response = provider.invoke(purpose=purpose, request=request)
     serialized = json.dumps(response, sort_keys=True, separators=(",", ":"))
-    if _CREDENTIAL.search(serialized):
-        raise RuntimeError("MODEL_RESPONSE_CONTAINS_CREDENTIAL")
     size = len(serialized.encode())
     counters["bytes"] += size
+    capture_provider_usage(
+        response,
+        counters,
+        max_input_tokens=budget.max_input_tokens,
+        max_output_tokens=budget.max_output_tokens,
+    )
+    if started is not None:
+        check_wall_time(started, budget.max_wall_time_seconds)
+    if _CREDENTIAL.search(serialized):
+        raise RuntimeError("MODEL_RESPONSE_CONTAINS_CREDENTIAL")
     if counters["bytes"] > budget.max_model_output_bytes:
         raise RuntimeError("MODEL_OUTPUT_BUDGET_EXHAUSTED")
     if response.get("request_digest") != request.get("request_digest"):
         raise RuntimeError("MODEL_RESPONSE_UNBOUND")
-    usage = response.get("usage")
-    if isinstance(usage, Mapping):
-        for source, target in (("input_tokens", "tokens_in"), ("output_tokens", "tokens_out")):
-            value = usage.get(source)
-            if value is None:
-                continue
-            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
-            accumulated_tokens = counters[target] + value
-            if accumulated_tokens > _MAX_SAFE_JSON_INTEGER:
-                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
-            counters[target] = accumulated_tokens
-        estimated = usage.get("estimated_cost_usd")
-        if estimated is not None:
-            if not isinstance(estimated, (int, float)) or isinstance(estimated, bool):
-                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
-            if isinstance(estimated, int) and abs(estimated) > _MAX_SAFE_JSON_INTEGER:
-                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
-            try:
-                estimated_value = float(estimated)
-            except (OverflowError, ValueError) as exc:
-                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID") from exc
-            if not math.isfinite(estimated_value) or estimated_value < 0:
-                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
-            accumulated_cost = counters["estimated_cost_usd"] + estimated_value
-            if not math.isfinite(accumulated_cost):
-                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
-            counters["estimated_cost_usd"] = accumulated_cost
     metadata = response.get("provider_metadata")
     if isinstance(metadata, Mapping):
         model = metadata.get("model")
@@ -1370,6 +1366,14 @@ def run_to_release_ready(
         raise ContractInvalidError("bound core harness requires the fixed task-tracker template")
     template_digest = canonical_digest(asdict(active_template))
     active_budget = budget or BudgetCaps()
+    try:
+        validate_resource_caps(
+            max_wall_time_seconds=active_budget.max_wall_time_seconds,
+            max_input_tokens=active_budget.max_input_tokens,
+            max_output_tokens=active_budget.max_output_tokens,
+        )
+    except ValueError as exc:
+        raise ContractInvalidError(str(exc)) from exc
     active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
     # The label describes the selected adapter mode, not release eligibility.
     # Import here because the offline adapter uses the candidate sandbox above.
@@ -1476,6 +1480,20 @@ def run_to_release_ready(
     def _terminal_telemetry() -> dict[str, Any]:
         counters["elapsed_ms"] = int((time.monotonic() - started) * 1000)
         return dict(counters)
+
+    def halt_resource_budget(exc: ResourceBudgetError, attempts: int) -> RunResult:
+        cause = str(exc)
+        append_terminal_event(
+            event_type="halted",
+            state=RunState.HALTED,
+            subject_digest=subject_digest,
+            payload={
+                "cause": cause,
+                "rule_id": exc.rule_id,
+                "telemetry": _terminal_telemetry(),
+            },
+        )
+        return finish(RunState.HALTED, cause, attempts, {"rule_id": exc.rule_id})
 
     def finish(
         state: RunState, cause: str, attempts: int, annotation: Mapping[str, Any] | None = None
@@ -1601,6 +1619,11 @@ def run_to_release_ready(
         },
     )
 
+    try:
+        check_wall_time(started, active_budget.max_wall_time_seconds)
+    except ResourceBudgetError as exc:
+        return halt_resource_budget(exc, 0)
+
     unsupported = [
         {
             "criterion_id": item.criterion_id,
@@ -1685,6 +1708,7 @@ def run_to_release_ready(
 
     try:
         _verify_frozen_inputs(contract, plan, active_template, template_digest)
+        check_wall_time(started, active_budget.max_wall_time_seconds)
         _write_files(workspace, active_template.files)
         protected_tests = {
             _safe_path(workspace, proof.path) for proof in active_template.proofs.values()
@@ -1715,6 +1739,7 @@ def run_to_release_ready(
                 parent = parent.parent
         protected_tests.update(protected_package_initializers)
         baseline_observations: dict[str, dict[str, Any]] = {}
+        check_wall_time(started, active_budget.max_wall_time_seconds)
         baseline_snapshot = _workspace_snapshot(workspace)
         baseline = _verify_snapshot(
             plan,
@@ -1723,6 +1748,7 @@ def run_to_release_ready(
             active_sandbox,
             observations=baseline_observations,
         )
+        check_wall_time(started, active_budget.max_wall_time_seconds)
         if set(baseline_observations) != {item.criterion_id for item in plan.criteria}:
             raise ContractInvalidError("baseline did not observe every required criterion")
         non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
@@ -1733,6 +1759,8 @@ def run_to_release_ready(
             raise ContractInvalidError(
                 "baseline must fail every non-template criterion by assertion"
             )
+    except ResourceBudgetError as exc:
+        return halt_resource_budget(exc, 0)
     except (ContractInvalidError, RuntimeError, OSError) as exc:
         if isinstance(exc, (TaskTrackerObservationError, TaskTrackerObservationTimeoutError)):
             record_observer_failure(exc, 0, RunState.BUILDING)
@@ -1766,6 +1794,10 @@ def run_to_release_ready(
     previous_finding_digest = ""
     for attempt in range(1, active_budget.max_attempts + 1):
         try:
+            check_wall_time(started, active_budget.max_wall_time_seconds)
+        except ResourceBudgetError as exc:
+            return halt_resource_budget(exc, attempt - 1)
+        try:
             _verify_frozen_inputs(contract, plan, active_template, template_digest)
         except ContractInvalidError as exc:
             record_execution_failure(exc)
@@ -1791,11 +1823,14 @@ def run_to_release_ready(
                 request=request,
                 budget=active_budget,
                 counters=counters,
+                started=started,
             )
         except (ContractInvalidError, OSError) as exc:
             record_execution_failure(exc)
             raise
         except RuntimeError as exc:
+            if isinstance(exc, ResourceBudgetError):
+                return halt_resource_budget(exc, attempt - 1)
             cause = _classify_provider_error(exc)
             append_terminal_event(
                 event_type="halted",
@@ -1934,6 +1969,10 @@ def run_to_release_ready(
                 payload={"attempt": attempt, "findings": [asdict(item) for item in findings]},
             )
         else:
+            try:
+                check_wall_time(started, active_budget.max_wall_time_seconds)
+            except ResourceBudgetError as exc:
+                return halt_resource_budget(exc, attempt)
             ledger.append(
                 event_type="verification_started",
                 state=RunState.VERIFYING,
@@ -2044,6 +2083,10 @@ def run_to_release_ready(
                 if gate["status"] != "PASS"
             )
             if not findings:
+                try:
+                    check_wall_time(started, active_budget.max_wall_time_seconds)
+                except ResourceBudgetError as exc:
+                    return halt_resource_budget(exc, attempt)
                 # The response-level contract passed, but neither current
                 # provider mode establishes a protected live-provider release
                 # boundary. Retain candidate evidence without RELEASE_READY.
@@ -2124,6 +2167,10 @@ def run_to_release_ready(
             )
         previous_finding_digest = canonical_digest([asdict(item) for item in findings])
 
+    try:
+        check_wall_time(started, active_budget.max_wall_time_seconds)
+    except ResourceBudgetError as exc:
+        return halt_resource_budget(exc, active_budget.max_attempts)
     append_terminal_event(
         event_type="halted",
         state=RunState.HALTED,
