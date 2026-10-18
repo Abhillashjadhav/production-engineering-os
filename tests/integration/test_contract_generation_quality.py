@@ -151,3 +151,43 @@ def test_cli_rejects_type_defect_without_an_extra_user_flag(
     assert output["state"] == "HALTED"
     events = Path(output["evidence"]).read_text()
     assert '"event_type":"generated_quality_checked"' in events.replace(" ", "")
+
+
+
+
+def test_protected_acceptance_test_does_not_need_builder_owned_annotations(tmp_path: Path) -> None:
+    import sys
+
+    path = tmp_path / "tests/acceptance/test_health.py"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        "from product import health\n\ndef test_health():\n    assert health()['status'] == 'ok'\n"
+    )
+    specification = contract()
+    specification["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+    provider = Provider(repair=True)
+    result = run_to_release_ready(
+        contract=specification,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="protected-test-quality",
+        provider=provider,
+        enforce_quality=True,
+    )
+    assert result.state is RunState.RELEASE_READY
+    assert (
+        path.read_bytes() == (tmp_path / "candidate/tests/acceptance/test_health.py").read_bytes()
+    )

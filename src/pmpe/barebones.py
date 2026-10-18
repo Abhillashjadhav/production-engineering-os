@@ -1342,7 +1342,12 @@ def run_to_release_ready(
                 quality: dict[str, Any] = {"status": "NOT_REQUESTED", "passed": False}
                 quality_findings: tuple[Finding, ...] = ()
                 if enforce_quality:
-                    report = check_python_candidate(verification_snapshot)
+                    report = check_python_candidate(
+                        verification_snapshot,
+                        trusted_paths=frozenset(
+                            path.relative_to(workspace).as_posix() for path in protected_tests
+                        ),
+                    )
                     quality = report.as_dict()
                     quality_blob = ledger.put_blob(json.dumps(quality, sort_keys=True).encode())
                     ledger.append(
