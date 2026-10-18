@@ -50,6 +50,11 @@ from pmpe.privacy_policy import (
     validate_private_payload,
     validate_provider_request,
 )
+from pmpe.quality.generated_python import (
+    check_python_candidate,
+    generation_policy,
+    missing_quality_tools,
+)
 from pmpe.release_gates import release_gate_results
 from pmpe.resource_budget import (
     ResourceBudgetError,
@@ -1286,6 +1291,7 @@ def _model_request(
     workspace: Path,
     findings: Sequence[Finding],
     task_graph: Mapping[str, Any] | None = None,
+    enforce_quality: bool = False,
 ) -> dict[str, Any]:
     files: dict[str, str] = {}
     total_bytes = 0
@@ -1326,6 +1332,8 @@ def _model_request(
     }
     if task_graph is not None:
         body["task_graph"] = dict(task_graph)
+    if enforce_quality:
+        body["generation_policy"] = generation_policy()
     return {**body, "request_digest": canonical_digest(body)}
 
 
@@ -1415,6 +1423,7 @@ def run_to_release_ready(
     core_harness_mapping: Mapping[str, Any] | None = None,
     product_profile: CompiledProductProfile | None = None,
     task_graph_mapping: Mapping[str, Any] | None = None,
+    enforce_quality: bool = False,
 ) -> RunResult:
     """Run the frozen core, retaining candidate evidence without unsafe release."""
 
@@ -1443,6 +1452,8 @@ def run_to_release_ready(
         )
     except ValueError as exc:
         raise ContractInvalidError(str(exc)) from exc
+    if enforce_quality and (missing_tools := missing_quality_tools()):
+        raise ContractInvalidError("GENERATION_CHECKER_UNAVAILABLE: " + ", ".join(missing_tools))
     active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
     # The label describes the selected adapter mode, not release eligibility.
     # Import here because the offline adapter uses the candidate sandbox above.
@@ -1712,6 +1723,7 @@ def run_to_release_ready(
             "plan_digest": plan.plan_digest,
             "template_digest": template_digest,
             "plan_blob_digest": plan_blob,
+            **({"generation_policy": generation_policy()} if enforce_quality else {}),
             **binding_payload,
         },
     )
@@ -1923,6 +1935,7 @@ def run_to_release_ready(
                 workspace=workspace,
                 findings=findings,
                 task_graph=build_bindings.graph.as_dict(),
+                enforce_quality=enforce_quality,
             )
             response = _invoke_bound(
                 provider,
@@ -2089,7 +2102,53 @@ def run_to_release_ready(
             )
             criterion_results: dict[str, tuple[Finding, ...]] = {}
             observations: dict[str, dict[str, Any]] = {}
+            quality: dict[str, Any] = {"status": "NOT_REQUESTED", "passed": False}
+            quality_blob = ""
+            quality_findings: tuple[Finding, ...] = ()
             try:
+                if enforce_quality:
+                    report = check_python_candidate(
+                        verification_snapshot,
+                        trusted_paths=frozenset(
+                            path.relative_to(workspace).as_posix() for path in protected_tests
+                        ),
+                    )
+                    quality = report.as_dict()
+                    source_files = tuple(
+                        path for path in verification_snapshot if path.endswith(".py")
+                    )
+                    quality_findings = tuple(
+                        Finding(
+                            "GENERATED_QUALITY_FAILED",
+                            f"quality:{check.name}",
+                            check.details,
+                            source_files,
+                        )
+                        for check in report.checks
+                        if check.status != "PASS"
+                    )
+                    if not report.passed and not quality_findings:
+                        quality_findings = (
+                            Finding(
+                                "GENERATED_QUALITY_FAILED",
+                                "quality:profile",
+                                "quality checker returned no passing checks",
+                                source_files,
+                            ),
+                        )
+                    # Tool output can contain candidate source and paths. Inspect
+                    # it before either the evidence sink or a repair request.
+                    validate_private_payload(quality)
+                    validate_private_payload([asdict(item) for item in quality_findings])
+                    quality_blob = ledger.put_blob(canonical_json_bytes(quality))
+                    ledger.append(
+                        event_type="generated_quality_checked",
+                        state=RunState.VERIFYING,
+                        subject_digest=subject_digest,
+                        blob_digests=(quality_blob,),
+                        payload={"attempt": attempt, **quality},
+                    )
+                    check_wall_time(started, active_budget.max_wall_time_seconds)
                 findings = _verify_snapshot(
                     plan,
                     verification_snapshot,
@@ -2098,6 +2157,21 @@ def run_to_release_ready(
                     criterion_results=criterion_results,
                     observations=observations,
                 )
+                findings += quality_findings
+            except PrivacyPolicyError as exc:
+                append_terminal_event(
+                    event_type="halted",
+                    state=RunState.HALTED,
+                    subject_digest=subject_digest,
+                    payload={
+                        "cause": "MODEL_REQUEST_PRIVACY_BLOCKED",
+                        "rule_id": exc.rule_id,
+                        "telemetry": _terminal_telemetry(),
+                    },
+                )
+                return finish(RunState.HALTED, "MODEL_REQUEST_PRIVACY_BLOCKED", attempt)
+            except ResourceBudgetError as exc:
+                return halt_resource_budget(exc, attempt)
             except ContractInvalidError as exc:
                 if isinstance(exc, TaskTrackerObservationError):
                     record_observer_failure(exc, attempt, RunState.VERIFYING)
@@ -2119,7 +2193,7 @@ def run_to_release_ready(
                         str(exc),
                         implicated_files,
                     ),
-                )
+                ) + quality_findings
             except (RuntimeError, OSError) as exc:
                 if isinstance(exc, TaskTrackerObservationTimeoutError):
                     record_observer_failure(exc, attempt, RunState.VERIFYING)
@@ -2225,7 +2299,83 @@ def run_to_release_ready(
                     "security": [asdict(item) for item in security],
                     "attempt": attempt,
                 }
-                blob = ledger.put_blob(json.dumps(evidence, sort_keys=True).encode())
+                if enforce_quality:
+                    evidence["quality"] = quality
+                evidence_bytes = json.dumps(evidence, sort_keys=True).encode()
+                annotation: dict[str, Any] = {}
+                if enforce_quality:
+                    review_body: dict[str, Any] = {
+                        "contract_digest": subject_digest,
+                        "plan_digest": plan.plan_digest,
+                        "evidence_digest": "sha256:" + hashlib.sha256(evidence_bytes).hexdigest(),
+                        "instruction": "Return one non-blocking advisory annotation.",
+                        "contract": dict(contract),
+                        "files": {
+                            path: data.decode("utf-8", errors="replace")
+                            for path, data in verification_snapshot.items()
+                        },
+                        "generation_policy": generation_policy(),
+                        "quality": quality,
+                    }
+                    review_request = {
+                        **review_body,
+                        "request_digest": canonical_digest(review_body),
+                    }
+                    try:
+                        validate_private_payload(review_request)
+                    except PrivacyPolicyError as exc:
+                        append_terminal_event(
+                            event_type="halted",
+                            state=RunState.HALTED,
+                            subject_digest=subject_digest,
+                            payload={
+                                "cause": "MODEL_REQUEST_PRIVACY_BLOCKED",
+                                "rule_id": exc.rule_id,
+                                "telemetry": _terminal_telemetry(),
+                            },
+                        )
+                        return finish(RunState.HALTED, "MODEL_REQUEST_PRIVACY_BLOCKED", attempt)
+                    try:
+                        annotation = dict(
+                            _invoke_bound(
+                                provider,
+                                purpose="advisory_review",
+                                request=review_request,
+                                budget=active_budget,
+                                counters=counters,
+                                started=started,
+                            )
+                        )
+                    except ResourceBudgetError as exc:
+                        return halt_resource_budget(exc, attempt)
+                    except PrivacyPolicyError as exc:
+                        append_terminal_event(
+                            event_type="halted",
+                            state=RunState.HALTED,
+                            subject_digest=subject_digest,
+                            payload={
+                                "cause": "MODEL_REQUEST_PRIVACY_BLOCKED",
+                                "rule_id": exc.rule_id,
+                                "telemetry": _terminal_telemetry(),
+                            },
+                        )
+                        return finish(RunState.HALTED, "MODEL_REQUEST_PRIVACY_BLOCKED", attempt)
+                    except (RuntimeError, OSError) as exc:
+                        cause = (
+                            "MODEL_PROVIDER_IO_UNAVAILABLE"
+                            if isinstance(exc, OSError)
+                            else _classify_provider_error(exc)
+                        )
+                        if cause == "MODEL_CALL_BUDGET_EXHAUSTED":
+                            append_terminal_event(
+                                event_type="halted",
+                                state=RunState.HALTED,
+                                subject_digest=subject_digest,
+                                payload={"cause": cause, "telemetry": _terminal_telemetry()},
+                            )
+                            return finish(RunState.HALTED, cause, attempt)
+                        annotation = {"status": "unavailable", "cause": cause}
+                blob = ledger.put_blob(evidence_bytes)
                 candidate_blob, candidate_file_blobs = _candidate_manifest(
                     verification_snapshot, ledger
                 )
@@ -2239,6 +2389,13 @@ def run_to_release_ready(
                     "evidence_digest": blob,
                     "attempt": attempt,
                 }
+                if enforce_quality:
+                    candidate_payload["quality"] = quality
+                    candidate_payload["quality_evidence_digest"] = quality_blob
+                    candidate_payload["advisory_annotation"] = annotation
+                    advisory_behavior = _provider_behavior_payload("advisory_review", annotation)
+                    if advisory_behavior is not None:
+                        candidate_payload["provider_behavior"] = advisory_behavior
                 if gate_evidence_digest:
                     candidate_payload["release_gate_evidence_digest"] = gate_evidence_digest
                 ledger.append(
@@ -2251,34 +2408,48 @@ def run_to_release_ready(
                         observation_evidence_digest,
                         *candidate_file_blobs,
                         *((gate_evidence_digest,) if gate_evidence_digest else ()),
+                        *((quality_blob,) if quality_blob else ()),
                     ),
                     payload=candidate_payload,
                 )
                 cause = "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
                 counters["candidate_response_verified"] = True
+                terminal_payload: dict[str, Any] = {
+                    "cause": cause,
+                    "candidate_digest": candidate_blob,
+                    "verification_observations_digest": observation_evidence_digest,
+                    "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
+                    "provider_write_isolation": provider_write_isolation,
+                    "telemetry": _terminal_telemetry(),
+                }
+                if enforce_quality:
+                    terminal_payload["quality"] = quality
+                    terminal_payload["quality_evidence_digest"] = quality_blob
+                    terminal_payload["advisory_annotation"] = annotation
                 append_terminal_event(
                     event_type="halted",
                     state=RunState.HALTED,
                     subject_digest=subject_digest,
-                    blob_digests=(candidate_blob, observation_evidence_digest),
-                    payload={
-                        "cause": cause,
-                        "candidate_digest": candidate_blob,
-                        "verification_observations_digest": observation_evidence_digest,
-                        "assurance_scope": "CANDIDATE_RESPONSE_ONLY",
-                        "provider_write_isolation": provider_write_isolation,
-                        "telemetry": _terminal_telemetry(),
-                    },
+                    blob_digests=(
+                        candidate_blob,
+                        observation_evidence_digest,
+                        *((quality_blob,) if quality_blob else ()),
+                    ),
+                    payload=terminal_payload,
                 )
+                final_annotation: dict[str, Any] = {
+                    "candidate_response_verified": True,
+                    "candidate_digest": candidate_blob,
+                    "verification_observations_digest": observation_evidence_digest,
+                }
+                if enforce_quality:
+                    final_annotation["quality"] = quality
+                    final_annotation["advisory_review"] = annotation
                 return finish(
                     RunState.HALTED,
                     cause,
                     attempt,
-                    {
-                        "candidate_response_verified": True,
-                        "candidate_digest": candidate_blob,
-                        "verification_observations_digest": observation_evidence_digest,
-                    },
+                    final_annotation,
                 )
             finding_blob = ledger.put_blob(
                 json.dumps(

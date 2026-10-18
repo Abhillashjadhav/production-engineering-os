@@ -17,6 +17,19 @@ _MAX_BYTES = 1_000_000
 _MAX_NODES = 30_000
 _MAX_DEPTH = 16
 _ALLOWED_REQUEST_KEYS = frozenset({"contract", "plan", "files", "findings", "request_digest"})
+_SOURCE_REVIEW_KEYS = frozenset(
+    {
+        "contract_digest",
+        "plan_digest",
+        "evidence_digest",
+        "instruction",
+        "contract",
+        "files",
+        "generation_policy",
+        "quality",
+        "request_digest",
+    }
+)
 _SENSITIVE_KEY = re.compile(
     r"(?:^|[_-])(?:password|passwd|secret|token|credential|api[_-]?key|"
     r"private[_-]?key|env(?:ironment)?)(?:$|[_-])",
@@ -151,11 +164,16 @@ def validate_provider_request(
     __tracebackhide__ = True
     if purpose not in {"code", "advisory_review"}:
         raise PrivacyPolicyError("POL-014")
-    if not isinstance(request, Mapping) or frozenset(request) not in {
+    allowed_shapes = {
         frozenset({"request_digest"}),
         _ALLOWED_REQUEST_KEYS,
         _ALLOWED_REQUEST_KEYS | {"task_graph"},
-    }:
+        _ALLOWED_REQUEST_KEYS | {"generation_policy"},
+        _ALLOWED_REQUEST_KEYS | {"task_graph", "generation_policy"},
+    }
+    if purpose == "advisory_review":
+        allowed_shapes.add(_SOURCE_REVIEW_KEYS)
+    if not isinstance(request, Mapping) or frozenset(request) not in allowed_shapes:
         raise PrivacyPolicyError("POL-014")
     if not isinstance(request.get("request_digest"), str):
         raise PrivacyPolicyError("POL-014")
