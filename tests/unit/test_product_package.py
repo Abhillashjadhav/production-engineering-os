@@ -20,6 +20,16 @@ from pmpe.product_package import (
 )
 
 
+def test_package_credential_scan_does_not_reject_task_tracker_paths() -> None:
+    from pmpe import product_package
+
+    assert (
+        product_package._CREDENTIAL.search(b"/tmp/task-tracker-acceptance-7e4af/tasks.json") is None
+    )
+    for value in (b"sk-" + b"A" * 24, b"AKIA" + b"D" * 16, b"-----BEGIN PRIVATE KEY-----"):
+        assert product_package._CREDENTIAL.search(value)
+
+
 def _sealed_run(
     root: Path,
     *,

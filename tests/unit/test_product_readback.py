@@ -17,7 +17,7 @@ from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 from pmpe.product_acceptance_readback import verify_observation_predicates
 from pmpe.product_checks import candidate_manifest_digest, evaluate_required_checks
 from pmpe.product_profile import compile_product_profile
-from pmpe.product_readback import verify_product_build_evidence
+from pmpe.product_readback import _observations, verify_product_build_evidence
 from pmpe.task_tracker_harness import MEASURE_TARGET, fixed_template
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -205,6 +205,32 @@ def test_legacy_release_without_validation_remains_readable(tmp_path: Path) -> N
         payload={"candidate_digest": "sha256:" + "b" * 64},
     )
     verify_product_build_evidence(ledger, [event])
+
+
+def test_observer_trace_is_a_strict_json_array(tmp_path: Path) -> None:
+    ledger, events = _evidence(tmp_path)
+    original = next(e for e in events if e["event_type"] == "supervisor_observations")
+    payload = dict(original["payload"])
+    trace = [{"operation": "fresh_process", "exit_code": 0}]
+    trace_digest = ledger.put_blob(canonical_json_bytes(trace))
+    payload["observations"][0]["trace_digest"] = trace_digest
+    payload.pop("evidence_digest")
+    evidence_digest = ledger.put_blob(canonical_json_bytes(payload))
+    event = {
+        **original,
+        "payload": {**payload, "evidence_digest": evidence_digest},
+        "blob_digests": [*original["blob_digests"], trace_digest, evidence_digest],
+    }
+    observed = _observations(
+        ledger,
+        event,
+        candidate_digest=payload["candidate_digest"],
+        plan_digest=payload["plan_digest"],
+        contract_digest=payload["contract_digest"],
+        template_digest=payload["template_digest"],
+        criterion_ids=("AC-001",),
+    )
+    assert observed["AC-001"]["trace"] == trace
 
 
 @pytest.mark.parametrize("terminal_state", [None, "HALTED"])
