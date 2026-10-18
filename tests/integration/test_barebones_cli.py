@@ -674,16 +674,25 @@ def test_transient_baseline_blob_io_failure_persists_halt(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     put_blob = EvidenceLedger.put_blob
-    calls = 0
+    append = EvidenceLedger.append
+    validated = False
+    failed = False
+
+    def note_validation(self: EvidenceLedger, **kwargs: Any) -> Mapping[str, Any]:
+        nonlocal validated
+        result = append(self, **kwargs)
+        validated = validated or kwargs.get("event_type") == "contract_validated"
+        return result
 
     def fail_once_at_baseline(self: EvidenceLedger, payload: bytes) -> str:
-        nonlocal calls
-        calls += 1
-        if calls == 4:
+        nonlocal failed
+        if validated and not failed:
+            failed = True
             raise OSError("TEST-ONLY baseline blob write failed")
         return put_blob(self, payload)
 
     monkeypatch.setattr(EvidenceLedger, "put_blob", fail_once_at_baseline)
+    monkeypatch.setattr(EvidenceLedger, "append", note_validation)
     run_id = "transient-baseline-blob-io"
     assert (
         main(
@@ -709,7 +718,7 @@ def test_transient_baseline_blob_io_failure_persists_halt(
     )
     immediate = json.loads(capsys.readouterr().out)
     assert (immediate["state"], immediate["cause"]) == ("HALTED", "EXECUTION_FAILED")
-    assert calls == 4
+    assert failed
     events = tuple(EvidenceLedger.open_existing(tmp_path, run_id).verify())
     assert (events[-1]["event_type"], events[-1]["state"]) == ("halted", "HALTED")
     assert events[-1]["payload"]["cause"] == "EXECUTION_FAILED"
@@ -1150,7 +1159,7 @@ def _rewrite_plan_with_valid_hash_chain(root: Path, *, run_id: str) -> None:
     payload = validation["payload"]
     contract_digest = payload["contract_digest"]
     receipt_blob_digest = payload["approval"]["receipt_blob_digest"]
-    plan_blob_digest = next(
+    plan_blob_digest = payload.get("plan_blob_digest") or next(
         digest
         for digest in validation["blob_digests"]
         if digest not in {contract_digest, receipt_blob_digest}
@@ -1177,6 +1186,8 @@ def _rewrite_plan_with_valid_hash_chain(root: Path, *, run_id: str) -> None:
         for digest in validation["blob_digests"]
     )
     payload["plan_digest"] = plan["plan_digest"]
+    if "plan_blob_digest" in payload:
+        payload["plan_blob_digest"] = replacement_digest
     _write_events_with_valid_hash_chain(events_path, events)
 
 

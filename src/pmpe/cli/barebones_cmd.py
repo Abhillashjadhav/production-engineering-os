@@ -27,6 +27,12 @@ from pmpe.barebones import (
     default_template,
     run_to_release_ready,
 )
+from pmpe.cli.build_options import (
+    build_budget,
+    load_task_graph,
+    read_input_bytes,
+    register_build_options,
+)
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
@@ -44,6 +50,8 @@ from pmpe.model_provider import (
     ModelProvider,
 )
 from pmpe.pipeline_health import core_pipeline_health
+from pmpe.product_build import admit_build_bindings
+from pmpe.product_profile import ProductProfileError, compile_product_profile
 from pmpe.provider_isolation import OfflineConfinedProvider
 from pmpe.task_tracker_harness import MEASURE_TARGET, REGISTRY_NAME, fixed_template
 
@@ -59,10 +67,7 @@ def _load_contract(path: Path) -> Mapping[str, Any]:
     content_type = (
         "application/yaml" if path.suffix.lower() in {".yaml", ".yml"} else "application/json"
     )
-    try:
-        source = path.read_bytes()
-    except OSError as exc:
-        raise ContractInvalidError("cannot read contract") from exc
+    source = read_input_bytes(path, "contract")
     contract = strict_loads(source, content_type)
     if not isinstance(contract, Mapping):
         raise ContractInvalidError("contract must be an object")
@@ -72,10 +77,7 @@ def _load_contract(path: Path) -> Mapping[str, Any]:
 def _load_core_harness_mapping(path: str | None) -> Mapping[str, Any] | None:
     if path is None:
         return None
-    try:
-        source = Path(path).read_bytes()
-    except OSError as exc:
-        raise ContractInvalidError("cannot read required core harness mapping") from exc
+    source = read_input_bytes(Path(path), "required core harness mapping")
     try:
         mapping = strict_loads(source, "application/json")
     except CanonicalInputError as exc:
@@ -102,10 +104,21 @@ def _compile(args: argparse.Namespace) -> int:
         except CoreHarnessInvalidError as exc:
             raise ContractInvalidError(str(exc)) from exc
         template = _selected_template(args.template, harness_plan is not None)
+        profile = compile_product_profile(
+            args.profile, contract=contract, template=template, harness_plan=harness_plan
+        )
         plan = compile_barebones_plan(
             contract=contract,
             repository_root=Path(args.repository_root).resolve(),
             template=template,
+        )
+        bindings = admit_build_bindings(
+            contract=contract,
+            plan=plan,
+            template=template,
+            harness_plan=harness_plan,
+            profile=profile,
+            graph_mapping=load_task_graph(args.task_graph),
         )
     except CanonicalInputError as exc:
         _json(
@@ -125,7 +138,7 @@ def _compile(args: argparse.Namespace) -> int:
             }
         )
         return 3
-    except ContractInvalidError as exc:
+    except (ContractInvalidError, ProductProfileError) as exc:
         _json({"state": "HALTED", "cause": "CONTRACT_INVALID", "detail": str(exc)})
         return 3
     structured = sum(item.form == "given_when_then" for item in plan.criteria)
@@ -157,6 +170,12 @@ def _compile(args: argparse.Namespace) -> int:
             "total": len(plan.criteria),
         },
         "plan": plan.as_dict(),
+        "task_graph": bindings.graph.as_dict(),
+        "product_profile": {
+            "profile_id": profile.profile_id,
+            "manifest_digest": profile.manifest_digest,
+            "manifest": profile.manifest,
+        },
     }
     if harness_plan is not None:
         output["core_harness"] = {
@@ -334,10 +353,7 @@ def _run(args: argparse.Namespace) -> int:
     contract_path = Path(args.contract)
     try:
         contract = _load_contract(contract_path)
-        try:
-            receipt_source = Path(args.approval_receipt).read_bytes()
-        except OSError as exc:
-            raise ContractInvalidError("cannot read approval receipt") from exc
+        receipt_source = read_input_bytes(Path(args.approval_receipt), "approval receipt")
         receipt = strict_loads(receipt_source, "application/json")
         _require_approved_contract(contract, receipt, args.expected_approver)
         mapping = _load_core_harness_mapping(args.core_harness_mapping)
@@ -346,6 +362,9 @@ def _run(args: argparse.Namespace) -> int:
         except CoreHarnessInvalidError as exc:
             raise ContractInvalidError(str(exc)) from exc
         template = _selected_template(args.template, harness_plan is not None)
+        profile = compile_product_profile(
+            args.profile, contract=contract, template=template, harness_plan=harness_plan
+        )
         command = args.provider_command
         bundle = args.provider_offline_bundle
         entry = args.provider_offline_entry
@@ -384,6 +403,9 @@ def _run(args: argparse.Namespace) -> int:
                 approval_receipt_bytes=receipt_source,
                 core_harness_mapping=mapping,
                 template=template,
+                product_profile=profile,
+                task_graph_mapping=load_task_graph(args.task_graph),
+                budget=build_budget(args),
             )
         except (RuntimeError, OSError) as exc:
             _json({"state": "HALTED", "cause": "EXECUTION_FAILED", "detail": str(exc)})
@@ -406,7 +428,7 @@ def _run(args: argparse.Namespace) -> int:
             }
         )
         return 3
-    except ContractInvalidError as exc:
+    except (ContractInvalidError, ProductProfileError) as exc:
         _json({"state": "HALTED", "cause": "CONTRACT_INVALID", "detail": str(exc)})
         return 3
     except TerminalPersistenceError as exc:
@@ -457,6 +479,9 @@ def _open_verified_events(
     events = tuple(ledger.verify())
     if not events:
         raise EvidenceIntegrityError("evidence ledger is empty")
+    from pmpe.product_readback import verify_product_build_evidence
+
+    verify_product_build_evidence(ledger, events)
     return ledger, events
 
 
@@ -733,11 +758,16 @@ def _comparison_observation(
         raise EvidenceIntegrityError("behavior comparison requires verified approval evidence")
     if authority != expected_approver:
         raise EvidenceIntegrityError("approval authority does not match --expected-approver")
-    plan_blob_digests = [
-        digest
-        for digest in validation_blobs
-        if digest not in {contract_digest, receipt_blob_digest}
-    ]
+    explicit_plan_blob = validation_payload.get("plan_blob_digest")
+    plan_blob_digests = (
+        [explicit_plan_blob]
+        if explicit_plan_blob in validation_blobs
+        else [
+            digest
+            for digest in validation_blobs
+            if digest not in {contract_digest, receipt_blob_digest}
+        ]
+    )
     if (
         len(plan_blob_digests) != 1
         or not isinstance(plan_blob_digests[0], str)
@@ -816,8 +846,15 @@ def _comparison_observation(
     if not isinstance(request, Mapping) or not isinstance(response, Mapping):
         raise EvidenceIntegrityError("Coder request or response evidence is malformed")
     request_fields = {"contract", "plan", "files", "findings", "request_digest"}
-    if set(request) != request_fields:
+    if set(request) not in (request_fields, request_fields | {"task_graph"}):
         raise EvidenceIntegrityError("Coder request evidence has an unexpected shape")
+    if "task_graph" in request:
+        graph_digest = validation_payload.get("task_graph_blob_digest")
+        if not isinstance(graph_digest, str) or graph_digest not in validation_blobs:
+            raise EvidenceIntegrityError("Coder task graph evidence is unavailable")
+        graph = strict_loads(ledger.read_blob(graph_digest), "application/json")
+        if canonical_digest(graph) != canonical_digest(request["task_graph"]):
+            raise EvidenceIntegrityError("Coder task graph evidence is inconsistent")
     request_body = {key: value for key, value in request.items() if key != "request_digest"}
     expected_request_digest = canonical_digest(request_body)
     if (
@@ -1180,7 +1217,14 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     compile_parser.add_argument(
         "--template", choices=("barebones-1", REGISTRY_NAME), default="barebones-1"
     )
+    compile_parser.add_argument(
+        "--profile",
+        choices=("auto", "barebones-health-v1", "pmos-task-tracker-v1"),
+        default="auto",
+        help="protected built-in product capability envelope",
+    )
     compile_parser.set_defaults(fn=_compile)
+    register_build_options(compile_parser, runtime=False)
 
     run_parser = commands.add_parser("run", help="run one approved contract")
     run_parser.add_argument("contract")
@@ -1190,6 +1234,12 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     run_parser.add_argument("--core-harness-mapping")
     run_parser.add_argument(
         "--template", choices=("barebones-1", REGISTRY_NAME), default="barebones-1"
+    )
+    run_parser.add_argument(
+        "--profile",
+        choices=("auto", "barebones-health-v1", "pmos-task-tracker-v1"),
+        default="auto",
+        help="protected built-in product capability envelope",
     )
     run_parser.add_argument("--approval-receipt", required=True)
     run_parser.add_argument(
@@ -1211,6 +1261,7 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     )
     run_parser.add_argument("--provider-timeout", type=int, default=960)
     run_parser.set_defaults(fn=_run)
+    register_build_options(run_parser, runtime=True)
 
     for name, function, help_text in (
         ("status", _status, "show the verified state of an existing run"),
