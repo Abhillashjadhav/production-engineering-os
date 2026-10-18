@@ -36,6 +36,15 @@ def test_clean_candidate_has_all_required_checks_and_bound_identity() -> None:
         (b"value = 1  # noqa\n", "verification_integrity"),
         (b"value = 1  # type: ignore\n", "verification_integrity"),
         (b"# mypy: ignore-errors\nvalue = 1\n", "verification_integrity"),
+        (
+            b"from typing import no_type_check as unchecked\n\n\n"
+            b'@unchecked\ndef count() -> int:\n    return "wrong"\n',
+            "verification_integrity",
+        ),
+        (
+            b'import typing as t\n\n\n@t.no_type_check\ndef count() -> int:\n    return "wrong"\n',
+            "verification_integrity",
+        ),
         (b"value=1\n", "format"),
     ],
 )
@@ -99,3 +108,21 @@ def test_path_escape_is_rejected(path: str) -> None:
 def test_empty_or_unsupported_source_cannot_pass() -> None:
     assert not check_python_candidate({}).passed
     assert not check_python_candidate({"index.ts": b"export const value = 1;"}).passed
+
+
+def test_trusted_acceptance_tests_keep_identity_without_generated_code_policy() -> None:
+    snapshot = {
+        "product.py": GOOD,
+        "tests/test_health.py": b"import pytest\n\ndef test_health():\n    assert True\n",
+    }
+    report = check_python_candidate(snapshot, trusted_paths=frozenset({"tests/test_health.py"}))
+    assert report.passed, report
+    assert report.candidate_digest != check_python_candidate({"product.py": GOOD}).candidate_digest
+    assert not check_python_candidate(snapshot).passed
+
+
+def test_excessive_ast_complexity_fails_without_escaping_the_verifier() -> None:
+    source = ("value = " + " + ".join(["1"] * 20000) + "\n").encode()
+    report = check_python_candidate({"product.py": source})
+    assert not report.passed
+    assert report.checks[0].name == "syntax" and report.checks[0].status == "FAIL"

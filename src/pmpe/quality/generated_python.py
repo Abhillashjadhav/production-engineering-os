@@ -27,6 +27,7 @@ PROFILE = "python-stdlib-quality/v1"
 _CHECKS = ("syntax", "dependencies", "verification_integrity", "format", "lint", "types")
 _SUPPRESSION = re.compile(r"noqa|type:\s*ignore|mypy:|ruff:", re.IGNORECASE)
 _OTHER_CODE = {".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".sh"}
+_TYPE_SUPPRESSORS = {"no_type_check", "no_type_check_decorator"}
 
 
 @dataclass(frozen=True)
@@ -94,7 +95,11 @@ def _run_tool(name: str, arguments: list[str], root: Path) -> tuple[str, str]:
     return ("PASS" if result.returncode == 0 else "FAIL"), details
 
 
-def check_python_candidate(snapshot: Mapping[str, bytes]) -> PythonQualityReport:
+def check_python_candidate(
+    snapshot: Mapping[str, bytes],
+    *,
+    trusted_paths: frozenset[str] = frozenset(),
+) -> PythonQualityReport:
     """Check an immutable snapshot in a disposable directory, ignoring its config."""
     for relative in snapshot:
         path = PurePosixPath(relative)
@@ -112,7 +117,11 @@ def check_python_candidate(snapshot: Mapping[str, bytes]) -> PythonQualityReport
             for path, payload in sorted(snapshot.items())
         }
     )
-    sources = {path: data for path, data in snapshot.items() if path.endswith(".py")}
+    sources = {
+        path: data
+        for path, data in snapshot.items()
+        if path.endswith(".py") and path not in trusted_paths
+    }
     if not sources or any(PurePosixPath(p).suffix in _OTHER_CODE for p in snapshot):
         return PythonQualityReport(
             PROFILE,
@@ -143,6 +152,12 @@ def check_python_candidate(snapshot: Mapping[str, bytes]) -> PythonQualityReport
                     if token.type == tokenize.COMMENT and _SUPPRESSION.search(token.string):
                         integrity.append(f"{relative}:{token.start[0]}: checker suppression")
                 for node in ast.walk(tree):
+                    if (
+                        isinstance(node, ast.ImportFrom)
+                        and node.module in {"typing", "typing_extensions"}
+                        and any(alias.name in _TYPE_SUPPRESSORS for alias in node.names)
+                    ) or (isinstance(node, ast.Attribute) and node.attr in _TYPE_SUPPRESSORS):
+                        integrity.append(f"{relative}: type-check suppression decorator")
                     modules: list[str] = []
                     if isinstance(node, ast.Import):
                         modules = [alias.name for alias in node.names]
@@ -155,7 +170,7 @@ def check_python_candidate(snapshot: Mapping[str, bytes]) -> PythonQualityReport
                                 f"{relative}:{getattr(node, 'lineno', 0)}: "
                                 f"unsupported import {name}"
                             )
-            except (SyntaxError, UnicodeError, tokenize.TokenError) as exc:
+            except (SyntaxError, UnicodeError, tokenize.TokenError, RecursionError) as exc:
                 syntax.append(f"{relative}: {type(exc).__name__}")
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +184,12 @@ def check_python_candidate(snapshot: Mapping[str, bytes]) -> PythonQualityReport
             )
         ]
         paths = sorted(sources)
+        if syntax:
+            checks.extend(
+                PythonCheck(name, "NOT_RUN", "source syntax or complexity check failed")
+                for name in ("format", "lint", "types")
+            )
+            return PythonQualityReport(PROFILE, digest, tuple(checks))
         commands = {
             "format": ("ruff", ["format", "--isolated", "--check", *paths]),
             "lint": ("ruff", ["check", "--isolated", "--select", "E9,F", *paths]),
