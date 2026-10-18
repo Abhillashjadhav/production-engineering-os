@@ -7,6 +7,11 @@ import json
 from pathlib import Path
 
 from pmpe.domain.errors import SpecError
+from pmpe.product_package import (
+    ProductPackageError,
+    assemble_product_package,
+    verify_product_package,
+)
 from pmpe.support_package import (
     PackageContractError,
     assemble_support_package,
@@ -76,6 +81,55 @@ def _verify(args: argparse.Namespace) -> int:
     return 0
 
 
+def _product_build(args: argparse.Namespace) -> int:
+    try:
+        result = assemble_product_package(
+            Path(args.repository_root),
+            args.run_id,
+            args.expected_head_digest,
+            Path(args.output),
+        )
+    except ProductPackageError as exc:
+        raise SpecError(str(exc)) from exc
+    print(
+        json.dumps(
+            {
+                "bundle": str(result.bundle),
+                "manifest_digest": result.manifest_digest,
+                "status": result.status,
+                "blockers": result.blockers,
+            },
+            sort_keys=True,
+        )
+    )
+    return 3 if result.status != "VERIFIED" else 0
+
+
+def _product_verify(args: argparse.Namespace) -> int:
+    try:
+        result = verify_product_package(
+            Path(args.bundle),
+            Path(args.repository_root),
+            args.run_id,
+            args.expected_head_digest,
+            args.expected_manifest_digest,
+        )
+    except ProductPackageError as exc:
+        raise SpecError(str(exc)) from exc
+    print(
+        json.dumps(
+            {
+                "bundle": str(result.bundle),
+                "manifest_digest": result.manifest_digest,
+                "status": result.status,
+                "blockers": result.blockers,
+            },
+            sort_keys=True,
+        )
+    )
+    return 3 if result.status != "VERIFIED" else 0
+
+
 def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     package = sub.add_parser(
         "package",
@@ -104,3 +158,22 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     verify.add_argument("--bundle", required=True)
     verify.add_argument("--expected-manifest-digest", required=True)
     verify.set_defaults(fn=_verify)
+
+    product_build = commands.add_parser(
+        "product-build",
+        help="assemble exact sealed product candidate; report clean package blockers",
+    )
+    product_build.add_argument("--repository-root", default=".")
+    product_build.add_argument("--run-id", required=True)
+    product_build.add_argument("--expected-head-digest", required=True)
+    product_build.add_argument("--output", required=True)
+    product_build.set_defaults(fn=_product_build)
+    product_verify = commands.add_parser(
+        "product-verify", help="recheck source bundle against sealed ledger and clean checks"
+    )
+    product_verify.add_argument("--bundle", required=True)
+    product_verify.add_argument("--repository-root", default=".")
+    product_verify.add_argument("--run-id", required=True)
+    product_verify.add_argument("--expected-head-digest", required=True)
+    product_verify.add_argument("--expected-manifest-digest", required=True)
+    product_verify.set_defaults(fn=_product_verify)
