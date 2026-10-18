@@ -1,8 +1,50 @@
 # Built-in code quality: PMOS contract to PEOS product delivery
 
-Status: proposed implementation plan, expanded after source review on 2026-10-18; no runtime changes.
+Status: partially implemented in reviewable PRs as of 2026-10-18; release blocked. See the implementation checkpoint before the original review.
 Tracking: [#245](https://github.com/Abhillashjadhav/production-engineering-os/issues/245); planning PR [#246](https://github.com/Abhillashjadhav/production-engineering-os/pull/246).
 Main baseline: `1a431b23f837b04237c99ab7b924a234def10171`. Existing planning baseline: `368bf4761f20e453fd7434822ee1fe562d06fc16`.
+
+## Implementation checkpoint — 2026-10-18
+
+Implementation is **partial; release remains blocked**. The owner authorized implementation in the conversation. Runtime changes are in an unmerged stack based on draft #240 (`7467778008ce1e49d6378140dda11edf451052c0`), not on main. Main is unchanged. The original source review below describes the main baseline and is retained as historical evidence; it is not a statement that every issue remains untouched.
+
+| Packet | Implemented behavior | Work still required |
+|---|---|---|
+| T1.1 — execution boundary | Reuses #240's stricter response/test protocol and watchdog; adds provider-process cleanup and resource-bounded source compilation. | Establish authenticated provider write/credential isolation on an authorized supported host (#238). The release halt remains unconditional. A reproduced dynamic-interpreter startup failure has a bounded compatibility fix; exact supported-host CI must confirm it. |
+| T1.2 — privacy and authority | Validates bounded contract, graph and provider context; checks known credential/canary patterns before provider calls and before evidence persistence; rejects unsafe source paths. | Protected approval issuer, general sensitive-data policy, external retention guarantees and complete shared-blob deletion. Pattern checks do not establish product privacy. |
+| T1.3 — baseline reconciliation | Reuses the existing #234 proof-port retry in #265, with a reproduced empty-file race. Preserves protected secret-fixture locations without changing the scanner or allowlist. | Finish exact-head CI. Existing frontend dependency remediation needs a registry-enabled lockfile refresh (#261). |
+| T2.1 — supported products | Protected, exact health and fixed fourteen-case task-tracker profiles bind starter, harness, checks and dependency inventory. Missing delivery adapters are explicit BLOCKED results. | Broader UI/API/database/background/AI capability profiles with actual verification adapters. |
+| T2.2 — planning | Validates contract-bound graphs, coverage, dependencies, cycles, ownership and protected paths. The exact graph enters provider requests and evidence. | Semantic architecture generation and executable integration plans. Graphs are dependency context for whole-candidate generation, not an incremental executor. |
+| T3.1 — bounded build | Cumulative reported token/call/output caps and wall-time checkpoints; bounded CLI/source inputs; frontend files in repair context. | Durable resume, dependency-ordered incremental execution and hard cancellation of synchronous provider calls. Provider-reported token usage is not independently metered; one call may overshoot. |
+| T3.2 — repair quality | Required candidate checks and evidence readback recompute syntax, scanner and acceptance semantics from sealed source and observation blobs. Independent AI source review found defects that were fixed. | An active, source-aware independent advisory-review/repair loop. A local reviewer is not a runtime feature. |
+| T4.1 — packaging | New product-package consumer binds an exact RELEASE_READY ledger and checks bounded no-follow source reads, tamper detection and fresh-directory syntax. | Actual clean-install and customer-journey proof. It always returns BLOCKED without those adapters; the current producer cannot qualify RELEASE_READY. |
+| T4.2 — delivery | Existing release and approval gates stay enforced. | Authorized target deployment, post-deployment journey, monitoring and rollback proof. No deployment was performed. |
+
+### Reviewable changes
+
+The stack is [#265](https://github.com/Abhillashjadhav/production-engineering-os/pull/265) → [#259](https://github.com/Abhillashjadhav/production-engineering-os/pull/259) → [#260](https://github.com/Abhillashjadhav/production-engineering-os/pull/260) → [#262](https://github.com/Abhillashjadhav/production-engineering-os/pull/262) → [#263](https://github.com/Abhillashjadhav/production-engineering-os/pull/263) → [#264](https://github.com/Abhillashjadhav/production-engineering-os/pull/264). Each PR is one coherent concern: proof-race prerequisite, resource budgets, process cleanup, protected build/profile/graph/readback, privacy boundary, and package admission. Issues #252–#257 track these changes; #245 tracks the full outcome. No PR was merged.
+
+### Validation and limits
+
+Ruff check/format passed for 335 Python files; strict mypy passed for 205 source files. The latest focused core qualification ran 52 tests: 51 passed and one real-sandbox test was skipped on this host. The proof-package unit/CLI group passed all 88 tests after the fixture-location correction. Three broader local groups ran 2,658 tests with no failures and 21 skips (2,637 passed). The affected fourth group is being rerun. After the final interpreter-library change, 35 targeted regressions passed with one supported-host skip; a separate reviewer passed nine focused tests. These are overlapping selections, not additive totals. Two historical archive-publication tests could not run locally because the connector did not materialize the existing binary archive; GitHub retains the original blob. Exact-head GitHub CI remains queued/running.
+
+A separate AI reviewer inspected the implementation and ran focused regressions. This is advisory evidence, not human approval or the required GitHub bot review. GitHub Codex explicitly refused all six review requests because the account's code-review quota is exhausted. No credits were purchased, no substitute approval was fabricated and no review/security check was disabled.
+
+This local host cannot establish the required Bubblewrap namespace or protected offline interpreter ownership. No authenticated live-provider build, representative held-out complex product, clean install, public release or deployment has been qualified. A stronger control plane is not yet the requested autonomous usable-product delivery system.
+
+
+### Exact implementation snapshot
+
+| PR | Current head |
+|---|---|
+| #265 | `7f3413048d39a268083b5d806710ae5ddaff2620` |
+| #259 | `2810e1ac4db51b9cccb8f7373d08ef15fc599387` |
+| #260 | `82f5e4f95f39153b5f32aa68161c8e16eff8dbf5` |
+| #262 | `2ff6edad18e946c72809cdd69c5dc3c230b95cd0` |
+| #263 | `090d2895c87836105f45b55fc8d7cfc545c7e1a6` |
+| #264 | `6f4da714c75401ccf9af34291c5ddc1dcc8e509c` |
+
+All 34 changed source/test blob identities in final #264 were compared with reviewed local commit `c23d2c182d516fef6629c86659c4a7dd153608d0`; mismatches: zero. This establishes source correspondence, not successful CI or release authorization. The adjacent library directory and parent chain are part of the trusted interpreter installation; the loader compatibility fix is not a provider-isolation boundary.
 
 ## Outcome and scope
 
