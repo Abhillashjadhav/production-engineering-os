@@ -26,7 +26,22 @@ def test_default_cli_exposes_only_alpha_and_explicit_legacy_boundary() -> None:
         "evidence",
         "inspect",
         "package",
+        "verify-delivery",
     }
+
+
+def test_delivery_verifier_requires_separately_retained_manifest_digest() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "barebones",
+            "verify-delivery",
+            "/tmp/source-package",
+            "--expected-manifest-digest",
+            "sha256:" + "a" * 64,
+        ]
+    )
+    assert args.barebones_command == "verify-delivery"
 
 
 def test_legacy_commands_require_the_legacy_prefix() -> None:

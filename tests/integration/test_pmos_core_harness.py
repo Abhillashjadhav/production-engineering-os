@@ -30,6 +30,7 @@ from pmpe.contracts.authoring import approve_contract_draft, verify_contract_app
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.core_harness import CoreHarnessInvalidError, compile_required_harness
 from pmpe.evidence.ledger import EvidenceLedger
+from pmpe.quality.generated_python import check_python_candidate, generation_policy
 from pmpe.task_tracker_harness import fixed_template, registry_identity
 from tests.conftest import _LocalCandidateTestSandbox
 
@@ -38,6 +39,15 @@ PACKET = ROOT / "examples/pmos-task-tracker"
 SOURCE = PACKET / "source"
 MAPPED = PACKET / "mapped"
 APPROVED = PACKET / "approved"
+
+
+def test_retained_task_tracker_fixture_passes_exact_generated_quality_profile() -> None:
+    source = (ROOT / "tests/fixtures/pmos_task_tracker_product.py").read_bytes()
+    report = check_python_candidate({"product.py": source})
+    assert report.passed is True, {check.name: check.details for check in report.checks}
+    assert {check.name: check.status for check in report.checks} == dict.fromkeys(
+        generation_policy()["required_checks"], "PASS"
+    )
 
 
 def _json(path: Path) -> dict[str, Any]:

@@ -178,8 +178,15 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
     assert output["assurance_scope"] == "CANDIDATE_RESPONSE_ONLY"
     assert output["release_eligible"] is False
     assert output["release_blocker"] == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
-    assert output["model_calls"] == 1
+    assert output["model_calls"] == 2
+    assert output["delivery"] == {"status": "NOT_READY"}
     events = [json.loads(line) for line in Path(output["evidence"]).read_text().splitlines()]
+    coder = [event for event in events if event["event_type"] == "coder_completed"]
+    reviewed = [event for event in events if event["event_type"] == "candidate_response_verified"]
+    assert len(coder) == len(reviewed) == 1
+    assert coder[0]["payload"]["provider_behavior"]["purpose"] == "code"
+    assert reviewed[0]["payload"]["provider_behavior"]["purpose"] == "advisory_review"
+    assert not any(event["event_type"] == "release_ready" for event in events)
     approval = events[0]["payload"]["approval"]
     assert approval["status"] == "VERIFIED"
     assert approval["authority"] == "fixture-human"
