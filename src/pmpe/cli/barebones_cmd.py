@@ -23,6 +23,7 @@ from pmpe.barebones import ContractInvalidError, compile_barebones_plan, run_to_
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
+from pmpe.delivery import assemble_delivery, verify_delivery
 from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import (
     ProviderBehavior,
@@ -296,6 +297,19 @@ def _run(args: argparse.Namespace) -> int:
     except EvidenceIntegrityError as exc:
         _json({"state": "HALTED", "cause": "EVIDENCE_INVALID", "detail": str(exc)})
         return 3
+    delivery: dict[str, Any] = {"status": "NOT_READY"}
+    if result.state == "RELEASE_READY":
+        try:
+            _, events = _open_verified_events(Path(args.repository_root), args.run_id)
+            delivery = _export_verified_run(
+                Path(args.repository_root),
+                args.run_id,
+                expected_approver=args.expected_approver,
+                compiler_root=Path(args.repository_root).resolve(),
+                expected_head_digest=str(events[-1]["event_digest"]),
+            )
+        except (EvidenceIntegrityError, OSError, ValueError) as exc:
+            delivery = {"status": "BLOCKED", "detail": str(exc)}
     _json(
         {
             "run_id": result.run_id,
@@ -308,9 +322,10 @@ def _run(args: argparse.Namespace) -> int:
             "evidence": str(result.evidence_path),
             "annotation": result.annotation,
             "telemetry": result.telemetry,
+            "delivery": delivery,
         }
     )
-    return 0 if result.state == "RELEASE_READY" else 3
+    return 0 if result.state == "RELEASE_READY" and delivery["status"] != "BLOCKED" else 3
 
 
 def _open_verified_events(
@@ -324,6 +339,52 @@ def _open_verified_events(
     if not events:
         raise EvidenceIntegrityError("evidence ledger is empty")
     return ledger, events
+
+
+def _export_verified_run(
+    root: Path,
+    run_id: str,
+    *,
+    expected_approver: str,
+    compiler_root: Path,
+    expected_head_digest: str,
+) -> dict[str, Any]:
+    ledger, events = _open_verified_events(root, run_id)
+    if events[-1].get("event_digest") != expected_head_digest:
+        raise EvidenceIntegrityError("delivery evidence head differs from expected digest")
+    identity = _comparison_observation(
+        root,
+        run_id,
+        expected_approver=expected_approver,
+        compiler_root=compiler_root,
+        require_provider_metadata=False,
+    )
+    _, manifest = _candidate_manifest(ledger, events[-1])
+    quality = events[-1].get("payload", {}).get("quality", {})
+    output = root.resolve() / ".pmpe" / "deliveries" / run_id
+    result = assemble_delivery(
+        {path: ledger.read_blob(digest) for path, digest in manifest.items()},
+        quality=quality,
+        identity={
+            key: identity[key]
+            for key in ("candidate_digest", "contract_digest", "plan_digest", "head_event_digest")
+        },
+        output=output,
+    )
+    return {**result, "directory": str(output)}
+
+
+def _verify_delivery(args: argparse.Namespace) -> int:
+    try:
+        result = verify_delivery(
+            Path(args.directory),
+            expected_manifest_digest=args.expected_manifest_digest,
+        )
+    except (OSError, ValueError, CanonicalInputError) as exc:
+        _json({"status": "INVALID_DELIVERY", "detail": str(exc)})
+        return 3
+    _json(result)
+    return 0
 
 
 def _verified_events(
@@ -425,6 +486,7 @@ def _comparison_observation(
     *,
     expected_approver: str,
     compiler_root: Path,
+    require_provider_metadata: bool = True,
 ) -> dict[str, Any]:
     ledger, events = _open_verified_events(evidence_root, run_id)
     validation_events = [
@@ -575,14 +637,16 @@ def _comparison_observation(
         or canonical_digest(request_plan) != canonical_digest(expected_plan)
     ):
         raise EvidenceIntegrityError("Coder request is not bound to the approved contract and plan")
+    observed_behavior: dict[str, Any] = {}
     try:
         behavior = observe_provider_behavior(purpose="code", response=response)
+        observed_behavior = asdict(behavior)
     except ValueError as exc:
-        raise EvidenceIntegrityError("Coder behavior evidence is malformed") from exc
+        if require_provider_metadata:
+            raise EvidenceIntegrityError("Coder behavior evidence is malformed") from exc
     recorded_behavior = (
         coder_payload.get("provider_behavior") if isinstance(coder_payload, Mapping) else None
     )
-    observed_behavior = asdict(behavior)
     required_behavior_fields = {
         "purpose",
         "request_digest",
@@ -591,7 +655,7 @@ def _comparison_observation(
         "model",
         "prompt_version",
     }
-    if (
+    if observed_behavior and (
         not isinstance(recorded_behavior, Mapping)
         or not required_behavior_fields.issubset(recorded_behavior)
         or any(
@@ -892,6 +956,13 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     )
     run_parser.add_argument("--provider-timeout", type=int, default=960)
     run_parser.set_defaults(fn=_run)
+
+    delivery_parser = commands.add_parser(
+        "verify-delivery", help="verify delivered bytes against a separately retained digest"
+    )
+    delivery_parser.add_argument("directory")
+    delivery_parser.add_argument("--expected-manifest-digest", required=True)
+    delivery_parser.set_defaults(fn=_verify_delivery)
 
     for name, function, help_text in (
         ("status", _status, "show the verified state of an existing run"),

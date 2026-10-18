@@ -153,6 +153,77 @@ def test_cli_rejects_type_defect_without_an_extra_user_flag(
     assert '"event_type":"generated_quality_checked"' in events.replace(" ", "")
 
 
+@pytest.mark.parametrize("with_metadata", [True, False])
+def test_normal_cli_run_delivers_sources_and_verification_detects_tampering(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    with_metadata: bool,
+) -> None:
+    import shlex
+    import sys
+
+    from pmpe.cli import main
+
+    root = Path(__file__).resolve().parents[2]
+    provider_path = root / "examples/barebones/e1-provider.py"
+    if not with_metadata:
+        provider_path = tmp_path / "provider.py"
+        provider_path.write_text(
+            "import json, sys\n"
+            "request = json.load(sys.stdin)['request']\n"
+            "print(json.dumps({'request_digest': request['request_digest'], 'files': "
+            "{'product.py': 'def health() -> dict[str, str]:\\n"
+            '    return {"status": "ok"}\\n\'}}))\n'
+        )
+    assert (
+        main(
+            [
+                "barebones",
+                "run",
+                str(root / "examples/barebones/e1-contract.json"),
+                "--approval-receipt",
+                str(root / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--workspace",
+                str(tmp_path / "candidate"),
+                "--run-id",
+                "delivery",
+                "--repository-root",
+                str(tmp_path / "evidence"),
+                "--provider-command",
+                f"{shlex.quote(sys.executable)} {shlex.quote(str(provider_path))}",
+            ]
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    package = result["delivery"]
+    assert package["status"] == "VERIFIED_SOURCE_PACKAGE"
+    assert package["deployment"] == "NOT_DEPLOYED"
+    from pmpe.cli.barebones_cmd import _export_verified_run
+    from pmpe.evidence.ledger import EvidenceIntegrityError
+
+    with pytest.raises(EvidenceIntegrityError, match="head"):
+        _export_verified_run(
+            tmp_path / "evidence",
+            "delivery",
+            expected_approver="fixture-human",
+            compiler_root=tmp_path / "evidence",
+            expected_head_digest="sha256:" + "0" * 64,
+        )
+    args = [
+        "barebones",
+        "verify-delivery",
+        package["directory"],
+        "--expected-manifest-digest",
+        package["manifest_digest"],
+    ]
+    assert main(args) == 0
+    capsys.readouterr()
+    (Path(package["directory"]) / "product/product.py").write_text("changed")
+    assert main(args) == 3
+    assert json.loads(capsys.readouterr().out)["status"] == "INVALID_DELIVERY"
 
 
 def test_protected_acceptance_test_does_not_need_builder_owned_annotations(tmp_path: Path) -> None:
