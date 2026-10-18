@@ -9,7 +9,7 @@ request = message["request"]
 metadata = {
     "provider": "scripted-fixture",
     "model": "deterministic-e1",
-    "prompt_version": "e1-v1",
+    "prompt_version": "e1-v2-quality",
 }
 if message["purpose"] == "code":
     response = {
@@ -17,7 +17,7 @@ if message["purpose"] == "code":
         "provider_metadata": metadata,
         "files": {
             "product.py": (
-                '"""E1 health product."""\n\n'
+                '"""E1 health product."""\n\n\n'
                 "def health() -> dict[str, str]:\n"
                 '    return {"status": "ok"}\n'
             )

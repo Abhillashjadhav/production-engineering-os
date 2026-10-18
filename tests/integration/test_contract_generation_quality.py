@@ -14,12 +14,14 @@ def contract() -> dict[str, Any]:
     return {
         "contract_id": "PMOS-QUALITY",
         "functional_requirements": {"FR-001": {"statement": "health reports ok"}},
-        "acceptance_criteria": {"AC-001": {
-            "requirement_refs": ["FR-001"],
-            "given": [{"path": "service.running", "operator": "eq", "value": True}],
-            "when": {"action": "health", "arguments": {}},
-            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
-        }},
+        "acceptance_criteria": {
+            "AC-001": {
+                "requirement_refs": ["FR-001"],
+                "given": [{"path": "service.running", "operator": "eq", "value": True}],
+                "when": {"action": "health", "arguments": {}},
+                "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+            }
+        },
     }
 
 
@@ -38,17 +40,23 @@ class Provider:
         value = '"wrong"' if bad_type else "1"
         return {
             "request_digest": request["request_digest"],
-            "files": {"product.py": (
-                'def health() -> dict[str, str]:\n    return {"status": "ok"}\n\n\n'
-                f"def count() -> int:\n    return {value}\n"
-            )},
+            "files": {
+                "product.py": (
+                    'def health() -> dict[str, str]:\n    return {"status": "ok"}\n\n\n'
+                    f"def count() -> int:\n    return {value}\n"
+                )
+            },
         }
 
 
 def test_passing_behavior_cannot_hide_type_defect(tmp_path: Path) -> None:
     result = run_to_release_ready(
-        contract=contract(), repository_root=tmp_path, workspace=tmp_path / "candidate",
-        run_id="quality-failure", provider=Provider(), enforce_quality=True,
+        contract=contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="quality-failure",
+        provider=Provider(),
+        enforce_quality=True,
         budget=BudgetCaps(max_attempts=1),
     )
     assert result.state is RunState.HALTED
@@ -61,8 +69,12 @@ def test_passing_behavior_cannot_hide_type_defect(tmp_path: Path) -> None:
 def test_repair_uses_policy_and_review_receives_actual_source(tmp_path: Path) -> None:
     provider = Provider(repair=True)
     result = run_to_release_ready(
-        contract=contract(), repository_root=tmp_path, workspace=tmp_path / "candidate",
-        run_id="quality-repair", provider=provider, enforce_quality=True,
+        contract=contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="quality-repair",
+        provider=provider,
+        enforce_quality=True,
     )
     assert result.state is RunState.RELEASE_READY
     assert result.attempts == 2
@@ -76,23 +88,66 @@ def test_repair_uses_policy_and_review_receives_actual_source(tmp_path: Path) ->
 
 
 def test_missing_tools_stop_before_any_generation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     provider = Provider()
     monkeypatch.setattr("pmpe.quality.generated_python._tool_available", lambda name: False)
     with pytest.raises(ContractInvalidError, match="CHECKER_UNAVAILABLE"):
         run_to_release_ready(
-            contract=contract(), repository_root=tmp_path, workspace=tmp_path / "candidate",
-            run_id="missing-tools", provider=provider, enforce_quality=True,
+            contract=contract(),
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="missing-tools",
+            provider=provider,
+            enforce_quality=True,
         )
     assert not provider.requests
 
 
-def test_cli_enables_quality_without_an_extra_user_flag() -> None:
-    import inspect
+def test_cli_rejects_type_defect_without_an_extra_user_flag(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import shlex
+    import sys
 
-    from pmpe.cli.barebones_cmd import _run
+    from pmpe.cli import main
 
-    # Behavioral CLI invocation remains covered by test_barebones_cli; this checks
-    # that its public entry path does not silently use the compatibility default.
-    assert "enforce_quality=True" in inspect.getsource(_run)
+    root = Path(__file__).resolve().parents[2]
+    files = {
+        "product.py": (
+            'def health() -> dict[str, str]:\n    return {"status": "ok"}\n\n\n'
+            'def count() -> int:\n    return "wrong"\n'
+        )
+    }
+    provider = tmp_path / "provider.py"
+    provider.write_text(
+        "import json, sys\n"
+        "request = json.load(sys.stdin)['request']\n"
+        f"print(json.dumps({{'request_digest': request['request_digest'], 'files': {files!r}}}))\n"
+    )
+    code = main(
+        [
+            "barebones",
+            "run",
+            str(root / "examples/barebones/e1-contract.json"),
+            "--approval-receipt",
+            str(root / "examples/barebones/e1-approval-receipt.json"),
+            "--expected-approver",
+            "fixture-human",
+            "--workspace",
+            str(tmp_path / "candidate"),
+            "--run-id",
+            "cli-quality",
+            "--repository-root",
+            str(tmp_path / "evidence"),
+            "--provider-command",
+            f"{shlex.quote(sys.executable)} {shlex.quote(str(provider))}",
+        ]
+    )
+    assert code == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["state"] == "HALTED"
+    events = Path(output["evidence"]).read_text()
+    assert '"event_type":"generated_quality_checked"' in events.replace(" ", "")
