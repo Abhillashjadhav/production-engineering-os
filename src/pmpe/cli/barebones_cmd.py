@@ -169,6 +169,9 @@ def _compile(args: argparse.Namespace) -> int:
 
 
 def _fence_provider_group(process: subprocess.Popen[bytes]) -> int:
+    returncode = getattr(process, "returncode", None)
+    if isinstance(returncode, int):
+        return returncode
     with suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGKILL)
     return process.wait()
@@ -224,15 +227,16 @@ def _run_provider_command(
             start_new_session=True,
             env=dict(environment) if environment is not None else None,
         )
-        if process.stdout is None or process.stderr is None:
-            _terminate_provider(process)
-            raise RuntimeError("MODEL_PROVIDER_IO_UNAVAILABLE")
         streams = {"stdout": bytearray(), "stderr": bytearray()}
-        selector = selectors.DefaultSelector()
-        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
-        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
-        deadline = time.monotonic() + timeout_seconds
+        selector: selectors.BaseSelector | None = None
+        fenced = False
         try:
+            if process.stdout is None or process.stderr is None:
+                raise RuntimeError("MODEL_PROVIDER_IO_UNAVAILABLE")
+            selector = selectors.DefaultSelector()
+            selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+            selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+            deadline = time.monotonic() + timeout_seconds
             while selector.get_map():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -252,16 +256,24 @@ def _run_provider_command(
             if not _wait_for_provider_exit_without_reaping(process, remaining):
                 raise RuntimeError("MODEL_PROVIDER_TIMEOUT")
             returncode = _fence_provider_group(process)
-        except subprocess.TimeoutExpired as exc:
-            _terminate_provider(process)
-            raise RuntimeError("MODEL_PROVIDER_TIMEOUT") from exc
-        except RuntimeError:
-            _terminate_provider(process)
+            fenced = True
+        except BaseException as exc:
+            # The process exists from Popen onward. Fence before reaping on every
+            # failure, including selector setup, OS reads, and cancellation.
+            if not fenced:
+                try:
+                    _terminate_provider(process)
+                except BaseException as cleanup_exc:
+                    exc.add_note(f"provider cleanup failed: {type(cleanup_exc).__name__}")
+            if isinstance(exc, subprocess.TimeoutExpired):
+                raise RuntimeError("MODEL_PROVIDER_TIMEOUT") from exc
             raise
         finally:
-            selector.close()
-            process.stdout.close()
-            process.stderr.close()
+            for resource in (selector, process.stdout, process.stderr):
+                if resource is not None:
+                    # Close failures cannot replace the original provider error.
+                    with suppress(BaseException):
+                        resource.close()
         return subprocess.CompletedProcess(
             argv,
             returncode,
