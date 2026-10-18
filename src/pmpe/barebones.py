@@ -18,7 +18,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NoReturn, Protocol
+from typing import TYPE_CHECKING, Any, NoReturn, Protocol
 
 from pmpe.contracts.acceptance import (
     AcceptanceBuildPlan,
@@ -53,6 +53,9 @@ from pmpe.resource_budget import (
     validate_resource_caps,
 )
 from pmpe.task_tracker_harness import ACTION_TARGET, MEASURE_TARGET, REGISTRY_NAME, runner_source
+
+if TYPE_CHECKING:
+    from pmpe.product_profile import CompiledProductProfile
 
 
 class RunState(StrEnum):
@@ -1271,6 +1274,7 @@ def _model_request(
     plan: AcceptanceBuildPlan,
     workspace: Path,
     findings: Sequence[Finding],
+    task_graph: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     body = {
         "contract": contract,
@@ -1284,6 +1288,8 @@ def _model_request(
         },
         "findings": [asdict(item) for item in findings],
     }
+    if task_graph is not None:
+        body["task_graph"] = dict(task_graph)
     return {**body, "request_digest": canonical_digest(body)}
 
 
@@ -1350,6 +1356,8 @@ def run_to_release_ready(
     approval_authority: str | None = None,
     approval_receipt_bytes: bytes | None = None,
     core_harness_mapping: Mapping[str, Any] | None = None,
+    product_profile: CompiledProductProfile | None = None,
+    task_graph_mapping: Mapping[str, Any] | None = None,
 ) -> RunResult:
     """Run the frozen core, retaining candidate evidence without unsafe release."""
 
@@ -1441,6 +1449,20 @@ def run_to_release_ready(
         contract=contract,
         repository_root=repository_root,
         template=active_template,
+    )
+    from pmpe.product_build import (
+        admit_build_bindings,
+        record_required_checks,
+        store_build_bindings,
+    )
+
+    build_bindings = admit_build_bindings(
+        contract=contract,
+        plan=plan,
+        template=active_template,
+        harness_plan=harness_plan,
+        profile=product_profile,
+        graph_mapping=task_graph_mapping,
     )
     counters["structured_criteria_count"] = sum(
         item.form == "given_when_then" for item in plan.criteria
@@ -1598,10 +1620,14 @@ def run_to_release_ready(
     plan_blob = ledger.put_blob(
         json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")).encode()
     )
-    contract_blob = ledger.put_blob(
-        json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
-    )
+    contract_blob = ledger.put_blob(canonical_json_bytes(contract))
     validation_blobs = [contract_blob, plan_blob]
+    binding_payload, binding_blobs = store_build_bindings(ledger, build_bindings)
+    validation_blobs.extend(binding_blobs)
+    if core_harness_mapping is not None:
+        harness_mapping_blob = ledger.put_blob(canonical_json_bytes(core_harness_mapping))
+        validation_blobs.append(harness_mapping_blob)
+        binding_payload["harness_mapping_blob_digest"] = harness_mapping_blob
     if approval_receipt_bytes is not None:
         receipt_blob = ledger.put_blob(approval_receipt_bytes)
         validation_blobs.append(receipt_blob)
@@ -1616,6 +1642,8 @@ def run_to_release_ready(
             "contract_digest": contract_blob,
             "plan_digest": plan.plan_digest,
             "template_digest": template_digest,
+            "plan_blob_digest": plan_blob,
+            **binding_payload,
         },
     )
 
@@ -1816,6 +1844,7 @@ def run_to_release_ready(
                 plan=plan,
                 workspace=workspace,
                 findings=findings,
+                task_graph=build_bindings.graph.as_dict(),
             )
             response = _invoke_bound(
                 provider,
@@ -2041,6 +2070,26 @@ def run_to_release_ready(
             gate_evidence_digest, gates = record_release_gates(
                 verification_snapshot, criterion_results, attempt, RunState.VERIFYING
             )
+            candidate_digest, candidate_blobs = _candidate_manifest(verification_snapshot, ledger)
+            if not record_required_checks(
+                ledger=ledger,
+                bindings=build_bindings,
+                plan=plan,
+                candidate_digest=candidate_digest,
+                candidate_blobs=candidate_blobs,
+                snapshot=verification_snapshot,
+                observations=observations,
+                security_findings=tuple(item.code for item in security),
+                attempt=attempt,
+                observation_evidence_digest=observation_evidence_digest,
+            ):
+                findings += (
+                    Finding(
+                        "REQUIRED_CHECK_FAILED",
+                        "candidate",
+                        "required protected candidate check did not pass",
+                    ),
+                )
             if harness_plan is not None:
                 observed_stages = harness_plan.observed_stages(gates)
                 blocking_ids = [
