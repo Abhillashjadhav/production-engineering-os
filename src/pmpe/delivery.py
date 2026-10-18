@@ -17,6 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
+from pmpe.product_package_io import _read_bundle_files
 from pmpe.quality.generated_python import PROFILE, generation_policy
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -116,19 +117,10 @@ def verify_delivery(root: Path, *, expected_manifest_digest: str) -> dict[str, s
     """Verify bytes against a digest retained outside the possibly changed bundle."""
     if root.is_symlink() or not root.is_dir() or not _DIGEST.fullmatch(expected_manifest_digest):
         raise ValueError("delivery root or expected digest is invalid")
-    paths: dict[str, Path] = {}
-    for directory, directories, names in os.walk(root, followlinks=False):
-        for name in [*directories, *names]:
-            path = Path(directory) / name
-            if path.is_symlink():
-                raise ValueError("delivery contains a symlink")
-            if path.is_file():
-                paths[path.relative_to(root).as_posix()] = path
-            elif not path.is_dir():
-                raise ValueError("delivery contains an unsupported entry")
+    paths = _read_bundle_files(root, manifest_name="DELIVERY.json")
     if "DELIVERY.json" not in paths:
         raise ValueError("delivery manifest is missing")
-    manifest_bytes = paths.pop("DELIVERY.json").read_bytes()
+    manifest_bytes = paths.pop("DELIVERY.json")
     if _digest(manifest_bytes) != expected_manifest_digest:
         raise ValueError("delivery manifest digest mismatch")
     manifest = strict_loads(manifest_bytes, "application/json")
@@ -143,7 +135,7 @@ def verify_delivery(root: Path, *, expected_manifest_digest: str) -> dict[str, s
         raise ValueError("delivery inventory mismatch")
     for relative, expected in manifest["files"].items():
         _path(relative)
-        if _digest(paths[relative].read_bytes()) != expected:
+        if _digest(paths[relative]) != expected:
             raise ValueError("delivery file digest mismatch")
     identity = manifest.get("identity")
     if not isinstance(identity, dict) or not isinstance(identity.get("candidate_digest"), str):

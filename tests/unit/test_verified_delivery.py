@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,3 +65,48 @@ def test_external_manifest_anchor_is_required(tmp_path: Path) -> None:
     delivery(tmp_path)
     with pytest.raises(ValueError, match="digest"):
         verify_delivery(tmp_path / "out", expected_manifest_digest="sha256:" + "0" * 64)
+
+
+def test_fifo_delivery_manifest_is_rejected_without_blocking(tmp_path: Path) -> None:
+    root = tmp_path / "fifo-delivery"
+    root.mkdir()
+    os.mkfifo(root / "DELIVERY.json")
+    script = (
+        "from pathlib import Path; from pmpe.delivery import verify_delivery; "
+        f"verify_delivery(Path({str(root)!r}), expected_manifest_digest={'sha256:' + '0' * 64!r})"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, timeout=2, check=False
+    )
+    assert result.returncode != 0
+    assert b"unsupported" in result.stderr
+
+
+def test_delivery_manifest_is_bounded_before_json_parse(tmp_path: Path) -> None:
+    root = tmp_path / "oversized-delivery"
+    root.mkdir()
+    (root / "DELIVERY.json").write_bytes(b"x" * (512 * 1024 + 1))
+    with pytest.raises(ValueError, match="size limit"):
+        verify_delivery(root, expected_manifest_digest="sha256:" + "0" * 64)
+
+
+def test_oversized_delivery_source_is_rejected_before_hashing(tmp_path: Path) -> None:
+    root = tmp_path / "oversized-source"
+    root.mkdir()
+    (root / "DELIVERY.json").write_bytes(b"{}")
+    with (root / "source.py").open("wb") as stream:
+        stream.truncate(4 * 1024 * 1024 + 1)
+    with pytest.raises(ValueError, match="size limit"):
+        verify_delivery(root, expected_manifest_digest="sha256:" + "0" * 64)
+
+
+def test_delivery_source_cannot_borrow_manifest_byte_budget(tmp_path: Path) -> None:
+    root = tmp_path / "aggregate-source"
+    root.mkdir()
+    (root / "DELIVERY.json").write_bytes(b"{}")
+    for number in range(6):
+        with (root / f"source-{number}.py").open("wb") as stream:
+            stream.truncate(4 * 1024 * 1024)
+    (root / "extra.py").write_bytes(b"x")
+    with pytest.raises(ValueError, match="size limit"):
+        verify_delivery(root, expected_manifest_digest="sha256:" + "0" * 64)
