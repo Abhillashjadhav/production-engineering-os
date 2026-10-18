@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import importlib.util
 import io
 import os
 import re
@@ -18,6 +17,7 @@ import tempfile
 import tokenize
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -69,7 +69,11 @@ def generation_policy() -> dict[str, Any]:
 
 
 def _tool_available(name: str) -> bool:
-    return importlib.util.find_spec(name) is not None
+    try:
+        distribution(name)
+    except PackageNotFoundError:
+        return False
+    return True
 
 
 def missing_quality_tools() -> tuple[str, ...]:
