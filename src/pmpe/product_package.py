@@ -44,7 +44,11 @@ _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _MAX_FILES = 500
 _SENSITIVE_NAMES = frozenset({".env", "id_rsa", "id_ed25519", "credentials.json", "secrets.json"})
 _CREDENTIAL = re.compile(
-    rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
+    rb"(?<![A-Za-z0-9_-])(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
+    rb"AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|"
+    rb"gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+    rb"sk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9_.~+/-]{12,})",
+    re.IGNORECASE,
 )
 _BASE_BLOCKERS = (
     "BUILD_TOOL_IDENTITY_UNVERIFIED",

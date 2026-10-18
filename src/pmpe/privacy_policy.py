@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,10 +23,10 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _CREDENTIAL = re.compile(
-    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
+    r"(?<![A-Za-z0-9_-])(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
     r"AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|"
     r"gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
-    r"sk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9_.~+/-]{12,}",
+    r"sk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9_.~+/-]{12,})",
     re.IGNORECASE,
 )
 _CANARY = re.compile(
@@ -66,6 +66,7 @@ class ProviderPrivacyPolicy:
 
 
 def _ambient_secret_values() -> tuple[str, ...]:
+    __tracebackhide__ = True
     # Deliberately inspect only likely secret variables. No values leave this
     # function except for in-memory comparison, and short/common values are
     # excluded to avoid false matches against ordinary contract prose.
@@ -74,12 +75,13 @@ def _ambient_secret_values() -> tuple[str, ...]:
     )
 
 
-def _check_string(value: str, ambient_secrets: tuple[str, ...]) -> None:
+def _check_string(value: str, matches_ambient_secret: Callable[[str], bool]) -> None:
+    __tracebackhide__ = True
     if _CREDENTIAL.search(value):
         raise PrivacyPolicyError("POL-016")
     if _CANARY.search(value):
         raise PrivacyPolicyError("POL-018")
-    if any(secret in value for secret in ambient_secrets):
+    if matches_ambient_secret(value):
         raise PrivacyPolicyError("POL-017")
 
 
@@ -89,10 +91,16 @@ def validate_private_payload(payload: Any, *, policy: ProviderPrivacyPolicy | No
     Iterative traversal bounds nested input before any serializer/provider call.
     The original payload is never copied, changed, logged or included in errors.
     """
+    __tracebackhide__ = True
     active_policy = policy or ProviderPrivacyPolicy()
     if not isinstance(active_policy, ProviderPrivacyPolicy):
         raise PrivacyPolicyError("POL-014")
     ambient_secrets = _ambient_secret_values()
+
+    def matches_ambient_secret(value: str) -> bool:
+        __tracebackhide__ = True
+        return any(secret in value for secret in ambient_secrets)
+
     stack: list[tuple[Any, int]] = [(payload, 0)]
     nodes = 0
     size = 0
@@ -105,7 +113,7 @@ def validate_private_payload(payload: Any, *, policy: ProviderPrivacyPolicy | No
             size += len(value.encode("utf-8"))
             if size > _MAX_BYTES:
                 raise PrivacyPolicyError("POL-015")
-            _check_string(value, ambient_secrets)
+            _check_string(value, matches_ambient_secret)
         elif isinstance(value, Mapping):
             for key, nested in value.items():
                 if not isinstance(key, str):
@@ -126,6 +134,7 @@ def validate_private_payload(payload: Any, *, policy: ProviderPrivacyPolicy | No
 
 def validate_private_blobs(blobs: Mapping[str, bytes]) -> None:
     """Inspect every candidate blob before any blob in a snapshot is persisted."""
+    __tracebackhide__ = True
     for payload in blobs.values():
         if len(payload) > _MAX_BYTES:
             raise PrivacyPolicyError("POL-015")
@@ -139,6 +148,7 @@ def validate_provider_request(
     policy: ProviderPrivacyPolicy | None = None,
 ) -> None:
     """Require explicit context fields and inspect every nested value."""
+    __tracebackhide__ = True
     if purpose not in {"code", "advisory_review"}:
         raise PrivacyPolicyError("POL-014")
     if not isinstance(request, Mapping) or frozenset(request) not in {

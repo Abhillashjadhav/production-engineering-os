@@ -152,7 +152,11 @@ class TerminalPersistenceError(EvidenceIntegrityError):
 _SAFE_RELATIVE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
 _MODULE_TARGET = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*):([A-Za-z_][A-Za-z0-9_]*)\Z")
 _CREDENTIAL = re.compile(
-    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
+    r"(?<![A-Za-z0-9_-])(?:-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
+    r"AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|"
+    r"gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+    r"sk-[A-Za-z0-9_-]{20,}|Bearer\s+[A-Za-z0-9_.~+/-]{12,})",
+    re.IGNORECASE,
 )
 _HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
 _ACTION_TIMEOUT_SECONDS = 10.0
@@ -2157,6 +2161,7 @@ def run_to_release_ready(
                 security_findings=tuple(item.code for item in security),
                 attempt=attempt,
                 observation_evidence_digest=observation_evidence_digest,
+                telemetry=counters,
             ):
                 findings += (
                     Finding(
