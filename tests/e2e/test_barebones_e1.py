@@ -141,7 +141,10 @@ def _prove_private_source_wrapper_with_nested_candidate_sandbox(tmp_path: Path) 
         assert exit_code == 3, output
         result = json.loads(output)
         assert result["state"] == "HALTED"
-        assert result["cause"] == "PROVIDER_WRITE_ISOLATION_UNVERIFIED"
+        assert result["cause"] == "PROVIDER_WRITE_ISOLATION_UNVERIFIED", {
+            "cause": result["cause"],
+            "required_checks": result.get("telemetry", {}).get("required_checks"),
+        }
     finally:
         if source_checkout.exists():
             for path in sorted(source_checkout.rglob("*"), key=lambda item: len(item.parts)):

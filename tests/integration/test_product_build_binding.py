@@ -75,6 +75,10 @@ def test_runtime_binds_profile_graph_and_complete_checks_without_claiming_delive
     assert report["binding"]["plan_digest"] == graph["plan_digest"]
     assert report["candidate_qualified"] is True
     assert report["delivery_qualified"] is False
+    assert any(
+        item["check_id"] == "clean-install" and item["status"] == "BLOCKED"
+        for item in result.telemetry["required_checks"]
+    )
     ledger = EvidenceLedger.open_existing(tmp_path, "bound")
     for check in report["results"]:
         if check["evidence_digest"] is not None:

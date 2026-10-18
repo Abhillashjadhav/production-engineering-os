@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import resource
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -60,6 +63,30 @@ def test_syntax_budget_and_no_python_source_never_pass(tmp_path: Path) -> None:
         "BLOCKED",
         "source syntax resource limit",
     )
+
+
+def test_nested_compiler_preserves_stricter_inherited_hard_limits() -> None:
+    def lower_limits() -> None:
+        resource.setrlimit(resource.RLIMIT_AS, (128 * 1024 * 1024, 128 * 1024 * 1024))
+        resource.setrlimit(resource.RLIMIT_CPU, (1, 1))
+        resource.setrlimit(resource.RLIMIT_STACK, (4 * 1024 * 1024, 4 * 1024 * 1024))
+
+    script = (
+        f"import json,sys;sys.path.insert(0,{str(ROOT / 'src')!r});"
+        "from pmpe.product_syntax import check_python_syntax;"
+        "print(json.dumps([check_python_syntax({'product.py': b'x=1\\n'}),"
+        "check_python_syntax({'product.py': b'x=\\n'})]))"
+    )
+    completed = subprocess.run(
+        (sys.executable, "-I", "-S", "-c", script),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=True,
+        preexec_fn=lower_limits,
+    )
+    statuses = json.loads(completed.stdout)
+    assert [item[0] for item in statuses] == ["PASS", "FAIL"]
 
 
 def test_health_profile_accepts_list_criteria_but_rejects_duplicate_ids() -> None:
