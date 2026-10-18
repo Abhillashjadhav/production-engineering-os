@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping
+from pathlib import Path
 
 _MAX_SOURCE_BYTES = 1_000_000
 _MAX_TOTAL_SOURCE_BYTES = 2_000_000
@@ -52,6 +53,15 @@ def check_python_syntax(source_files: Mapping[str, bytes]) -> tuple[str, str]:
         or os.name != "posix"
     ):
         return "BLOCKED", "source syntax resource limit"
+    try:
+        # Hosted Python installations can require their adjacent libpython at
+        # process startup. Use only the directory of this trusted interpreter;
+        # never pass an inherited loader search path into the compiler child.
+        library_dir = Path(sys.executable).resolve(strict=True).parent.parent / "lib"
+    except (OSError, RuntimeError):
+        return "BLOCKED", "source syntax resource limit"
+    if not library_dir.is_absolute() or ":" in str(library_dir):
+        return "BLOCKED", "source syntax resource limit"
     deadline = time.monotonic() + _MAX_WALL_SECONDS
     for _, content in python_files:
         remaining = deadline - time.monotonic()
@@ -65,7 +75,12 @@ def check_python_syntax(source_files: Mapping[str, bytes]) -> tuple[str, str]:
                 stderr=subprocess.DEVNULL,
                 timeout=remaining,
                 check=False,
-                env={"LC_ALL": "C", "PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1"},
+                env={
+                    "LC_ALL": "C",
+                    "PATH": "/usr/bin:/bin",
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "LD_LIBRARY_PATH": str(library_dir),
+                },
                 start_new_session=True,
             )
         except (subprocess.TimeoutExpired, OSError, ValueError):
