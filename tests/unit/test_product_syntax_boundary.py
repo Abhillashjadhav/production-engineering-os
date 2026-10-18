@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -87,6 +88,28 @@ def test_nested_compiler_preserves_stricter_inherited_hard_limits() -> None:
     )
     statuses = json.loads(completed.stdout)
     assert [item[0] for item in statuses] == ["PASS", "FAIL"]
+
+
+def test_compiler_uses_only_its_interpreter_library_directory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hosted Pythons may need their own shared library to start under the wrapper."""
+
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/candidate-controlled-libraries")
+    observed: list[str] = []
+
+    def capture_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        environment = kwargs["env"]
+        assert isinstance(environment, dict)
+        library_path = environment.get("LD_LIBRARY_PATH")
+        assert isinstance(library_path, str)
+        observed.append(library_path)
+        assert library_path == str(Path(sys.executable).resolve().parent.parent / "lib")
+        return subprocess.CompletedProcess([], 0, b"0", b"")
+
+    with patch("pmpe.product_syntax.subprocess.run", side_effect=capture_run):
+        assert check_python_syntax({"product.py": b"x = 1\n"})[0] == "PASS"
+    assert len(observed) == 1
 
 
 def test_health_profile_accepts_list_criteria_but_rejects_duplicate_ids() -> None:
