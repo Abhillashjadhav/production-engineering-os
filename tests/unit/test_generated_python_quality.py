@@ -5,8 +5,17 @@ from pathlib import Path
 import pytest
 
 from pmpe.quality.generated_python import check_python_candidate, generation_policy
+from scripts.ci.evaluate_security_profile import _observed_architecture_edges
 
 GOOD = b'def health() -> dict[str, str]:\n    return {"status": "ok"}\n'
+
+
+def test_checker_preserves_trusted_architecture_boundary(tmp_path: Path) -> None:
+    source = Path(__file__).resolve().parents[2] / "src/pmpe/quality/generated_python.py"
+    target = tmp_path / "src/pmpe/quality/generated_python.py"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(source.read_bytes())
+    assert ("verification", "unresolved_dynamic") not in _observed_architecture_edges(tmp_path)
 
 
 def test_clean_candidate_has_all_required_checks_and_bound_identity() -> None:
