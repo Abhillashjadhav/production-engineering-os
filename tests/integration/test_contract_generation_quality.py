@@ -153,8 +153,6 @@ def test_cli_rejects_type_defect_without_an_extra_user_flag(
     assert '"event_type":"generated_quality_checked"' in events.replace(" ", "")
 
 
-
-
 def test_protected_acceptance_test_does_not_need_builder_owned_annotations(tmp_path: Path) -> None:
     import sys
 
