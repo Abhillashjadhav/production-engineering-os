@@ -13,7 +13,12 @@ def test_clean_candidate_has_all_required_checks_and_bound_identity() -> None:
     report = check_python_candidate({"product.py": GOOD})
     assert report.passed, report
     assert {item.name for item in report.checks} == {
-        "syntax", "dependencies", "verification_integrity", "format", "lint", "types"
+        "syntax",
+        "dependencies",
+        "verification_integrity",
+        "format",
+        "lint",
+        "types",
     }
     assert all(item.status == "PASS" for item in report.checks)
     assert report.candidate_digest != check_python_candidate({"other.py": GOOD}).candidate_digest
@@ -26,6 +31,7 @@ def test_clean_candidate_has_all_required_checks_and_bound_identity() -> None:
         (b"def broken(:\n", "syntax"),
         (b"def health():\n    return missing_name\n", "lint"),
         (b"def count() -> int:\n    return 'wrong'\n", "types"),
+        (b"def count():\n    return 1\n", "types"),
         (b"import requests\n", "dependencies"),
         (b"value = 1  # noqa\n", "verification_integrity"),
         (b"value = 1  # type: ignore\n", "verification_integrity"),
@@ -40,10 +46,12 @@ def test_planted_defect_fails(source: bytes, failed_check: str) -> None:
 
 
 def test_local_module_imports_are_supported() -> None:
-    report = check_python_candidate({
-        "product.py": b"from helper import count\n\nresult = count()\n",
-        "helper.py": b"def count() -> int:\n    return 1\n",
-    })
+    report = check_python_candidate(
+        {
+            "product.py": b"from helper import count\n\nresult = count()\n",
+            "helper.py": b"def count() -> int:\n    return 1\n",
+        }
+    )
     assert report.passed, report
 
 
@@ -57,17 +65,27 @@ def test_missing_checker_is_unavailable_not_pass(monkeypatch: pytest.MonkeyPatch
 
 
 def test_candidate_config_cannot_disable_trusted_checks() -> None:
-    report = check_python_candidate({
-        "product.py": b"value = undefined\n",
-        "pyproject.toml": b'[tool.ruff.lint]\nignore = ["F821"]\n[tool.mypy]\nignore_errors = true\n',
-    })
+    report = check_python_candidate(
+        {
+            "product.py": b"value = undefined\n",
+            "pyproject.toml": b"\n".join(
+                [
+                    b"[tool.ruff.lint]",
+                    b'ignore = ["F821"]',
+                    b"[tool.mypy]",
+                    b"ignore_errors = true",
+                    b"",
+                ]
+            ),
+        }
+    )
     assert not report.passed
     assert any(c.name == "lint" and c.status == "FAIL" for c in report.checks)
 
 
 def test_static_checks_never_execute_candidate(tmp_path: Path) -> None:
     marker = tmp_path / "executed"
-    code = f'from pathlib import Path\n\nPath({str(marker)!r}).touch()\n'.encode()
+    code = f"from pathlib import Path\n\nPath({str(marker)!r}).touch()\n".encode()
     check_python_candidate({"product.py": code})
     assert not marker.exists()
 
