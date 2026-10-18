@@ -6,7 +6,7 @@ Main baseline: `1a431b23f837b04237c99ab7b924a234def10171`. Existing planning bas
 
 ## Implementation checkpoint — 2026-10-18
 
-Implementation is **partial; release remains blocked**. The owner authorized implementation in the conversation. Runtime changes are in an unmerged stack based on draft #240 (`7467778008ce1e49d6378140dda11edf451052c0`), not on main. Main is unchanged. The original source review below describes the main baseline and is retained as historical evidence; it is not a statement that every issue remains untouched.
+Implementation is **partial; release remains blocked**. The owner authorized implementation in the conversation. Runtime changes are in an unmerged stack based on draft #240 (`7467778008ce1e49d6378140dda11edf451052c0`), not on main. These PRs have not changed main. A final readback found that concurrent work advanced main to `37bc3e5dbc9776c77b1f60159797323cbeb39634` by merging #250, #251 and #258. The original source review below describes the earlier main baseline and is retained as historical evidence; it is not a statement that every issue remains untouched.
 
 | Packet | Implemented behavior | Work still required |
 |---|---|---|
@@ -19,6 +19,12 @@ Implementation is **partial; release remains blocked**. The owner authorized imp
 | T3.2 — repair quality | Required candidate checks and evidence readback recompute syntax, scanner and acceptance semantics from sealed source and observation blobs. Independent AI source review found defects that were fixed. | An active, source-aware independent advisory-review/repair loop. A local reviewer is not a runtime feature. |
 | T4.1 — packaging | New product-package consumer binds an exact RELEASE_READY ledger and checks bounded no-follow source reads, tamper detection and fresh-directory syntax. | Actual clean-install and customer-journey proof. It always returns BLOCKED without those adapters; the current producer cannot qualify RELEASE_READY. |
 | T4.2 — delivery | Existing release and approval gates stay enforced. | Authorized target deployment, post-deployment journey, monitoring and rollback proof. No deployment was performed. |
+
+### Concurrent main refresh (in progress)
+
+The new main adds mandatory stdlib-Python source checks, source-aware advisory review and tamper-checked source delivery. These capabilities were absent from the earlier reviewed main baseline. They are not yet combined with this stack's stricter execution boundary. Source delivery still does not establish clean installation or customer usability.
+
+The refresh review reproduced candidate-controlled checker argument injection that can load a candidate mypy plugin with host authority. A bounded checker fix and regression are being prepared directly against main. The new delivery verifier also lacked the bounded descriptor-relative reads already implemented in this stack; that compatibility hardening has passed 25 local delivery/package tests. Quality diagnostics and source-review payloads are being integrated with the existing privacy checks before disclosure or persistence. The combined core and CLI must preserve the provider release halt. Earlier test totals and exact heads below describe the pre-refresh implementation, not a qualification of this new integration.
 
 ### Reviewable changes
 
