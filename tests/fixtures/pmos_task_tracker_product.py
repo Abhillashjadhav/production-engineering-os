@@ -8,20 +8,35 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
+from typing import TypedDict, cast
+
+
+class Task(TypedDict):
+    id: int
+    title: str
+    status: str
+
+
+class Store(TypedDict):
+    version: int
+    next_id: int
+    tasks: list[Task]
 
 
 class StoreError(Exception):
-    def __init__(self, code):
+    def __init__(self, code: str) -> None:
         self.code = code
 
 
-def emit(value, code=0):
+def emit(value: Mapping[str, object], code: int = 0) -> int:
     print(json.dumps(value, ensure_ascii=False, sort_keys=True))
     return code
 
 
-def load_store(path):
+def load_store(path: Path) -> Store:
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -38,7 +53,7 @@ def load_store(path):
         next_id = state.get("next_id")
         if not isinstance(tasks, list) or type(next_id) is not int or next_id < 1:
             raise ValueError("invalid store structure")
-        seen = set()
+        seen: set[int] = set()
         for task in tasks:
             if not isinstance(task, dict) or set(task) != {"id", "title", "status"}:
                 raise ValueError("invalid task structure")
@@ -52,18 +67,21 @@ def load_store(path):
             seen.add(identifier)
         if next_id != max(seen, default=0) + 1:
             raise ValueError("invalid next identity")
-        return state
+        return cast(Store, state)
     except (ValueError, TypeError, KeyError) as error:
         raise StoreError("STORE_INVALID") from error
 
 
-def save_store(path, state):
-    temporary = None
+def save_store(path: Path, state: Store) -> None:
+    temporary: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent,
-            prefix=".task-write-", delete=False,
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=".task-write-",
+            delete=False,
         ) as stream:
             temporary = Path(stream.name)
             json.dump(state, stream, ensure_ascii=False, sort_keys=True)
@@ -76,13 +94,11 @@ def save_store(path, state):
         raise StoreError("STORE_IO") from error
     finally:
         if temporary is not None:
-            try:
+            with suppress(OSError):
                 temporary.unlink()
-            except OSError:
-                pass
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--store", type=Path, required=True)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -111,13 +127,19 @@ def main():
     try:
         state = load_store(args.store)
         if args.command == "create":
-            task = {"id": state["next_id"], "title": args.title, "status": "open"}
-            state["tasks"].append(task)
+            created: Task = {
+                "id": state["next_id"],
+                "title": args.title,
+                "status": "open",
+            }
+            state["tasks"].append(created)
             state["next_id"] += 1
             save_store(args.store, state)
-            return emit({"task": task})
+            return emit({"task": created})
         if args.command == "complete":
-            task = next((item for item in state["tasks"] if item["id"] == identifier), None)
+            task = next(
+                (item for item in state["tasks"] if item["id"] == identifier), None
+            )
             if task is None:
                 return emit({"error": "NOT_FOUND"}, 2)
             if task["status"] != "completed":

@@ -10,7 +10,46 @@ from typing import Any
 import pytest
 
 from pmpe.model_provider import PrivacyCheckedProvider
-from pmpe.privacy_policy import PrivacyPolicyError, ProviderPrivacyPolicy, validate_private_payload
+from pmpe.privacy_policy import (
+    PrivacyPolicyError,
+    ProviderPrivacyPolicy,
+    validate_private_payload,
+    validate_provider_request,
+)
+
+
+def test_quality_code_request_is_declared_and_still_privacy_checked() -> None:
+    request = {
+        **_request(),
+        "task_graph": {},
+        "generation_policy": {"profile": "python-stdlib-quality/v1"},
+    }
+    validate_provider_request("code", request)
+    request["generation_policy"] = {"instructions": ["PEOS_PRIVATE_CANARY_customer_9273"]}
+    with pytest.raises(PrivacyPolicyError):
+        validate_provider_request("code", request)
+
+
+def test_source_review_has_a_purpose_specific_exact_shape() -> None:
+    request = {
+        "contract_digest": "sha256:contract",
+        "plan_digest": "sha256:plan",
+        "evidence_digest": "sha256:evidence",
+        "instruction": "Review the source",
+        "contract": {},
+        "files": {"product.py": "x = 1\n"},
+        "generation_policy": {},
+        "quality": {},
+        "request_digest": "sha256:request",
+    }
+    validate_provider_request("advisory_review", request)
+    with pytest.raises(PrivacyPolicyError):
+        validate_provider_request("code", request)
+    with pytest.raises(PrivacyPolicyError):
+        validate_provider_request("advisory_review", {**request, "undeclared": "context"})
+    request["quality"] = {"details": "PEOS_PRIVATE_CANARY_customer_9273"}
+    with pytest.raises(PrivacyPolicyError):
+        validate_provider_request("advisory_review", request)
 
 
 class RecordingProvider:

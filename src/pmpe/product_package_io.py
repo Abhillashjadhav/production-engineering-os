@@ -17,7 +17,9 @@ class ProductPackageError(ValueError):
     """Package input or exact-artifact evidence is invalid."""
 
 
-def _read_bundle_files(bundle: Path) -> dict[str, bytes]:
+def _read_bundle_files(
+    bundle: Path, *, manifest_name: str = "product-package.json"
+) -> dict[str, bytes]:
     """Read bounded regular files beneath no-follow directory descriptors.
 
     O_NONBLOCK makes a swapped-in FIFO safe before fstat rejects it. Each child
@@ -46,13 +48,10 @@ def _read_bundle_files(bundle: Path) -> dict[str, bytes]:
                     if stat.S_ISDIR(mode):
                         scan(descriptor, relative + "/", depth + 1)
                     elif stat.S_ISREG(mode):
-                        limit = (
-                            _MAX_MANIFEST_BYTES
-                            if relative == "product-package.json"
-                            else _MAX_FILE_BYTES
-                        )
+                        is_manifest = relative == manifest_name
+                        limit = _MAX_MANIFEST_BYTES if is_manifest else _MAX_FILE_BYTES
                         size = os.fstat(descriptor).st_size
-                        remaining = _MAX_TOTAL_BYTES + _MAX_MANIFEST_BYTES - total
+                        remaining = _MAX_MANIFEST_BYTES if is_manifest else _MAX_TOTAL_BYTES - total
                         if size > limit or size > remaining:
                             raise ProductPackageError("package file exceeds size limit")
                         allowed = min(limit, remaining)
@@ -64,7 +63,8 @@ def _read_bundle_files(bundle: Path) -> dict[str, bytes]:
                             content.extend(chunk)
                         if len(content) > allowed:
                             raise ProductPackageError("package file exceeds size limit")
-                        total += len(content)
+                        if not is_manifest:
+                            total += len(content)
                         files[relative] = bytes(content)
                     else:
                         raise ProductPackageError("package contains unsupported filesystem entry")

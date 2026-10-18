@@ -37,6 +37,7 @@ from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
 from pmpe.core_harness import CoreHarnessInvalidError, compile_required_harness
+from pmpe.delivery import assemble_delivery, verify_delivery
 from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import (
     ProviderBehavior,
@@ -53,6 +54,7 @@ from pmpe.pipeline_health import core_pipeline_health
 from pmpe.product_build import admit_build_bindings
 from pmpe.product_profile import ProductProfileError, compile_product_profile
 from pmpe.provider_isolation import OfflineConfinedProvider
+from pmpe.quality.generated_python import generation_policy
 from pmpe.task_tracker_harness import MEASURE_TARGET, REGISTRY_NAME, fixed_template
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
@@ -406,6 +408,7 @@ def _run(args: argparse.Namespace) -> int:
                 product_profile=profile,
                 task_graph_mapping=load_task_graph(args.task_graph),
                 budget=build_budget(args),
+                enforce_quality=True,
             )
         except (RuntimeError, OSError) as exc:
             _json({"state": "HALTED", "cause": "EXECUTION_FAILED", "detail": str(exc)})
@@ -445,6 +448,19 @@ def _run(args: argparse.Namespace) -> int:
     except EvidenceIntegrityError as exc:
         _json({"state": "HALTED", "cause": "EVIDENCE_INVALID", "detail": str(exc)})
         return 3
+    delivery: dict[str, Any] = {"status": "NOT_READY"}
+    if result.state == "RELEASE_READY":
+        try:
+            _, events = _open_verified_events(Path(args.repository_root), args.run_id)
+            delivery = _export_verified_run(
+                Path(args.repository_root),
+                args.run_id,
+                expected_approver=args.expected_approver,
+                compiler_root=Path(args.repository_root).resolve(),
+                expected_head_digest=str(events[-1]["event_digest"]),
+            )
+        except (EvidenceIntegrityError, OSError, ValueError) as exc:
+            delivery = {"status": "BLOCKED", "detail": str(exc)}
     _json(
         {
             "run_id": result.run_id,
@@ -457,6 +473,7 @@ def _run(args: argparse.Namespace) -> int:
             "evidence": str(result.evidence_path),
             "annotation": result.annotation,
             "telemetry": result.telemetry,
+            "delivery": delivery,
             "assurance_scope": result.telemetry.get("assurance_scope", "NOT_RECORDED"),
             "release_eligible": False,
             "release_blocker": (
@@ -466,7 +483,11 @@ def _run(args: argparse.Namespace) -> int:
             ),
         }
     )
-    return 0 if result.state == "RELEASE_READY" else 3
+    return (
+        0
+        if result.state == "RELEASE_READY" and delivery["status"] == "VERIFIED_SOURCE_PACKAGE"
+        else 3
+    )
 
 
 def _open_verified_events(
@@ -483,6 +504,62 @@ def _open_verified_events(
 
     verify_product_build_evidence(ledger, events)
     return ledger, events
+
+
+def _export_verified_run(
+    root: Path,
+    run_id: str,
+    *,
+    expected_approver: str,
+    compiler_root: Path,
+    expected_head_digest: str,
+) -> dict[str, Any]:
+    ledger, events = _open_verified_events(root, run_id)
+    terminal = events[-1]
+    if terminal.get("event_digest") != expected_head_digest:
+        raise EvidenceIntegrityError("delivery evidence head differs from expected digest")
+    payload = terminal.get("payload")
+    if (
+        _verification_assurance(events, terminal) != "EXTERNAL_RESPONSE_VERIFIED"
+        or not isinstance(payload, Mapping)
+        or payload.get("provider_write_isolation") != "ISOLATED_VERIFIED"
+    ):
+        raise EvidenceIntegrityError("delivery requires independently verified release evidence")
+    identity = _comparison_observation(
+        root,
+        run_id,
+        expected_approver=expected_approver,
+        compiler_root=compiler_root,
+        require_provider_metadata=False,
+    )
+    _, manifest = _candidate_manifest(ledger, terminal)
+    quality = payload.get("quality", {})
+    if not isinstance(quality, Mapping):
+        raise EvidenceIntegrityError("delivery quality evidence is malformed")
+    output = root.resolve() / ".pmpe" / "deliveries" / run_id
+    result = assemble_delivery(
+        {path: ledger.read_blob(digest) for path, digest in manifest.items()},
+        quality=quality,
+        identity={
+            key: identity[key]
+            for key in ("candidate_digest", "contract_digest", "plan_digest", "head_event_digest")
+        },
+        output=output,
+    )
+    return {**result, "directory": str(output)}
+
+
+def _verify_delivery(args: argparse.Namespace) -> int:
+    try:
+        result = verify_delivery(
+            Path(args.directory),
+            expected_manifest_digest=args.expected_manifest_digest,
+        )
+    except (OSError, ValueError, CanonicalInputError) as exc:
+        _json({"status": "INVALID_DELIVERY", "detail": str(exc)})
+        return 3
+    _json(result)
+    return 0
 
 
 def _verified_events(
@@ -716,6 +793,7 @@ def _comparison_observation(
     *,
     expected_approver: str,
     compiler_root: Path,
+    require_provider_metadata: bool = True,
 ) -> dict[str, Any]:
     ledger, events = _open_verified_events(evidence_root, run_id)
     validation_events = [
@@ -846,6 +924,13 @@ def _comparison_observation(
     if not isinstance(request, Mapping) or not isinstance(response, Mapping):
         raise EvidenceIntegrityError("Coder request or response evidence is malformed")
     request_fields = {"contract", "plan", "files", "findings", "request_digest"}
+    if validation_payload.get("generation_policy") is not None:
+        request_fields.add("generation_policy")
+        if (
+            validation_payload["generation_policy"] != generation_policy()
+            or request.get("generation_policy") != generation_policy()
+        ):
+            raise EvidenceIntegrityError("Coder request generation policy is inconsistent")
     if set(request) not in (request_fields, request_fields | {"task_graph"}):
         raise EvidenceIntegrityError("Coder request evidence has an unexpected shape")
     if "task_graph" in request:
@@ -871,14 +956,16 @@ def _comparison_observation(
         or canonical_digest(request_plan) != canonical_digest(expected_plan)
     ):
         raise EvidenceIntegrityError("Coder request is not bound to the approved contract and plan")
+    observed_behavior: dict[str, Any] = {}
     try:
         behavior = observe_provider_behavior(purpose="code", response=response)
+        observed_behavior = asdict(behavior)
     except ValueError as exc:
-        raise EvidenceIntegrityError("Coder behavior evidence is malformed") from exc
+        if require_provider_metadata:
+            raise EvidenceIntegrityError("Coder behavior evidence is malformed") from exc
     recorded_behavior = (
         coder_payload.get("provider_behavior") if isinstance(coder_payload, Mapping) else None
     )
-    observed_behavior = asdict(behavior)
     required_behavior_fields = {
         "purpose",
         "request_digest",
@@ -887,7 +974,7 @@ def _comparison_observation(
         "model",
         "prompt_version",
     }
-    if (
+    if observed_behavior and (
         not isinstance(recorded_behavior, Mapping)
         or not required_behavior_fields.issubset(recorded_behavior)
         or any(
@@ -1262,6 +1349,13 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     run_parser.add_argument("--provider-timeout", type=int, default=960)
     run_parser.set_defaults(fn=_run)
     register_build_options(run_parser, runtime=True)
+
+    delivery_parser = commands.add_parser(
+        "verify-delivery", help="verify delivered bytes against a separately retained digest"
+    )
+    delivery_parser.add_argument("directory")
+    delivery_parser.add_argument("--expected-manifest-digest", required=True)
+    delivery_parser.set_defaults(fn=_verify_delivery)
 
     for name, function, help_text in (
         ("status", _status, "show the verified state of an existing run"),

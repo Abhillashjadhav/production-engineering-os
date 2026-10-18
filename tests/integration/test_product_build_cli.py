@@ -66,6 +66,7 @@ def test_cli_passes_explicit_resource_caps_without_starting_a_provider(
         3,
         500,
     )
+    assert captured["enforce_quality"] is True
     assert json.loads(capsys.readouterr().out)["detail"] == "TEST_RUNTIME_STOP"
 
 
