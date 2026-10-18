@@ -44,6 +44,12 @@ from pmpe.model_provider import (
     OFFLINE_PROVIDER_ISOLATION,
     ModelProvider,
 )
+from pmpe.privacy_policy import (
+    PrivacyPolicyError,
+    validate_private_blobs,
+    validate_private_payload,
+    validate_provider_request,
+)
 from pmpe.release_gates import release_gate_results
 from pmpe.resource_budget import (
     ResourceBudgetError,
@@ -1234,6 +1240,7 @@ def _workspace_snapshot(workspace: Path) -> dict[str, bytes]:
 def _candidate_manifest(
     snapshot: Mapping[str, bytes], ledger: EvidenceLedger
 ) -> tuple[str, tuple[str, ...]]:
+    validate_private_blobs(snapshot)
     manifest: dict[str, str] = {}
     blobs: list[str] = []
     for relative, payload in sorted(snapshot.items()):
@@ -1276,16 +1283,41 @@ def _model_request(
     findings: Sequence[Finding],
     task_graph: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    files: dict[str, str] = {}
+    total_bytes = 0
+    for path in sorted(workspace.rglob("*")):
+        if "__pycache__" in path.parts or path.suffix not in {
+            ".json",
+            ".md",
+            ".py",
+            ".toml",
+            ".txt",
+            ".yaml",
+            ".yml",
+        }:
+            continue
+        if path.is_symlink():
+            raise PrivacyPolicyError("POL-014")
+        if path.is_dir():
+            continue
+        if len(files) >= 200:
+            raise PrivacyPolicyError("POL-015")
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            with os.fdopen(descriptor, "rb") as opened:
+                if not stat.S_ISREG(os.fstat(opened.fileno()).st_mode):
+                    raise PrivacyPolicyError("POL-014")
+                content = opened.read(1_000_001)
+            total_bytes += len(content)
+            if total_bytes > 1_000_000:
+                raise PrivacyPolicyError("POL-015")
+            files[str(path.relative_to(workspace))] = content.decode("utf-8")
+        except (OSError, UnicodeError):
+            raise PrivacyPolicyError("POL-014") from None
     body = {
         "contract": contract,
         "plan": plan.as_dict(),
-        "files": {
-            str(path.relative_to(workspace)): path.read_text()
-            for path in sorted(workspace.rglob("*"))
-            if path.is_file()
-            and "__pycache__" not in path.parts
-            and path.suffix in {".json", ".md", ".py", ".toml", ".txt", ".yaml", ".yml"}
-        },
+        "files": files,
         "findings": [asdict(item) for item in findings],
     }
     if task_graph is not None:
@@ -1306,13 +1338,33 @@ def _invoke_bound(
         check_wall_time(started, budget.max_wall_time_seconds)
     if counters["calls"] >= budget.max_model_calls:
         raise RuntimeError("MODEL_CALL_BUDGET_EXHAUSTED")
+    validate_provider_request(purpose, request)
     reserve_provider_call(
         counters,
         max_input_tokens=budget.max_input_tokens,
         max_output_tokens=budget.max_output_tokens,
     )
     counters["calls"] += 1
-    response = provider.invoke(purpose=purpose, request=request)
+    try:
+        response = provider.invoke(purpose=purpose, request=request)
+    except OSError:
+        raise OSError("MODEL_PROVIDER_IO_UNAVAILABLE") from None
+    except Exception as exc:
+        safe_codes = {
+            "MODEL_PROVIDER_FAILED",
+            "MODEL_PROVIDER_TIMEOUT",
+            "MODEL_PROVIDER_OUTPUT_LIMIT",
+            "MODEL_PROVIDER_REQUEST_LIMIT",
+            "MODEL_PROVIDER_SANDBOX_UNAVAILABLE",
+            "MODEL_PROVIDER_RESPONSE_INVALID",
+            "MODEL_PROVIDER_PROCESS_GROUP_UNAVAILABLE",
+            "MODEL_PROVIDER_PROCESS_REAPED",
+            "MODEL_PROVIDER_IO_UNAVAILABLE",
+        }
+        code = str(exc)
+        raise RuntimeError(code if code in safe_codes else "MODEL_PROVIDER_FAILED") from None
+    if not isinstance(response, Mapping):
+        raise RuntimeError("MODEL_PROVIDER_RESPONSE_INVALID")
     serialized = json.dumps(response, sort_keys=True, separators=(",", ":"))
     size = len(serialized.encode())
     counters["bytes"] += size
@@ -1328,6 +1380,7 @@ def _invoke_bound(
         raise RuntimeError("MODEL_RESPONSE_CONTAINS_CREDENTIAL")
     if counters["bytes"] > budget.max_model_output_bytes:
         raise RuntimeError("MODEL_OUTPUT_BUDGET_EXHAUSTED")
+    validate_private_payload(response)
     if response.get("request_digest") != request.get("request_digest"):
         raise RuntimeError("MODEL_RESPONSE_UNBOUND")
     metadata = response.get("provider_metadata")
@@ -1361,6 +1414,10 @@ def run_to_release_ready(
 ) -> RunResult:
     """Run the frozen core, retaining candidate evidence without unsafe release."""
 
+    validate_private_payload(contract)
+    validate_private_payload(task_graph_mapping)
+    if approval_receipt is not None:
+        validate_private_payload(approval_receipt)
     started = time.monotonic()
     contract = copy.deepcopy(dict(contract))
     try:
@@ -1429,6 +1486,7 @@ def run_to_release_ready(
             submitted_receipt = strict_loads(approval_receipt_bytes, "application/json")
         except CanonicalInputError as exc:
             raise ContractInvalidError("submitted approval receipt is malformed") from exc
+        validate_private_payload(submitted_receipt)
         if canonical_digest(submitted_receipt) != canonical_digest(approval_receipt):
             raise ContractInvalidError("submitted approval receipt bytes do not match receipt")
         try:
@@ -1464,6 +1522,11 @@ def run_to_release_ready(
         profile=product_profile,
         graph_mapping=task_graph_mapping,
     )
+    validate_private_payload(asdict(build_bindings))
+    validate_private_payload(plan.as_dict())
+    validate_private_payload(asdict(active_template))
+    if core_harness_mapping is not None:
+        validate_private_payload(core_harness_mapping)
     counters["structured_criteria_count"] = sum(
         item.form == "given_when_then" for item in plan.criteria
     )
@@ -1569,6 +1632,8 @@ def run_to_release_ready(
         expected_ids = {criterion.criterion_id for criterion in plan.criteria}
         if set(observations) != expected_ids:
             raise ContractInvalidError("not every required criterion has an observation")
+        validate_private_payload(observations)
+        validate_private_blobs(snapshot)
         candidate_blob, candidate_file_blobs = _candidate_manifest(snapshot, ledger)
         entries: list[dict[str, Any]] = []
         response_blobs: list[str] = []
@@ -1693,13 +1758,18 @@ def run_to_release_ready(
 
     def record_execution_failure(exc: ContractInvalidError | RuntimeError | OSError) -> None:
         cause = "CONTRACT_INVALID" if isinstance(exc, ContractInvalidError) else "EXECUTION_FAILED"
+        detail = str(exc)
+        try:
+            validate_private_payload(detail)
+        except PrivacyPolicyError:
+            detail = "MODEL_REQUEST_PRIVACY_BLOCKED"
         append_terminal_event(
             event_type="halted",
             state=RunState.HALTED,
             subject_digest=subject_digest,
             payload={
                 "cause": cause,
-                "detail": str(exc),
+                "detail": detail,
                 "telemetry": _terminal_telemetry(),
             },
         )
@@ -1709,6 +1779,7 @@ def run_to_release_ready(
         attempt: int,
         state: RunState,
     ) -> None:
+        validate_private_payload(exc.trace)
         trace_digest = ledger.put_blob(canonical_json_bytes(exc.trace))
         ledger.append(
             event_type="supervisor_observation_failed",
@@ -1769,6 +1840,7 @@ def run_to_release_ready(
         baseline_observations: dict[str, dict[str, Any]] = {}
         check_wall_time(started, active_budget.max_wall_time_seconds)
         baseline_snapshot = _workspace_snapshot(workspace)
+        validate_private_blobs(baseline_snapshot)
         baseline = _verify_snapshot(
             plan,
             baseline_snapshot,
@@ -1779,6 +1851,7 @@ def run_to_release_ready(
         check_wall_time(started, active_budget.max_wall_time_seconds)
         if set(baseline_observations) != {item.criterion_id for item in plan.criteria}:
             raise ContractInvalidError("baseline did not observe every required criterion")
+        validate_private_payload(baseline_observations)
         non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
         failed_ids = {item.subject_id for item in baseline}
         if any(item.code != "ASSERTION_FAILED" for item in baseline) or failed_ids != {
@@ -1795,6 +1868,7 @@ def run_to_release_ready(
         record_execution_failure(exc)
         raise
     try:
+        validate_private_payload([asdict(item) for item in baseline])
         baseline_blob = ledger.put_blob(
             json.dumps(
                 [asdict(item) for item in baseline], sort_keys=True, separators=(",", ":")
@@ -1973,6 +2047,7 @@ def run_to_release_ready(
 
         try:
             verification_snapshot = _workspace_snapshot(workspace)
+            validate_private_blobs(verification_snapshot)
             security = _security_findings(workspace)
         except (ContractInvalidError, RuntimeError, OSError) as exc:
             record_execution_failure(exc)

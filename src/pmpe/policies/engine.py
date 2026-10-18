@@ -105,6 +105,36 @@ _DEFAULT_RULES: tuple[PolicyRule, ...] = (
         RiskLevel.LOW,
         "Allow-listed formatting-level fix; all gates re-run afterwards.",
     ),
+    PolicyRule(
+        "POL-014",
+        "privacy.context_shape",
+        RiskLevel.HIGH,
+        "Only declared bounded JSON context and regular source files enter provider requests.",
+    ),
+    PolicyRule(
+        "POL-015",
+        "privacy.context_limit",
+        RiskLevel.HIGH,
+        "Oversized or deeply nested context is rejected before provider disclosure.",
+    ),
+    PolicyRule(
+        "POL-016",
+        "privacy.known_credential",
+        RiskLevel.HIGH,
+        "Recognized credential formats cannot cross the provider or evidence boundary.",
+    ),
+    PolicyRule(
+        "POL-017",
+        "privacy.ambient_secret",
+        RiskLevel.HIGH,
+        "Environment secret values and sensitive field names cannot enter provider context.",
+    ),
+    PolicyRule(
+        "POL-018",
+        "privacy.synthetic_private_canary",
+        RiskLevel.HIGH,
+        "Synthetic private-data canaries cannot cross provider or evidence boundaries.",
+    ),
 )
 
 _DEFAULT = PolicyRule(
