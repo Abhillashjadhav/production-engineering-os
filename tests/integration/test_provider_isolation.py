@@ -4,14 +4,43 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from pmpe.cli import main
 from pmpe.evidence.ledger import EvidenceLedger
+from pmpe.privacy_policy import PrivacyPolicyError, validate_private_payload
 
 ROOT = Path(__file__).parents[2]
+
+
+def _ambient_probe_statement() -> str:
+    """Share the adapter's harmless observation with the privacy boundary test."""
+    return "probe['ambient_value_exposed']=os.environ.get('PEOS_PLANTED_SECRET') is not None\n"
+
+
+def _observe_ambient_probe(tmp_path: Path, environment: dict[str, str]) -> dict[str, object]:
+    script = (
+        "import json,os,sys\n"
+        "probe={}\n"
+        f"{_ambient_probe_statement()}"
+        "sys.stdout.write(json.dumps(probe, sort_keys=True))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", script],
+        cwd=tmp_path,
+        env={"LC_ALL": "C", **environment},
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=True,
+    )
+    assert len(completed.stdout) < 1024
+    result: dict[str, object] = json.loads(completed.stdout)
+    return result
 
 
 @pytest.mark.skipif(
@@ -62,7 +91,7 @@ def test_real_offline_provider_cannot_write_host_or_forge_release(
         "for fd in os.listdir('/proc/self/fd'):\n"
         " try: probe['fds'].append(os.readlink('/proc/self/fd/'+fd))\n"
         " except OSError: pass\n"
-        "probe['ambient_secret']=os.environ.get('PEOS_PLANTED_SECRET')\n"
+        f"{_ambient_probe_statement()}"
         "try:\n"
         " socket.create_connection(('1.1.1.1',53),timeout=0.1)\n"
         " probe['network']=True\n"
@@ -72,7 +101,7 @@ def test_real_offline_provider_cannot_write_host_or_forge_release(
         "child+='.write_text(\"child\")'\n"
         "descendant=subprocess.run([sys.executable,'-I','-c',child],capture_output=True)\n"
         "probe['descendant_write']=descendant.returncode==0\n"
-        "product=\"def health():\\n    return {'status': 'ok'}\\n\"\n"
+        'product=\'def health() -> dict[str, str]:\\n    return {"status": "ok"}\\n\'\n'
         "print(json.dumps({'request_digest':request['request_digest'],"
         "'files':{'product.py':product},'probe':probe},sort_keys=True))\n"
     )
@@ -124,12 +153,35 @@ def test_real_offline_provider_cannot_write_host_or_forge_release(
         for target in map(str, targets)
         for operation in ("write", "chmod", "rename")
     )
-    assert probe["ambient_secret"] is None
+    assert probe["ambient_value_exposed"] is False
+    assert "must-not-cross" not in json.dumps(response)
     assert probe["network"] is False
     assert probe["host_signal"] is False
     assert probe["descendant_write"] is False
     assert not any(".pmpe" in fd or "e1-approval" in fd for fd in probe["fds"])
     assert all(path.read_bytes() == original for path, original in originals.items())
+
+
+def test_inc_2_actual_probe_statement_crosses_privacy_boundary_without_secret(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    planted = "opaque-owner-only-value-73162"
+    monkeypatch.setenv("PEOS_PLANTED_SECRET", planted)
+
+    absent_probe = _observe_ambient_probe(tmp_path, {})
+    validate_private_payload({"probe": absent_probe})
+    assert absent_probe == {"ambient_value_exposed": False}
+
+    exposed_probe = _observe_ambient_probe(tmp_path, {"PEOS_PLANTED_SECRET": planted})
+    validate_private_payload({"probe": exposed_probe})
+    assert exposed_probe == {"ambient_value_exposed": True}
+    assert planted not in json.dumps(exposed_probe)
+
+    with pytest.raises(PrivacyPolicyError) as disclosure:
+        validate_private_payload({"probe": {"ambient_value_exposed": planted}})
+    assert disclosure.value.rule_id == "POL-017"
+    assert planted not in str(disclosure.value)
 
 
 def test_provider_modes_cannot_be_combined(
