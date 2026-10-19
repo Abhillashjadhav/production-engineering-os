@@ -1,1 +1,2 @@
 {"id":"INC-1","at_utc":"2026-10-19T11:28:04.051679+00:00","kind":"nested_syntax_runtime_failure","platform":"peos","summary":"Nested supported-host compiler check is blocked; exact child failure requires diagnosis.","status":"open"}
+{"id":"INC-2","at_utc":"2026-10-19T11:28:04.052011+00:00","kind":"privacy_probe_schema_collision","platform":"peos","summary":"Offline probe uses a privacy-sensitive result key and stops before isolation assertions.","status":"open"}
