@@ -112,6 +112,32 @@ def test_compiler_uses_only_its_interpreter_library_directory(
     assert len(observed) == 1
 
 
+def test_inc_1_nested_compiler_reports_bounded_child_failure() -> None:
+    """A failed fixed child remains BLOCKED with enough safe detail to diagnose CI."""
+
+    with patch(
+        "pmpe.product_syntax.subprocess.run",
+        return_value=subprocess.CompletedProcess([], 127, b"", b"private stderr"),
+    ):
+        assert check_python_syntax({"product.py": b"x = 1\n"}) == (
+            "BLOCKED",
+            "source syntax resource limit (child exit 127)",
+        )
+    with patch("pmpe.product_syntax.subprocess.run", side_effect=OSError(11, "private path")):
+        assert check_python_syntax({"product.py": b"x = 1\n"}) == (
+            "BLOCKED",
+            "source syntax resource limit (child launch errno 11)",
+        )
+    with patch(
+        "pmpe.product_syntax.subprocess.run",
+        return_value=subprocess.CompletedProcess([], 0, b"private output", b""),
+    ):
+        assert check_python_syntax({"product.py": b"x = 1\n"}) == (
+            "BLOCKED",
+            "source syntax resource limit (child protocol)",
+        )
+
+
 def test_health_profile_accepts_list_criteria_but_rejects_duplicate_ids() -> None:
     contract = json.loads((ROOT / "examples/barebones/e1-contract.json").read_text())
     contract["acceptance_criteria"] = [

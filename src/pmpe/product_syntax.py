@@ -59,7 +59,7 @@ def check_python_syntax(source_files: Mapping[str, bytes]) -> tuple[str, str]:
         # never pass an inherited loader search path into the compiler child.
         library_dir = Path(sys.executable).resolve(strict=True).parent.parent / "lib"
     except (OSError, RuntimeError):
-        return "BLOCKED", "source syntax resource limit"
+        return "BLOCKED", "source syntax resource limit (interpreter path)"
     if not library_dir.is_absolute() or ":" in str(library_dir):
         return "BLOCKED", "source syntax resource limit"
     deadline = time.monotonic() + _MAX_WALL_SECONDS
@@ -83,10 +83,18 @@ def check_python_syntax(source_files: Mapping[str, bytes]) -> tuple[str, str]:
                 },
                 start_new_session=True,
             )
-        except (subprocess.TimeoutExpired, OSError, ValueError):
-            return "BLOCKED", "source syntax resource limit"
-        if completed.returncode != 0 or completed.stdout not in {b"0", b"1"}:
-            return "BLOCKED", "source syntax resource limit"
+        except subprocess.TimeoutExpired:
+            return "BLOCKED", "source syntax resource limit (child timeout)"
+        except OSError as exc:
+            # Report only the OS error number, never an exception message or
+            # candidate bytes from the private source wrapper.
+            return "BLOCKED", f"source syntax resource limit (child launch errno {exc.errno})"
+        except ValueError:
+            return "BLOCKED", "source syntax resource limit (child launch invalid)"
+        if completed.returncode != 0:
+            return "BLOCKED", f"source syntax resource limit (child exit {completed.returncode})"
+        if completed.stdout not in {b"0", b"1"}:
+            return "BLOCKED", "source syntax resource limit (child protocol)"
         if completed.stdout == b"1":
             return "FAIL", "source syntax invalid"
     return "PASS", "trusted bounded compiler accepted sealed Python source"

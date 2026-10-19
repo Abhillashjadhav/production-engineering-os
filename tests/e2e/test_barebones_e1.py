@@ -89,6 +89,26 @@ def _prove_private_source_wrapper_with_nested_candidate_sandbox(tmp_path: Path) 
         )
         provider = source_checkout / "examples/barebones/e1-provider.py"
         original_provider = provider.read_bytes()
+        child_exit, child_output = drift_eval._snapshot_command(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-c",
+                (
+                    "import subprocess,sys;"
+                    "child=subprocess.run([sys.executable,'-I','-S','-c','pass'],"
+                    "stderr=subprocess.DEVNULL,stdout=subprocess.PIPE,check=False);"
+                    "raise SystemExit(child.returncode)"
+                ),
+            ],
+            bwrap_executable=bwrap_executable,
+            environment=environment,
+            expected_tree_digest=identity["tree_digest"],
+            source_checkout=source_checkout,
+            timeout=30,
+        )
+        assert child_exit == 0, child_output
         mutation = (
             "from pathlib import Path;"
             f"path=Path({str(provider)!r});"
