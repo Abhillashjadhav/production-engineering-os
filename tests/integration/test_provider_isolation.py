@@ -18,7 +18,7 @@ ROOT = Path(__file__).parents[2]
 
 def _ambient_probe_statement() -> str:
     """Share the adapter's harmless observation with the privacy boundary test."""
-    return "probe['ambient_secret']=os.environ.get('PEOS_PLANTED_SECRET')\n"
+    return "probe['ambient_value_exposed']=os.environ.get('PEOS_PLANTED_SECRET') is not None\n"
 
 
 @pytest.mark.skipif(
@@ -79,7 +79,7 @@ def test_real_offline_provider_cannot_write_host_or_forge_release(
         "child+='.write_text(\"child\")'\n"
         "descendant=subprocess.run([sys.executable,'-I','-c',child],capture_output=True)\n"
         "probe['descendant_write']=descendant.returncode==0\n"
-        "product=\"def health():\\n    return {'status': 'ok'}\\n\"\n"
+        'product=\'def health() -> dict[str, str]:\\n    return {"status": "ok"}\\n\'\n'
         "print(json.dumps({'request_digest':request['request_digest'],"
         "'files':{'product.py':product},'probe':probe},sort_keys=True))\n"
     )
@@ -131,7 +131,8 @@ def test_real_offline_provider_cannot_write_host_or_forge_release(
         for target in map(str, targets)
         for operation in ("write", "chmod", "rename")
     )
-    assert probe["ambient_secret"] is None
+    assert probe["ambient_value_exposed"] is False
+    assert "must-not-cross" not in json.dumps(response)
     assert probe["network"] is False
     assert probe["host_signal"] is False
     assert probe["descendant_write"] is False
