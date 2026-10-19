@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -19,6 +20,27 @@ ROOT = Path(__file__).parents[2]
 def _ambient_probe_statement() -> str:
     """Share the adapter's harmless observation with the privacy boundary test."""
     return "probe['ambient_value_exposed']=os.environ.get('PEOS_PLANTED_SECRET') is not None\n"
+
+
+def _observe_ambient_probe(tmp_path: Path, environment: dict[str, str]) -> dict[str, object]:
+    script = (
+        "import json,os,sys\n"
+        "probe={}\n"
+        f"{_ambient_probe_statement()}"
+        "sys.stdout.write(json.dumps(probe, sort_keys=True))\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-I", "-S", "-c", script],
+        cwd=tmp_path,
+        env={"LC_ALL": "C", **environment},
+        capture_output=True,
+        text=True,
+        timeout=3,
+        check=True,
+    )
+    assert len(completed.stdout) < 1024
+    result: dict[str, object] = json.loads(completed.stdout)
+    return result
 
 
 @pytest.mark.skipif(
@@ -141,21 +163,17 @@ def test_real_offline_provider_cannot_write_host_or_forge_release(
 
 
 def test_inc_2_actual_probe_statement_crosses_privacy_boundary_without_secret(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     planted = "opaque-owner-only-value-73162"
     monkeypatch.setenv("PEOS_PLANTED_SECRET", planted)
 
-    absent_probe: dict[str, object] = {}
-    exec(_ambient_probe_statement(), {"os": SimpleNamespace(environ={}), "probe": absent_probe})
+    absent_probe = _observe_ambient_probe(tmp_path, {})
     validate_private_payload({"probe": absent_probe})
     assert absent_probe == {"ambient_value_exposed": False}
 
-    exposed_probe: dict[str, object] = {}
-    exec(
-        _ambient_probe_statement(),
-        {"os": SimpleNamespace(environ={"PEOS_PLANTED_SECRET": planted}), "probe": exposed_probe},
-    )
+    exposed_probe = _observe_ambient_probe(tmp_path, {"PEOS_PLANTED_SECRET": planted})
     validate_private_payload({"probe": exposed_probe})
     assert exposed_probe == {"ambient_value_exposed": True}
     assert planted not in json.dumps(exposed_probe)
