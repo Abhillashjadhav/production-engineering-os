@@ -1,0 +1,522 @@
+{
+  "reviewed_at": "2026-09-24",
+  "scope": "Read-only repository access assessment at supplied main SHAs; separate local fix tracked independently",
+  "repositories": [
+    {
+      "repository": "Abhillashjadhav/PM-agent-OS",
+      "reviewed_main_sha": "27d0418cb258fa5e374447f88185ff1b7117f182",
+      "visibility": "public",
+      "workflow_count": 3,
+      "configured_jobs": 3,
+      "workflow_runners": [
+        "ubuntu-latest"
+      ],
+      "observed_run": {
+        "repo": "PM-agent-OS",
+        "runId": 33470775059,
+        "jobs": [
+          {
+            "id": 99739916777,
+            "name": "public-quickstart",
+            "runner_name": "GitHub Actions 1000019065",
+            "runner_group_name": "GitHub Actions",
+            "labels": [
+              "ubuntu-latest"
+            ],
+            "conclusion": "success"
+          }
+        ]
+      },
+      "source_scan": "Local tracked source matched by Git blob SHA to reviewed tree, with changed blobs fetched separately; PEOS archive read in memory"
+    },
+    {
+      "repository": "Abhillashjadhav/production-engineering-os",
+      "reviewed_main_sha": "dd4271b70fcb9cb5b9dd279fe516c2fe50806751",
+      "visibility": "public",
+      "workflow_count": 6,
+      "configured_jobs": 15,
+      "workflow_runners": [
+        "ubuntu-latest"
+      ],
+      "observed_run": {
+        "repo": "production-engineering-os",
+        "runId": 35896075416,
+        "jobs": [
+          {
+            "id": 107300196855,
+            "name": "finalize-candidate-check",
+            "runner_name": "GitHub Actions 1000021894",
+            "runner_group_name": "GitHub Actions",
+            "labels": [
+              "ubuntu-latest"
+            ],
+            "conclusion": "success"
+          }
+        ]
+      },
+      "source_scan": "Local tracked source matched by Git blob SHA to reviewed tree, with changed blobs fetched separately; PEOS archive read in memory"
+    },
+    {
+      "repository": "Abhillashjadhav/Linkedin-research-posts",
+      "reviewed_main_sha": "d2c7b02bc6b27279095230acb906c0963d865d93",
+      "visibility": "public",
+      "workflow_count": 2,
+      "configured_jobs": 2,
+      "workflow_runners": [
+        "ubuntu-latest"
+      ],
+      "observed_run": {
+        "repo": "Linkedin-research-posts",
+        "runId": 34998205482,
+        "jobs": [
+          {
+            "id": 104479732119,
+            "name": "public-quickstart",
+            "runner_name": "GitHub Actions 1000021135",
+            "runner_group_name": "GitHub Actions",
+            "labels": [
+              "ubuntu-latest"
+            ],
+            "conclusion": "success"
+          }
+        ]
+      },
+      "source_scan": "Local tracked source matched by Git blob SHA to reviewed tree, with changed blobs fetched separately; PEOS archive read in memory"
+    },
+    {
+      "repository": "Abhillashjadhav/Dreamjob-agent",
+      "reviewed_main_sha": "52ca4e82251080bb98acfc726717b8b2f668f8cb",
+      "visibility": "private",
+      "workflow_count": 8,
+      "configured_jobs": 8,
+      "workflow_runners": [
+        "ubuntu-latest"
+      ],
+      "observed_run": {
+        "runner_group_name": "GitHub Actions",
+        "labels": [
+          "ubuntu-latest"
+        ],
+        "scope": "One sampled job at reviewed commit; private workflow details omitted"
+      },
+      "source_scan": "Selected workflows/configuration plus scoped remote searches; not full-source audit"
+    },
+    {
+      "repository": "Abhillashjadhav/AI-PM-essential-skills",
+      "reviewed_main_sha": "60b61efb1294c10045f6af11ff07ce5aea5bb03b",
+      "visibility": "public",
+      "workflow_count": 4,
+      "configured_jobs": 5,
+      "workflow_runners": [
+        "ubuntu-latest"
+      ],
+      "observed_run": {
+        "repo": "AI-PM-essential-skills",
+        "runId": 35337688866,
+        "jobs": [
+          {
+            "id": 105576239268,
+            "name": "validate",
+            "runner_name": "GitHub Actions 1000021320",
+            "runner_group_name": "GitHub Actions",
+            "labels": [
+              "ubuntu-latest"
+            ],
+            "conclusion": "success"
+          }
+        ]
+      },
+      "source_scan": "Selected workflows/configuration plus scoped remote searches; not full-source audit"
+    }
+  ],
+  "workflow_evidence": [
+    {
+      "repository": "PM-agent-OS",
+      "path": ".github/workflows/pr-review.yml",
+      "runnerLines": [
+        {
+          "line": 18,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "PM-agent-OS",
+      "path": ".github/workflows/public-smoke.yml",
+      "runnerLines": [
+        {
+          "line": 14,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "PM-agent-OS",
+      "path": ".github/workflows/repository-audit.yml",
+      "runnerLines": [
+        {
+          "line": 13,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": ".github/workflows/ci.yml",
+      "runnerLines": [
+        {
+          "line": 16,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 47,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 69,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 89,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 128,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 214,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 241,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 302,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 341,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 402,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": ".github/workflows/evals-linkedin-connection.yml",
+      "runnerLines": [
+        {
+          "line": 15,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": ".github/workflows/pr-review.yml",
+      "runnerLines": [
+        {
+          "line": 22,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": ".github/workflows/repository-intelligence-wheel.yml",
+      "runnerLines": [
+        {
+          "line": 16,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": ".github/workflows/trusted-security-finalizer.yml",
+      "runnerLines": [
+        {
+          "line": 15,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "production-engineering-os",
+      "path": ".github/workflows/trusted-security.yml",
+      "runnerLines": [
+        {
+          "line": 21,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "Linkedin-research-posts",
+      "path": ".github/workflows/public-smoke.yml",
+      "runnerLines": [
+        {
+          "line": 14,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "Linkedin-research-posts",
+      "path": ".github/workflows/test.yml",
+      "runnerLines": [
+        {
+          "line": 16,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "AI-PM-essential-skills",
+      "path": ".github/workflows/pm-verifier.yml",
+      "runnerLines": [
+        {
+          "line": 30,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "AI-PM-essential-skills",
+      "path": ".github/workflows/pr-review.yml",
+      "runnerLines": [
+        {
+          "line": 17,
+          "value": "ubuntu-latest"
+        },
+        {
+          "line": 40,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "AI-PM-essential-skills",
+      "path": ".github/workflows/public-smoke.yml",
+      "runnerLines": [
+        {
+          "line": 14,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    },
+    {
+      "repository": "AI-PM-essential-skills",
+      "path": ".github/workflows/public-surface-validation.yml",
+      "runnerLines": [
+        {
+          "line": 13,
+          "value": "ubuntu-latest"
+        }
+      ],
+      "markers": {
+        "selfHosted": [],
+        "remote": [],
+        "bind": [],
+        "credential": []
+      }
+    }
+  ],
+  "remote_searches": [
+    {
+      "query": "ngrok",
+      "repositories": [
+        "Dreamjob-agent",
+        "AI-PM-essential-skills"
+      ],
+      "returned_results": 0,
+      "index_completeness": "unknown"
+    },
+    {
+      "query": "cloudflared",
+      "repositories": [
+        "Dreamjob-agent",
+        "AI-PM-essential-skills"
+      ],
+      "returned_results": 0,
+      "index_completeness": "unknown"
+    },
+    {
+      "query": "tailscale",
+      "repositories": [
+        "Dreamjob-agent",
+        "AI-PM-essential-skills"
+      ],
+      "returned_results": 0,
+      "index_completeness": "unknown"
+    },
+    {
+      "query": "self-hosted",
+      "repositories": [
+        "Dreamjob-agent",
+        "AI-PM-essential-skills"
+      ],
+      "returned_results": 0,
+      "index_completeness": "unknown"
+    },
+    {
+      "query": "OLLAMA_HOST",
+      "repositories": [
+        "Dreamjob-agent",
+        "AI-PM-essential-skills"
+      ],
+      "returned_results": 0,
+      "index_completeness": "unknown"
+    }
+  ],
+  "access_limitations": [
+    "No advertised runner inventory or Actions settings/variables/secrets/deploy-key read API in connector.",
+    "Latest-run observations do not inventory idle runners or other refs.",
+    "No laptop, network, router, firewall, macOS sharing, local agents, listeners, tunnels or current Ollama server inspection.",
+    "No credential validity checks or secret value retrieval; no repository history-wide credential audit.",
+    "Private repository outputs/profile files were not fetched; only selected operational files."
+  ],
+  "findings": [
+    {
+      "id": "SEC-LOCAL-001",
+      "type": "wildcard_local_frontend_binding",
+      "repository": "production-engineering-os",
+      "main_sha": "dd4271b70fcb9cb5b9dd279fe516c2fe50806751",
+      "paths": [
+        {
+          "path": "products/pm-evals-web/frontend/package.json",
+          "lines": [
+            10,
+            12
+          ]
+        },
+        {
+          "path": "products/pm-evals-web/frontend/vite.config.ts",
+          "lines": [
+            24,
+            30
+          ]
+        },
+        {
+          "path": "products/pm-evals-web/scripts/preview.sh",
+          "lines": [
+            23
+          ]
+        }
+      ],
+      "state": "Verified in reviewed main; runtime reachability untested",
+      "impact": "Potential dashboard and /api proxy exposure to reachable peers when started directly and network controls allow; no demonstrated OS command execution"
+    },
+    {
+      "id": "SEC-META-001",
+      "type": "local_home_path_metadata",
+      "repository": "production-engineering-os",
+      "paths": [
+        {
+          "path": "state/loop-state.json",
+          "lines": [
+            6
+          ]
+        },
+        {
+          "path": "docs/evidence/real-behavior-drift-20260827/pmpe-real-drift-20260827T141651Z.tgz",
+          "member": "source-snapshot/state/loop-state.json",
+          "lines": [
+            6
+          ]
+        }
+      ],
+      "state": "Verified metadata only; username intentionally not copied"
+    }
+  ],
+  "private_scope_redaction": "Private repository content, workflow paths, run identifiers and credential configuration details are omitted."
+}
