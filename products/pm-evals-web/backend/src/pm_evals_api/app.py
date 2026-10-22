@@ -5,8 +5,9 @@ uploads are size-capped, processed in memory, and never persisted (PD-V3-08);
 malformed files return named validation issues (422, journey step J-4);
 incompatible-but-parseable pairs return the comparison with verdict HOLD
 (PD-V3-04); reports are regenerated deterministically server-side with the
-generation timestamp isolated to labeled fields (PD-V3-07). No egress: the
-backend calls nothing. Production monitoring uses a separate versioned
+generation timestamp isolated to labeled fields (PD-V3-07). No model or external
+API calls; an optional Beacon adapter records local lifecycle metadata only.
+Production monitoring uses a separate versioned
 observation contract and an explicitly configured local append-only store;
 comparison uploads never enter that store.
 """
@@ -57,6 +58,7 @@ from pm_evals_monitoring import (
     diagnose_run,
     replay_dimension_values,
 )
+from pm_evals_monitoring.beacon import BeaconWorkflowMiddleware
 from pm_evals_monitoring.detection import (
     DetectionReview,
     RecordedDetectionReview,
@@ -397,6 +399,7 @@ def create_app(
         "Comparison uploads are processed in memory and never stored.",
     )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
+    app.add_middleware(BeaconWorkflowMiddleware)
 
     # The size-limit middleware wraps *every* route, so 413 is reachable on any
     # endpoint that receives an over-cap body — it is documented wherever it can
