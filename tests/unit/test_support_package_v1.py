@@ -1120,3 +1120,92 @@ def test_runtime_enforces_approved_request_deadline(tmp_path: Path) -> None:
         process.terminate()
         stdout, _ = process.communicate(timeout=5)
     assert "live-secret" not in stdout
+
+
+@pytest.mark.parametrize(
+    "publication",
+    [
+        "normal",
+        "delayed-before-create",
+        "empty-then-port",
+        "malformed-then-port",
+        "partial-then-port",
+    ],
+)
+def test_proof_runner_retries_unfinished_port_publication(publication: str) -> None:
+    port_write = (
+        '        Path(args.port_file).write_text(str(server.server_address[1]), encoding="utf-8")'
+    )
+    source = support_package_module._APP_SOURCE
+    runner = support_package_module._PROOF_RUNNER
+    if publication == "delayed-before-create":
+        source = source.replace(port_write, "        time.sleep(0.2)\n" + port_write)
+    elif publication != "normal":
+        initial_port = {
+            "empty-then-port": "",
+            "malformed-then-port": "not-a-port",
+            "partial-then-port": "0",
+        }[publication]
+        source = source.replace(
+            port_write,
+            '        if args.port_file.endswith("documented-port"):\n'
+            f"            Path(args.port_file).write_text({initial_port!r}, encoding='utf-8')\n"
+            '            while not Path(args.port_file + ".observed").exists():\n'
+            "                time.sleep(0.01)\n" + port_write,
+        )
+        # Publish the real port only after the runner has observed an unfinished
+        # file. This proves the race without depending on a scheduler delay.
+        runner = runner.replace(
+            "            except Exception:\n                if documented.poll() is not None:",
+            "            except Exception as exc:\n"
+            "                if not isinstance(exc, FileNotFoundError):\n"
+            "                    open(documented_port_file + '.observed', 'a').close()\n"
+            "                if documented.poll() is not None:",
+        )
+    proof_input = canonical_json_bytes(
+        {
+            "app_source": source,
+            "corpus": support_package_module._RECORDED_CORPUS,
+            "policy": {
+                "additional_confidence_below": 0.75,
+                "max_processing_seconds": 30,
+            },
+            "startup_timeout_seconds": 2.0,
+        }
+    )
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", runner, "ordinary_ticket"],
+        input=proof_input,
+        capture_output=True,
+        check=False,
+        timeout=6,
+    )
+    assert completed.returncode == 0, completed.stderr.decode()
+    assert completed.stdout == b"PMPE_PROOF_COMPLETE:ordinary_ticket"
+
+
+def test_proof_runner_never_completes_with_a_permanently_invalid_port() -> None:
+    source = support_package_module._APP_SOURCE.replace(
+        'Path(args.port_file).write_text(str(server.server_address[1]), encoding="utf-8")',
+        'Path(args.port_file).write_text("not-a-port", encoding="utf-8")',
+    )
+    proof_input = canonical_json_bytes(
+        {
+            "app_source": source,
+            "corpus": support_package_module._RECORDED_CORPUS,
+            "policy": {
+                "additional_confidence_below": 0.75,
+                "max_processing_seconds": 30,
+            },
+            "startup_timeout_seconds": 2.0,
+        }
+    )
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", support_package_module._PROOF_RUNNER, "ordinary_ticket"],
+        input=proof_input,
+        capture_output=True,
+        check=False,
+        timeout=6,
+    )
+    assert completed.returncode != 0
+    assert b"PMPE_PROOF_COMPLETE" not in completed.stdout
