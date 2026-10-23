@@ -27,7 +27,7 @@ def test_manifest_uses_stable_vite_and_audit_safe_types_only_codegen() -> None:
     assert isinstance(scripts, dict)
     assert dependencies["react"].startswith("19.")
     assert dependencies["react-dom"].startswith("19.")
-    assert dev_dependencies["vite"] == "8.1.5"
+    assert dev_dependencies["vite"] == "8.1.6"
     assert dev_dependencies["@hey-api/openapi-ts"] == "0.97.0"
     assert "next" not in dependencies
     assert "openapi-typescript" not in dev_dependencies
