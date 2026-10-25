@@ -866,7 +866,13 @@ def test_summary_state_from_a_non_bot_author_never_admits(verifier_module) -> No
         '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":false,'
         '"has_unresolved_findings":false,"status":"completed"},"security_review":null}'
     )
-    for login in ("some-user", "chatgpt-codex-connector", "chatgpt-codex-connector[BOT]"):
+    for login in (
+        "some-user",
+        "chatgpt-codex-connector",
+        "chatgpt-codex-connector[BOT]",
+        "dependabot[bot]",
+        "github-actions[bot]",
+    ):
         comments = [{"user": {"login": login}, "body": body}]
         assert not verifier_module._has_clean_evidence("owner/repo", expected, comments, [])
         assert not verifier_module._has_summary_blocker(comments, expected)
