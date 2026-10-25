@@ -835,3 +835,231 @@ def test_short_clean_marker_for_a_different_full_head_fails_closed(
     assert not verifier_module._comment_matches_exact_head(
         "owner/repo", expected, "**Reviewed commit:** `aaaaaaaaaa`"
     )
+
+
+def _summary_body(state_json: str) -> str:
+    return (
+        f"{SUMMARY_MARKER}\n<!-- codex-review-state:v1 {state_json} -->\n\n"
+        "## Codex Review Summary\n"
+    )
+
+
+SUMMARY_MARKER = "<!-- codex-pull-request-review-summary -->"
+
+
+def test_clean_completed_summary_comment_is_exact_head_evidence(verifier_module) -> None:
+    expected = "a" * 40
+    body = _summary_body(
+        '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":false,'
+        '"has_unresolved_findings":false,"status":"completed"},'
+        '"security_review":{"commit_sha":null,"has_any_findings":null,'
+        '"has_unresolved_findings":null,"status":null}}'
+    )
+    comments = [{"user": {"login": verifier_module.BOT}, "body": body}]
+
+    assert verifier_module._has_clean_evidence("owner/repo", expected, comments, [])
+
+
+def test_summary_state_from_a_non_bot_author_never_admits(verifier_module) -> None:
+    expected = "a" * 40
+    body = _summary_body(
+        '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":false,'
+        '"has_unresolved_findings":false,"status":"completed"},"security_review":null}'
+    )
+    for login in (
+        "some-user",
+        "chatgpt-codex-connector",
+        "chatgpt-codex-connector[BOT]",
+        "dependabot[bot]",
+        "github-actions[bot]",
+    ):
+        comments = [{"user": {"login": login}, "body": body}]
+        assert not verifier_module._has_clean_evidence("owner/repo", expected, comments, [])
+        assert not verifier_module._has_summary_blocker(comments, expected)
+
+
+def test_malformed_summary_state_fails_closed(verifier_module) -> None:
+    expected = "a" * 40
+    variants = [
+        _summary_body("{not json"),
+        _summary_body('{"code_review":{"commit_sha":"' + expected + '"'),  # truncated
+        _summary_body('"just a string"'),
+        _summary_body('[{"code_review":{}}]'),
+        _summary_body('{"code_review":"completed"}'),
+        SUMMARY_MARKER + "\nno state line at all\n",
+        SUMMARY_MARKER + "\n<!-- codex-review-state:v1 {} -->\n"
+        "<!-- codex-review-state:v1 {} -->\n",  # two state lines: ambiguous
+        "<!-- codex-review-state:v1 {} -->\n",  # state line without summary marker
+    ]
+    for body in variants:
+        comments = [{"user": {"login": verifier_module.BOT}, "body": body}]
+        assert not verifier_module._has_clean_evidence("owner/repo", expected, comments, []), body
+
+
+def test_summary_review_bound_to_another_commit_or_null_never_admits(
+    verifier_module,
+) -> None:
+    expected = "a" * 40
+    variants = [
+        '"commit_sha":"' + "b" * 40 + '"',
+        '"commit_sha":null',
+        '"commit_sha":"' + expected[:7] + '"',  # short SHA fails closed
+        '"commit_sha":12345',
+    ]
+    for sha_field in variants:
+        body = _summary_body(
+            '{"code_review":{' + sha_field + ',"has_any_findings":false,'
+            '"has_unresolved_findings":false,"status":"completed"},"security_review":null}'
+        )
+        comments = [{"user": {"login": verifier_module.BOT}, "body": body}]
+        assert not verifier_module._has_clean_evidence("owner/repo", expected, comments, []), (
+            sha_field
+        )
+
+
+def test_incomplete_or_finding_bearing_summary_is_not_clean(verifier_module) -> None:
+    expected = "a" * 40
+    variants = [
+        '"status":"in_progress","has_any_findings":false,"has_unresolved_findings":false',
+        '"status":null,"has_any_findings":false,"has_unresolved_findings":false',
+        '"status":"completed","has_any_findings":true,"has_unresolved_findings":false',
+        '"status":"completed","has_any_findings":true,"has_unresolved_findings":true',
+        '"status":"completed","has_any_findings":false,"has_unresolved_findings":true',
+        '"status":"completed","has_any_findings":null,"has_unresolved_findings":null',
+    ]
+    for review_fields in variants:
+        body = _summary_body(
+            '{"code_review":{"commit_sha":"' + expected + '",' + review_fields + "},"
+            '"security_review":null}'
+        )
+        comments = [{"user": {"login": verifier_module.BOT}, "body": body}]
+        assert not verifier_module._has_clean_evidence("owner/repo", expected, comments, []), (
+            review_fields
+        )
+
+
+def test_unresolved_findings_on_exact_head_block_even_with_clean_duplicate(
+    verifier_module,
+) -> None:
+    expected = "a" * 40
+    clean = _summary_body(
+        '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":false,'
+        '"has_unresolved_findings":false,"status":"completed"},"security_review":null}'
+    )
+    findings = _summary_body(
+        '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":true,'
+        '"has_unresolved_findings":true,"status":"completed"},"security_review":null}'
+    )
+    comments = [
+        {"user": {"login": verifier_module.BOT}, "body": clean},
+        {"user": {"login": verifier_module.BOT}, "body": findings},
+    ]
+
+    assert verifier_module._has_summary_blocker(comments, expected)
+    assert not verifier_module._has_clean_evidence("owner/repo", expected, comments, [])
+
+
+def test_resolved_findings_on_exact_head_neither_admit_nor_block(verifier_module) -> None:
+    expected = "a" * 40
+    body = _summary_body(
+        '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":true,'
+        '"has_unresolved_findings":false,"status":"completed"},"security_review":null}'
+    )
+    comments = [{"user": {"login": verifier_module.BOT}, "body": body}]
+
+    assert not verifier_module._has_summary_blocker(comments, expected)
+    assert not verifier_module._has_clean_evidence("owner/repo", expected, comments, [])
+
+
+def test_findings_recorded_for_another_commit_do_not_block_this_head(verifier_module) -> None:
+    expected = "a" * 40
+    findings_elsewhere = _summary_body(
+        '{"code_review":{"commit_sha":"' + "b" * 40 + '","has_any_findings":true,'
+        '"has_unresolved_findings":true,"status":"completed"},"security_review":null}'
+    )
+    clean_here = _summary_body(
+        '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":false,'
+        '"has_unresolved_findings":false,"status":"completed"},"security_review":null}'
+    )
+    comments = [
+        {"user": {"login": verifier_module.BOT}, "body": findings_elsewhere},
+        {"user": {"login": verifier_module.BOT}, "body": clean_here},
+    ]
+
+    assert verifier_module._has_clean_evidence("owner/repo", expected, comments, [])
+
+
+def test_security_review_findings_do_not_change_code_review_parity(verifier_module) -> None:
+    """Deliberate parity: admission semantics cover code review, as before this change."""
+    expected = "a" * 40
+    body = _summary_body(
+        '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":false,'
+        '"has_unresolved_findings":false,"status":"completed"},'
+        '"security_review":{"commit_sha":"' + expected + '","has_any_findings":true,'
+        '"has_unresolved_findings":true,"status":"completed"}}'
+    )
+    comments = [{"user": {"login": verifier_module.BOT}, "body": body}]
+
+    assert verifier_module._has_clean_evidence("owner/repo", expected, comments, [])
+
+
+def test_main_admits_on_clean_summary_comment_after_quiescence(
+    monkeypatch: pytest.MonkeyPatch, verifier_module, capsys
+) -> None:
+    expected = "a" * 40
+    summary = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "body": _summary_body(
+            '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":false,'
+            '"has_unresolved_findings":false,"status":"completed"},"security_review":null}'
+        ),
+    }
+    clock = [0.0]
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "60")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "10")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "180")
+    monkeypatch.setattr(verifier_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        verifier_module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [summary])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_review_threads", lambda *_args: [])
+
+    assert verifier_module.main() == 0
+    assert f"CLEAN — EXACT HEAD {expected}" in capsys.readouterr().out
+
+
+def test_main_stays_blocked_when_summary_reports_unresolved_findings(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+    findings = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "body": _summary_body(
+            '{"code_review":{"commit_sha":"' + expected + '","has_any_findings":true,'
+            '"has_unresolved_findings":true,"status":"completed"},"security_review":null}'
+        ),
+    }
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "0")
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [findings])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_review_threads", lambda *_args: [])
+
+    with pytest.raises(SystemExit, match="missing clean exact-head Codex advisory evidence"):
+        verifier_module.main()
